@@ -4,5 +4,8 @@
 
 #include "Shared.xcconfig"
 
+// Optional, untracked signing overrides for local physical-device builds.
+#include? "Local.xcconfig"
+
 // No additional debug-specific overrides needed
 // All debug settings use Xcode project defaults
