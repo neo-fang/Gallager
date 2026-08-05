@@ -43,8 +43,8 @@ public struct DescriptionContextMenuButtons: View {
     }
 }
 
-/// View modifier that adds description and emoji editing context menu items
-/// (and their backing UI) to a view.
+/// View modifier that adds session rename, description, and emoji context menu
+/// items (and their backing UI) to a view.
 ///
 /// The description alert and the emoji popover are attached at the same view
 /// level (per-row), which ensures the description alert's TextField gets focus
@@ -62,12 +62,16 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
     let currentDescription: String?
     let currentEmoji: String?
     let isDisabled: Bool
+    let onRename: (String, String) -> Void
     let onSetDescription: (String, String?) -> Void
     let onSetEmoji: (String, String?) -> Void
     let additionalMenu: AdditionalMenu
 
+    @Binding private var isRenameRequested: Bool
     @State private var isEditingDescription = false
     @State private var editedDescription = ""
+    @State private var isEditingName = false
+    @State private var editedName = ""
     @State private var isEditingEmoji = false
     @State private var editedEmoji = ""
 
@@ -76,6 +80,8 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
         currentDescription: String?,
         currentEmoji: String? = nil,
         isDisabled: Bool = false,
+        renameRequest: Binding<Bool> = .constant(false),
+        onRename: @escaping (String, String) -> Void,
         onSetDescription: @escaping (String, String?) -> Void,
         onSetEmoji: @escaping (String, String?) -> Void = { _, _ in },
         @ViewBuilder additionalMenu: () -> AdditionalMenu
@@ -84,14 +90,25 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
         self.currentDescription = currentDescription
         self.currentEmoji = currentEmoji
         self.isDisabled = isDisabled
+        _isRenameRequested = renameRequest
+        self.onRename = onRename
         self.onSetDescription = onSetDescription
         self.onSetEmoji = onSetEmoji
         self.additionalMenu = additionalMenu()
     }
 
     public func body(content: Content) -> some View {
-        content
+        return content
             .contextMenu {
+                Button {
+                    beginRenaming()
+                } label: {
+                    Label("Rename Session", symbol: .pencil)
+                }
+                .disabled(isDisabled)
+
+                Divider()
+
                 DescriptionContextMenuButtons(
                     currentDescription: currentDescription,
                     isDisabled: isDisabled,
@@ -119,6 +136,18 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
                 additionalMenu
             }
             .modifier(TextEntryPresentation(
+                isPresented: $isEditingName,
+                title: "Rename Session",
+                message: "Enter a new name for this tmux session",
+                placeholder: "Session Name",
+                text: $editedName,
+                onSave: { raw in
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard trimmed != sessionName else { return }
+                    onRename(sessionName, trimmed)
+                }
+            ))
+            .modifier(TextEntryPresentation(
                 isPresented: $isEditingDescription,
                 title: "Session Description",
                 message: "Enter a custom description for this session",
@@ -135,6 +164,17 @@ public struct DescriptionEditingModifier<AdditionalMenu: View>: ViewModifier {
                 sessionName: sessionName,
                 onSetEmoji: onSetEmoji
             ))
+            .onChange(of: isRenameRequested) { _, requested in
+                guard requested else { return }
+                isRenameRequested = false
+                beginRenaming()
+            }
+    }
+
+    private func beginRenaming() {
+        guard !isDisabled else { return }
+        editedName = sessionName
+        isEditingName = true
     }
 }
 
@@ -144,6 +184,7 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
         currentDescription: String?,
         currentEmoji: String? = nil,
         isDisabled: Bool = false,
+        onRename: @escaping (String, String) -> Void,
         onSetDescription: @escaping (String, String?) -> Void,
         onSetEmoji: @escaping (String, String?) -> Void = { _, _ in }
     ) {
@@ -152,6 +193,7 @@ public extension DescriptionEditingModifier where AdditionalMenu == EmptyView {
             currentDescription: currentDescription,
             currentEmoji: currentEmoji,
             isDisabled: isDisabled,
+            onRename: onRename,
             onSetDescription: onSetDescription,
             onSetEmoji: onSetEmoji,
             additionalMenu: { EmptyView() }

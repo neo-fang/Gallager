@@ -1,3 +1,6 @@
+#if os(macOS)
+    import AppKit
+#endif
 import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import SwiftUI
@@ -11,6 +14,7 @@ struct RemoteHostSidebarSection: View {
     @Binding var selectedRemoteSession: RemoteSessionSelection?
     let onSelect: (RemoteSessionSelection) -> Void
     let onCreate: (AgentProject?) -> Void
+    let onRename: (String, String) -> Void
     let onSetDescription: (String, String?) -> Void
     let onSetColor: (String, SessionColor?) -> Void
     let onSetEmoji: (String, String?) -> Void
@@ -19,6 +23,7 @@ struct RemoteHostSidebarSection: View {
     let onCloseSession: (String) -> Void
 
     @Environment(AppSettings.self) private var settings
+    @State private var sessionRenameRequest: String?
 
     /// Remote sessions grouped by tmux session (mirrors local session grouping)
     private var tmuxSessions: [TmuxSession] {
@@ -121,11 +126,15 @@ struct RemoteHostSidebarSection: View {
             .first
 
         Button {
-            onSelect(RemoteSessionSelection(
-                hostId: host.id,
-                hostName: host.displayName,
-                sessionName: session.sessionName
-            ))
+            #if os(macOS)
+                if NSApp.currentEvent?.clickCount == 2 {
+                    sessionRenameRequest = session.sessionName
+                } else {
+                    selectRemoteSession(session)
+                }
+            #else
+                selectRemoteSession(session)
+            #endif
         } label: {
             RemoteSessionSidebarRow(
                 session: session,
@@ -147,6 +156,15 @@ struct RemoteHostSidebarSection: View {
             currentDescription: session.customDescription,
             currentEmoji: session.customEmoji,
             isDisabled: connection?.isHostConnected != true,
+            renameRequest: Binding(
+                get: { sessionRenameRequest == session.sessionName },
+                set: { requested in
+                    if !requested, sessionRenameRequest == session.sessionName {
+                        sessionRenameRequest = nil
+                    }
+                }
+            ),
+            onRename: onRename,
             onSetDescription: onSetDescription,
             onSetEmoji: onSetEmoji,
             additionalMenu: {
@@ -188,6 +206,14 @@ struct RemoteHostSidebarSection: View {
 
                 Divider()
             }
+        ))
+    }
+
+    private func selectRemoteSession(_ session: TmuxSession) {
+        onSelect(RemoteSessionSelection(
+            hostId: host.id,
+            hostName: host.displayName,
+            sessionName: session.sessionName
         ))
     }
 

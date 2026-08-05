@@ -8,6 +8,8 @@ import Logging
 enum TmuxError: Error, LocalizedError {
     case tmuxNotFound
     case invalidPane(target: String)
+    case invalidSessionName(reason: String)
+    case sessionAlreadyExists(name: String)
     case commandFailed(message: String)
 
     var errorDescription: String? {
@@ -16,6 +18,10 @@ enum TmuxError: Error, LocalizedError {
             return "tmux is not installed or not in PATH"
         case let .invalidPane(target):
             return "Session '\(target)' not found"
+        case let .invalidSessionName(reason):
+            return "Invalid session name: \(reason)"
+        case let .sessionAlreadyExists(name):
+            return "A session named '\(name)' already exists"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
         }
@@ -2088,6 +2094,52 @@ final public class TmuxService {
         guard result.isSuccess else {
             throw TmuxError.commandFailed(message: result.stderrString)
         }
+    }
+
+    /// Renames an existing tmux session without recreating its panes.
+    ///
+    /// The caller owns the subsequent pane refresh because it also needs to
+    /// migrate UI state keyed by the old session name before observers prune it.
+    public func renameSession(from sessionName: String, to requestedName: String) async throws {
+        let currentName = sessionName
+        guard !currentName.isEmpty else {
+            throw TmuxError.invalidSessionName(reason: "the current name is empty")
+        }
+
+        let newName = try Self.validatedSessionName(requestedName)
+        guard newName != currentName else { return }
+
+        let existingNames = await getExistingSessionNames()
+        guard existingNames.contains(currentName) else {
+            throw TmuxError.invalidPane(target: currentName)
+        }
+        guard !existingNames.contains(newName) else {
+            throw TmuxError.sessionAlreadyExists(name: newName)
+        }
+
+        let result = try await runTmuxCommand([
+            "rename-session",
+            "-t", Self.sessionTarget(currentName),
+            newName,
+        ])
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Trims and validates a tmux session name supplied by the user.
+    nonisolated static func validatedSessionName(_ rawName: String) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw TmuxError.invalidSessionName(reason: "name must not be empty")
+        }
+        guard !name.contains(":"), !name.contains(".") else {
+            throw TmuxError.invalidSessionName(reason: "':' and '.' are not allowed")
+        }
+        guard !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw TmuxError.invalidSessionName(reason: "control characters are not allowed")
+        }
+        return name
     }
 
     /// Reorders a tmux window inside a single session so the windows match the

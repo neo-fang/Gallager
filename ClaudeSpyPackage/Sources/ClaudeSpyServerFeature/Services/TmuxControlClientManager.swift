@@ -147,6 +147,34 @@
             // Client cleanup happens via handleClientExit when the session is destroyed.
         }
 
+        /// Moves a live control connection to the session's new dictionary key.
+        /// tmux keeps the connection attached across `rename-session`; only our
+        /// lookup key and exit callback need to follow the new name.
+        func sessionRenamed(from oldName: String, to newName: String) async {
+            guard oldName != newName, let client = clients.removeValue(forKey: oldName) else { return }
+
+            if clients[newName] != nil {
+                // A subscriber raced ahead and already established the new-key
+                // client. Keep that authoritative connection; the old client's
+                // exit callback still targets oldName, so disconnecting it cannot
+                // remove the replacement.
+                await client.disconnect()
+                return
+            }
+
+            await client.setOnExit { [weak self] reason in
+                Task { @MainActor [weak self] in
+                    self?.handleClientExit(sessionName: newName, reason: reason)
+                }
+            }
+            clients[newName] = client
+
+            logger.info("Rekeyed control client after session rename", metadata: [
+                "oldSession": "\(oldName)",
+                "newSession": "\(newName)",
+            ])
+        }
+
         /// Disconnects all control clients.
         public func disconnectAll() async {
             logger.info("Disconnecting all control clients")

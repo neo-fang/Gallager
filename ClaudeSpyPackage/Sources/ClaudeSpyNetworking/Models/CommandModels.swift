@@ -533,6 +533,26 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     }
 }
 
+/// Rename a tmux session on the host. Returns success/failure.
+public struct RenameTmuxSession: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Current tmux session name.
+    public let sessionName: String
+
+    /// Requested replacement name.
+    public let newName: String
+
+    public init(sessionName: String, newName: String) {
+        self.sessionName = sessionName
+        self.newName = newName
+    }
+
+    public var commandType: CommandType {
+        .renameTmuxSession(self)
+    }
+}
+
 /// Set a custom description for a tmux session. Returns success/failure.
 /// When handled by the host, the description is applied to every pane in every
 /// window and then pushed to all connected viewers, so it persists when
@@ -941,6 +961,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case setYoloMode(SetYoloMode)
     /// Mark a session as handled (user has seen it)
     case markHandled(MarkHandled)
+    /// Rename a tmux session on the host
+    case renameTmuxSession(RenameTmuxSession)
     /// Set a custom description for a tmux session (applied to all panes)
     case setSessionDescription(SetSessionDescription)
     /// Set a custom color dot for a tmux session
@@ -1032,6 +1054,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a markHandled command
     public static var markHandled: CommandType {
         .markHandled(MarkHandled())
+    }
+
+    /// Create a renameTmuxSession command
+    public static func renameTmuxSession(sessionName: String, newName: String) -> CommandType {
+        .renameTmuxSession(RenameTmuxSession(sessionName: sessionName, newName: newName))
     }
 
     /// Create a setSessionDescription command
