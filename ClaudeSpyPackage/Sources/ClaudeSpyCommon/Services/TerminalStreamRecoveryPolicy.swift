@@ -4,15 +4,17 @@
 /// the only current subscriber. Later requests replace this view's previous
 /// subscription with stop/start so reconnects refresh the complete screen and
 /// keep the host's subscriber count balanced.
-struct TerminalStreamRecoveryPolicy: Equatable {
-    enum StartMode: Equatable {
+package struct TerminalStreamRecoveryPolicy: Equatable {
+    package enum StartMode: Equatable {
         case initial
         case replaceExisting
     }
 
-    private(set) var hasRequestedStream = false
+    package private(set) var hasRequestedStream = false
 
-    mutating func nextStartMode() -> StartMode {
+    package init() { }
+
+    package mutating func nextStartMode() -> StartMode {
         defer { hasRequestedStream = true }
         return hasRequestedStream ? .replaceExisting : .initial
     }

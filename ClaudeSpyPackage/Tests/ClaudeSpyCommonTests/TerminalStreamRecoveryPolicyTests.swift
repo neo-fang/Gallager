@@ -1,5 +1,5 @@
 import Testing
-@testable import ClaudeSpyFeature
+@testable import ClaudeSpyCommon
 
 @Suite("Terminal stream recovery policy")
 struct TerminalStreamRecoveryPolicyTests {
