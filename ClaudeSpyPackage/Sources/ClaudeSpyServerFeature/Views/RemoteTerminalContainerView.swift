@@ -118,36 +118,47 @@ struct RemoteTerminalContainerView: View {
         // failure auto-dismiss timer.
         upload?.cancel()
 
-        // Refuse images that won't fit the relay's WebSocket frame budget
-        // before we even open the connection — the user gets a clear error
-        // instead of a silent disconnect on the wire.
-        if image.data.count > SendDroppedFiles.maxRawBytes {
-            let mb = Double(image.data.count) / (1_024 * 1_024)
-            let message = String(
-                format: "Image is %.1f MB. The relay only supports drops under %d KB.",
-                mb,
-                SendDroppedFiles.maxRawBytes / 1_024
-            )
-            upload = .failed(
-                kind: .image,
-                sizeBytes: image.data.count,
-                message: message,
-                dismissTask: dismissTimer(after: .seconds(4))
-            )
-            return
-        }
-
-        // The image rides the same `SendDroppedFiles` flow Finder drops use,
-        // wrapped as a single synthetic file. The host saves it to
-        // `$TMPDIR/gallager-drop-<UUID>/pasted-image-<UUID>.<ext>` and
-        // bracketed-pastes the resolved path into the target tmux pane, so
-        // the in-pane app (Claude Code, vim, …) reads the image off disk
-        // instead of the host's pasteboard.
-        let sizeBytes = image.data.count
-        let name = "pasted-image-\(UUID().uuidString).\(image.format.fileExtension)"
-        let file = DroppedFile(name: name, data: image.data)
-
         let task = Task { @MainActor in
+            // Clipboard TIFFs can be tens of times larger than their PNG form.
+            // Normalize and, only when necessary, resize/compress off the main
+            // actor before constructing the base64 command payload.
+            let prepared = await Task.detached(priority: .userInitiated) {
+                RelayImagePreparer.prepare(
+                    image,
+                    maxBytes: SendDroppedFiles.maxRawBytes
+                )
+            }.value
+            if Task.isCancelled { return }
+
+            guard let prepared else {
+                let message = String(
+                    format: "Unable to optimize this image for the relay's %d KB limit.",
+                    SendDroppedFiles.maxRawBytes / 1_024
+                )
+                upload = .failed(
+                    kind: .image,
+                    sizeBytes: image.data.count,
+                    message: message,
+                    dismissTask: dismissTimer(after: .seconds(4))
+                )
+                return
+            }
+
+            // Refresh the overlay with the bytes that will actually cross the
+            // relay while preserving the task and animation identity.
+            if case let .uploading(id, _, _, currentTask) = upload {
+                upload = .uploading(
+                    id: id,
+                    kind: .image,
+                    sizeBytes: prepared.data.count,
+                    task: currentTask
+                )
+            }
+
+            // The image rides the same `SendDroppedFiles` flow Finder drops use.
+            // The host saves it under $TMPDIR and bracketed-pastes its path.
+            let name = "pasted-image-\(UUID().uuidString).\(prepared.format.fileExtension)"
+            let file = DroppedFile(name: name, data: prepared.data)
             let result = await connection.relayClient.sendCommand(
                 SendDroppedFiles(files: [file]),
                 paneId: paneId,
@@ -166,14 +177,14 @@ struct RemoteTerminalContainerView: View {
                 } else {
                     upload = .failed(
                         kind: .image,
-                        sizeBytes: sizeBytes,
+                        sizeBytes: prepared.data.count,
                         message: error.localizedDescription,
                         dismissTask: dismissTimer(after: .seconds(3))
                     )
                 }
             }
         }
-        upload = .uploading(kind: .image, sizeBytes: sizeBytes, task: task)
+        upload = .uploading(kind: .image, sizeBytes: image.data.count, task: task)
     }
 
     /// Reads each dropped file's bytes off-main-actor and ships them as a

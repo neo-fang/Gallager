@@ -800,11 +800,9 @@ public struct DroppedFile: Codable, Sendable, Equatable {
 public struct SendDroppedFiles: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    /// Maximum total raw bytes a viewer should attempt to send across all
-    /// files in one drop. The relay enforces a 1 MiB max WebSocket frame and
-    /// base64 adds ~33% overhead, so 700 KiB raw stays under the ceiling.
-    /// Mirrors `SendImage.maxRawBytes` so both upload paths share one limit.
-    public static let maxRawBytes = 700 * 1_024
+    /// Maximum total raw bytes a viewer should send across all files in one
+    /// drop. The shared budget includes both Base64 layers and E2EE overhead.
+    public static let maxRawBytes = RelayPayloadLimits.maxDroppedFilesRawBytes
 
     /// The dropped files in the order the user dropped them.
     public let files: [DroppedFile]

@@ -498,6 +498,7 @@ let targets: [Target] = [
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
             "ClaudeSpyNetworking",
+            .claudeSpyEncryption,
         ]
     ),
     .testTarget(

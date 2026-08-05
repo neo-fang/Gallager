@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：✅ 已完成
-- **进度**：3/3 stages
+- **进度**：5/5 stages
 
 ## 问题
 
@@ -56,3 +56,35 @@ iOS 在未配对时默认使用 `wss://relay.gallager.app`，但首次配对页�
 - 从真实终端启动时保留其非空、非 `dumb` 的 `TERM`。
 - Gallager 新旧 pane 中启动 Codex 均不再出现 `TERM=dumb` 告警。
 - iOS、Relay、tmux pane 的实际环境与用户配置不受影响。
+
+## Stage 4：macOS 远程图片粘贴大小适配
+
+1. 保留 Relay 的 1 MiB WebSocket frame 上限和 `SendDroppedFiles` 协议，避免为
+   图片粘贴扩大 Relay 单连接内存风险或引入分片状态机。
+2. 发送前将 TIFF 剪贴板图片规范化为 PNG；若编码后仍超过 Relay 原始数据预算，
+   则转换为尺寸和质量受控的 JPEG。
+3. 图片转换在后台执行，保留取消、错误提示和 host 端临时文件路径粘贴流程。
+4. 增加小图直通、TIFF 规范化、超限压缩和无效图片数据回归测试。
+
+## Stage 4 验收标准
+
+- 小于上限的 PNG/JPEG 不重新编码。
+- 常见大 TIFF 和 PNG 自动转换为不超过 `SendDroppedFiles.maxRawBytes` 的图片。
+- 无法解码或无法压缩到上限时显示明确错误，不向 Relay 发送超限 frame。
+- Finder 文件 drop、iOS、Relay 和 host 端落盘协议不受影响。
+
+## Stage 5：端到端加密帧预算修复
+
+1. 保持 Relay 的 1 MiB WebSocket frame 上限，不用放宽服务端限制掩盖客户端
+   消息预算错误。
+2. 将单条文件命令的原始数据预算调整为 512 KiB，为命令内 Base64、ChaChaPoly
+   开销、外层 Base64 和 JSON 元数据保留余量。
+3. Relay 与客户端共享帧上限及文件预算常量，避免两处数字再次漂移。
+4. 增加最终加密 JSON 帧大小的回归测试，而不只验证压缩后图片原始大小。
+
+## Stage 5 验收标准
+
+- 最大允许文件数据形成的最终加密 WebSocket 消息小于 1 MiB。
+- 超过新预算的图片继续由现有转换器压缩，不直接触发 WebSocket 断线。
+- 粘贴当前约 1.18 MiB PNG 时 session 不重载，host 能收到临时文件路径。
+- Finder 文件 drop、普通终端输入和 iOS 链路行为不变。
