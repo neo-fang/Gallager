@@ -73,17 +73,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gallager.android.GallagerViewModel
 import app.gallager.android.model.ConnectionStatus
 import app.gallager.android.model.PaneSummary
+import app.gallager.android.terminal.TerminalRender
+import app.gallager.android.terminal.TerminalStyle
 
 @Composable
 fun GallagerApp(viewModel: GallagerViewModel) {
@@ -102,7 +108,7 @@ fun GallagerApp(viewModel: GallagerViewModel) {
         )
         selectedPane != null -> TerminalScreen(
             pane = selectedPane,
-            terminalText = state.relay.terminalText[selectedPane.paneId].orEmpty(),
+            terminalContent = state.relay.terminalContent[selectedPane.paneId] ?: TerminalRender(),
             connected = state.relay.hostConnected,
             onBack = viewModel::closeTerminal,
             onSend = viewModel::sendInput,
@@ -428,7 +434,7 @@ private fun EmptySessions(
 @Composable
 private fun TerminalScreen(
     pane: PaneSummary,
-    terminalText: String,
+    terminalContent: TerminalRender,
     connected: Boolean,
     onBack: () -> Unit,
     onSend: (ByteArray) -> Unit,
@@ -443,12 +449,12 @@ private fun TerminalScreen(
             input = ""
         }
     }
-    LaunchedEffect(terminalText.length) {
+    LaunchedEffect(terminalContent.text.length) {
         scrollState.scrollTo(scrollState.maxValue)
     }
 
     Scaffold(
-        containerColor = Color.Black,
+        containerColor = TerminalBackground,
         topBar = {
             TopAppBar(
                 title = {
@@ -526,8 +532,12 @@ private fun TerminalScreen(
     ) { padding ->
         SelectionContainer {
             Text(
-                text = terminalText.ifBlank { "Waiting for terminal stream…" },
-                color = if (terminalText.isBlank()) GallagerMuted else Color(0xFFE2E8F0),
+                text = if (terminalContent.text.isBlank()) {
+                    buildAnnotatedString { append("Waiting for terminal stream…") }
+                } else {
+                    terminalAnnotatedString(terminalContent)
+                },
+                color = if (terminalContent.text.isBlank()) GallagerMuted else TerminalDefaultForeground,
                 fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
@@ -542,6 +552,34 @@ private fun TerminalScreen(
         }
     }
 }
+
+private fun terminalAnnotatedString(content: TerminalRender) = buildAnnotatedString {
+    append(content.text)
+    content.spans.forEach { span ->
+        addStyle(
+            style = span.style.toComposeStyle(),
+            start = span.start.coerceIn(0, length),
+            end = span.end.coerceIn(0, length),
+        )
+    }
+}
+
+private fun TerminalStyle.toComposeStyle(): SpanStyle {
+    val styledForeground = foreground?.let(::Color) ?: TerminalDefaultForeground
+    val styledBackground = background?.let(::Color)
+    val resolvedForeground = if (inverse) styledBackground ?: TerminalBackground else styledForeground
+    val resolvedBackground = if (inverse) styledForeground else styledBackground
+    return SpanStyle(
+        color = if (dim) resolvedForeground.copy(alpha = 0.58f) else resolvedForeground,
+        background = resolvedBackground ?: Color.Unspecified,
+        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal,
+        fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
+        textDecoration = if (underline) TextDecoration.Underline else TextDecoration.None,
+    )
+}
+
+private val TerminalDefaultForeground = Color(0xFFE2E8F0)
+private val TerminalBackground = Color(0xFF181818)
 
 @Composable
 private fun TerminalKeyRow(onSend: (ByteArray) -> Unit) {

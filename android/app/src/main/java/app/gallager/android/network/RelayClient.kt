@@ -273,7 +273,7 @@ class RelayClient(
             TerminalUpdateType.END -> Unit
         }
         _snapshot.value = _snapshot.value.copy(
-            terminalText = _snapshot.value.terminalText + (update.paneId to transcript.value()),
+            terminalContent = _snapshot.value.terminalContent + (update.paneId to transcript.render()),
         )
     }
 

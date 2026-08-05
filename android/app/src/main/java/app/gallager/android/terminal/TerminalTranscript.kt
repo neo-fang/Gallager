@@ -1,5 +1,26 @@
 package app.gallager.android.terminal
 
+data class TerminalStyle(
+    val foreground: Int? = null,
+    val background: Int? = null,
+    val bold: Boolean = false,
+    val dim: Boolean = false,
+    val italic: Boolean = false,
+    val underline: Boolean = false,
+    val inverse: Boolean = false,
+)
+
+data class TerminalStyleSpan(
+    val start: Int,
+    val end: Int,
+    val style: TerminalStyle,
+)
+
+data class TerminalRender(
+    val text: String = "",
+    val spans: List<TerminalStyleSpan> = emptyList(),
+)
+
 /**
  * Small stateful VT screen used by the Android companion.
  *
@@ -15,6 +36,8 @@ class TerminalTranscript(
     private var columns = initialColumns.coerceIn(1, MAX_COLUMNS)
     private var rows = initialRows.coerceIn(1, MAX_ROWS)
     private var screen = newScreen()
+    private var styles = newStyleScreen()
+    private var currentStyle = TerminalStyle()
     private var cursorRow = 0
     private var cursorColumn = 0
     private var savedRow = 0
@@ -26,6 +49,8 @@ class TerminalTranscript(
         this.columns = (columns ?: this.columns).coerceIn(1, MAX_COLUMNS)
         this.rows = (rows ?: this.rows).coerceIn(1, MAX_ROWS)
         screen = newScreen()
+        styles = newStyleScreen()
+        currentStyle = TerminalStyle()
         cursorRow = 0
         cursorColumn = 0
         savedRow = 0
@@ -39,9 +64,40 @@ class TerminalTranscript(
         bytes.toString(Charsets.UTF_8).forEach(::consume)
     }
 
-    fun value(): String = screen
-        .joinToString("\n") { String(it).trimEnd() }
-        .trimEnd('\n')
+    fun value(): String = render().text
+
+    fun render(): TerminalRender {
+        val visibleLengths = screen.indices.map { row ->
+            (columns - 1 downTo 0).firstOrNull { column ->
+                screen[row][column] != ' ' || styles[row][column].background != null
+            }?.plus(1) ?: 0
+        }
+        val lastRow = visibleLengths.indexOfLast { it > 0 }
+        if (lastRow < 0) return TerminalRender()
+
+        val text = StringBuilder()
+        val spans = mutableListOf<TerminalStyleSpan>()
+        for (row in 0..lastRow) {
+            var runStart = text.length
+            var runStyle: TerminalStyle? = null
+            for (column in 0 until visibleLengths[row]) {
+                val style = styles[row][column]
+                if (style != runStyle) {
+                    runStyle?.takeIf { it != TerminalStyle() }?.let {
+                        spans += TerminalStyleSpan(runStart, text.length, it)
+                    }
+                    runStart = text.length
+                    runStyle = style
+                }
+                text.append(screen[row][column])
+            }
+            runStyle?.takeIf { it != TerminalStyle() }?.let {
+                spans += TerminalStyleSpan(runStart, text.length, it)
+            }
+            if (row < lastRow) text.append('\n')
+        }
+        return TerminalRender(text.toString(), spans.filter { it.end > it.start })
+    }
 
     private fun consume(char: Char) {
         when (state) {
@@ -127,7 +183,8 @@ class TerminalTranscript(
             's' -> saveCursor()
             'u' -> restoreCursor()
             'h' -> if (raw.contains("1049") || raw.contains("1047") || raw == "?47") clearScreen()
-            'l', 'm', 'n', 'r', 't' -> Unit
+            'm' -> applyGraphicRendition(params.map { it ?: 0 })
+            'l', 'n', 'r', 't' -> Unit
         }
         sequence.clear()
         state = ParserState.TEXT
@@ -146,6 +203,7 @@ class TerminalTranscript(
             moveDown()
         }
         screen[cursorRow][cursorColumn] = char
+        styles[cursorRow][cursorColumn] = currentStyle
         cursorColumn++
     }
 
@@ -154,7 +212,9 @@ class TerminalTranscript(
             cursorRow++
         } else {
             screen.removeAt(0)
+            styles.removeAt(0)
             screen.add(blankRow())
+            styles.add(blankStyleRow())
         }
     }
 
@@ -162,13 +222,13 @@ class TerminalTranscript(
         when (mode) {
             0 -> {
                 eraseRange(cursorRow, cursorColumn, columns)
-                for (row in cursorRow + 1 until rows) screen[row].fill(' ')
+                for (row in cursorRow + 1 until rows) eraseRange(row, 0, columns)
             }
             1 -> {
-                for (row in 0 until cursorRow) screen[row].fill(' ')
+                for (row in 0 until cursorRow) eraseRange(row, 0, columns)
                 eraseRange(cursorRow, 0, cursorColumn + 1)
             }
-            2, 3 -> screen.forEach { it.fill(' ') }
+            2, 3 -> screen.indices.forEach { eraseRange(it, 0, columns) }
         }
     }
 
@@ -187,20 +247,95 @@ class TerminalTranscript(
     private fun deleteCharacters(count: Int) {
         val amount = count.coerceIn(1, columns - cursorColumn)
         val line = screen[cursorRow]
-        for (column in cursorColumn until columns - amount) line[column] = line[column + amount]
-        for (column in columns - amount until columns) line[column] = ' '
+        val styleLine = styles[cursorRow]
+        for (column in cursorColumn until columns - amount) {
+            line[column] = line[column + amount]
+            styleLine[column] = styleLine[column + amount]
+        }
+        for (column in columns - amount until columns) {
+            line[column] = ' '
+            styleLine[column] = eraseStyle()
+        }
     }
 
     private fun insertCharacters(count: Int) {
         val amount = count.coerceIn(1, columns - cursorColumn)
         val line = screen[cursorRow]
-        for (column in columns - 1 downTo cursorColumn + amount) line[column] = line[column - amount]
-        for (column in cursorColumn until cursorColumn + amount) line[column] = ' '
+        val styleLine = styles[cursorRow]
+        for (column in columns - 1 downTo cursorColumn + amount) {
+            line[column] = line[column - amount]
+            styleLine[column] = styleLine[column - amount]
+        }
+        for (column in cursorColumn until cursorColumn + amount) {
+            line[column] = ' '
+            styleLine[column] = eraseStyle()
+        }
     }
 
     private fun eraseRange(row: Int, start: Int, end: Int) {
         for (column in start.coerceAtLeast(0) until end.coerceAtMost(columns)) {
             screen[row][column] = ' '
+            styles[row][column] = eraseStyle()
+        }
+    }
+
+    private fun applyGraphicRendition(parameters: List<Int>) {
+        val values = parameters.ifEmpty { listOf(0) }
+        var index = 0
+        while (index < values.size) {
+            when (val code = values[index]) {
+                0 -> currentStyle = TerminalStyle()
+                1 -> currentStyle = currentStyle.copy(bold = true)
+                2 -> currentStyle = currentStyle.copy(dim = true)
+                3 -> currentStyle = currentStyle.copy(italic = true)
+                4, 21 -> currentStyle = currentStyle.copy(underline = true)
+                7 -> currentStyle = currentStyle.copy(inverse = true)
+                22 -> currentStyle = currentStyle.copy(bold = false, dim = false)
+                23 -> currentStyle = currentStyle.copy(italic = false)
+                24 -> currentStyle = currentStyle.copy(underline = false)
+                27 -> currentStyle = currentStyle.copy(inverse = false)
+                in 30..37 -> currentStyle = currentStyle.copy(foreground = ANSI_COLORS[code - 30])
+                38 -> readExtendedColor(values, index)?.let { (color, consumed) ->
+                    currentStyle = currentStyle.copy(foreground = color)
+                    index += consumed
+                }
+                39 -> currentStyle = currentStyle.copy(foreground = null)
+                in 40..47 -> currentStyle = currentStyle.copy(background = ANSI_COLORS[code - 40])
+                48 -> readExtendedColor(values, index)?.let { (color, consumed) ->
+                    currentStyle = currentStyle.copy(background = color)
+                    index += consumed
+                }
+                49 -> currentStyle = currentStyle.copy(background = null)
+                in 90..97 -> currentStyle = currentStyle.copy(foreground = ANSI_BRIGHT_COLORS[code - 90])
+                in 100..107 -> currentStyle = currentStyle.copy(background = ANSI_BRIGHT_COLORS[code - 100])
+            }
+            index++
+        }
+    }
+
+    private fun readExtendedColor(values: List<Int>, start: Int): Pair<Int, Int>? = when {
+        values.getOrNull(start + 1) == 5 && values.getOrNull(start + 2) != null ->
+            indexedColor(values[start + 2]) to 2
+        values.getOrNull(start + 1) == 2 && values.getOrNull(start + 4) != null -> {
+            val red = values[start + 2].coerceIn(0, 255)
+            val green = values[start + 3].coerceIn(0, 255)
+            val blue = values[start + 4].coerceIn(0, 255)
+            argb(red, green, blue) to 4
+        }
+        else -> null
+    }
+
+    private fun indexedColor(index: Int): Int = when (val value = index.coerceIn(0, 255)) {
+        in 0..7 -> ANSI_COLORS[value]
+        in 8..15 -> ANSI_BRIGHT_COLORS[value - 8]
+        in 16..231 -> {
+            val offset = value - 16
+            val levels = intArrayOf(0, 95, 135, 175, 215, 255)
+            argb(levels[offset / 36], levels[(offset / 6) % 6], levels[offset % 6])
+        }
+        else -> {
+            val gray = 8 + (value - 232) * 10
+            argb(gray, gray, gray)
         }
     }
 
@@ -215,14 +350,21 @@ class TerminalTranscript(
     }
 
     private fun clearScreen() {
-        screen.forEach { it.fill(' ') }
+        screen.indices.forEach { eraseRange(it, 0, columns) }
         cursorRow = 0
         cursorColumn = 0
     }
 
     private fun newScreen(): MutableList<CharArray> = MutableList(rows) { blankRow() }
 
+    private fun newStyleScreen(): MutableList<Array<TerminalStyle>> =
+        MutableList(rows) { blankStyleRow() }
+
     private fun blankRow(): CharArray = CharArray(columns) { ' ' }
+
+    private fun blankStyleRow(): Array<TerminalStyle> = Array(columns) { TerminalStyle() }
+
+    private fun eraseStyle(): TerminalStyle = TerminalStyle(background = currentStyle.background)
 
     private enum class ParserState { TEXT, ESCAPE, CSI, OSC, OSC_ESCAPE }
 
@@ -232,5 +374,29 @@ class TerminalTranscript(
         private const val MAX_COLUMNS = 500
         private const val MAX_ROWS = 200
         private const val MAX_SEQUENCE_LENGTH = 128
+
+        private fun argb(red: Int, green: Int, blue: Int): Int =
+            (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
+
+        private val ANSI_COLORS = intArrayOf(
+            argb(0, 0, 0),
+            argb(205, 49, 49),
+            argb(13, 188, 121),
+            argb(229, 229, 16),
+            argb(36, 114, 200),
+            argb(188, 63, 188),
+            argb(17, 168, 205),
+            argb(229, 229, 229),
+        )
+        private val ANSI_BRIGHT_COLORS = intArrayOf(
+            argb(102, 102, 102),
+            argb(241, 76, 76),
+            argb(35, 209, 139),
+            argb(245, 245, 67),
+            argb(59, 142, 234),
+            argb(214, 112, 214),
+            argb(41, 184, 219),
+            argb(255, 255, 255),
+        )
     }
 }

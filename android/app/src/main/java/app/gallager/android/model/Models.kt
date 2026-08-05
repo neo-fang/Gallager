@@ -1,5 +1,7 @@
 package app.gallager.android.model
 
+import app.gallager.android.terminal.TerminalRender
+
 data class KeyMaterial(
     val privateKey: ByteArray,
     val publicKey: ByteArray,
@@ -64,7 +66,7 @@ data class RelaySnapshot(
     val hostConnected: Boolean = false,
     val hostName: String? = null,
     val panes: List<PaneSummary> = emptyList(),
-    val terminalText: Map<String, String> = emptyMap(),
+    val terminalContent: Map<String, TerminalRender> = emptyMap(),
     val error: String? = null,
 )
 
