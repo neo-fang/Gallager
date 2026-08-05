@@ -213,6 +213,11 @@ final public class AppSettings {
         didSet { preferences.setString(theme.rawValue, Keys.theme) }
     }
 
+    /// Whether the selected session row uses the system accent color.
+    public var highlightSelectedSidebarSession: Bool = Defaults.highlightSelectedSidebarSession {
+        didSet { preferences.setBool(highlightSelectedSidebarSession, Keys.highlightSelectedSidebarSession) }
+    }
+
     // MARK: - Appearance Settings
 
     /// Window appearance (System / Light / Dark). Applied to `NSApp.appearance`
@@ -442,6 +447,8 @@ final public class AppSettings {
         )
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
+        self.highlightSelectedSidebarSession = preferences.optionalBool(Keys.highlightSelectedSidebarSession)
+            ?? Defaults.highlightSelectedSidebarSession
         self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? Defaults.appearanceMode
         self.openPanesWindowOnLaunch = preferences.optionalBool(Keys.openPanesWindowOnLaunch) ?? Defaults.openPanesWindowOnLaunch
         self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
@@ -539,6 +546,7 @@ final public class AppSettings {
         case fontSize
         case scrollbackLines
         case theme
+        case highlightSelectedSidebarSession
         case appearanceMode
         case openPanesWindowOnLaunch
         case showStatusBar
@@ -585,6 +593,7 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
+        static let highlightSelectedSidebarSession = false
         static let appearanceMode = AppearanceMode.system
         static let openPanesWindowOnLaunch = true
         static let showStatusBar = true
@@ -847,4 +856,5 @@ public enum TerminalTheme: String, CaseIterable, Sendable {
     case defaultLight = "Default Light"
     case solarizedDark = "Solarized Dark"
     case solarizedLight = "Solarized Light"
+    case anysphereDark = "Anysphere Dark"
 }

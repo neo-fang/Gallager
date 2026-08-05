@@ -77,6 +77,8 @@ ClaudeSpyPackage/.env.staging
 build/
 build-ios/
 claudespy-signing.tar.gz
+Config/Local.xcconfig
+Config/Local-macOS.xcconfig
 .DS_Store
 /.claude/swiftDevelopment.json
 

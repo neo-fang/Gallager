@@ -15,6 +15,8 @@ import UniformTypeIdentifiers
 ///   to a right pane and back.
 /// - Trailing drop zone for "drop past the last tab".
 struct RemoteWindowTabBar: View {
+    @Environment(AppSettings.self) private var settings
+
     let windows: [TmuxWindow]
     let selectedWindow: TmuxWindow
     let isHostConnected: Bool
@@ -132,15 +134,15 @@ struct RemoteWindowTabBar: View {
                 } action: { newWidth in
                     splitRowWidth = newWidth
                 }
-                .background(.bar)
+                .background(settings.theme.chromeBackgroundColor)
                 .overlay(alignment: .bottom) {
-                    Divider()
+                    tabBarDivider
                 }
             } else {
                 singleSection
-                    .background(.bar)
+                    .background(settings.theme.chromeBackgroundColor)
                     .overlay(alignment: .bottom) {
-                        Divider()
+                        tabBarDivider
                     }
             }
         }
@@ -157,6 +159,17 @@ struct RemoteWindowTabBar: View {
             if sessionTabs?.tabOrder != computed {
                 sessionTabs?.tabOrder = computed
             }
+        }
+    }
+
+    @ViewBuilder
+    private var tabBarDivider: some View {
+        if settings.theme == .anysphereDark {
+            Rectangle()
+                .fill(settings.theme.workspaceBorderColor)
+                .frame(height: 1)
+        } else {
+            Divider()
         }
     }
 

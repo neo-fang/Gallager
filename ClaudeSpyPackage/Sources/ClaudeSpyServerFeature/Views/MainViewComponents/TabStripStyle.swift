@@ -23,6 +23,8 @@ extension View {
 }
 
 private struct TabStripItemStyleModifier: ViewModifier {
+    @Environment(AppSettings.self) private var settings
+
     let isSelected: Bool
     let isOnRightSplit: Bool
     let isSplit: Bool
@@ -30,12 +32,18 @@ private struct TabStripItemStyleModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .foregroundStyle(isSelected ? .primary : .secondary)
-            .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+            .background(isSelected ? settings.theme.activeTabBackgroundColor : Color.clear)
             .overlay(alignment: .bottom) {
                 if isSelected {
-                    Rectangle()
-                        .fill(Color.accentColor)
-                        .frame(height: 2)
+                    if settings.theme == .anysphereDark {
+                        Rectangle()
+                            .fill(settings.theme.workspaceBorderColor)
+                            .frame(height: 1)
+                    } else {
+                        Rectangle()
+                            .fill(settings.theme.workspaceForegroundColor.opacity(0.45))
+                            .frame(height: 2)
+                    }
                 }
             }
             .overlay(alignment: .leading) {

@@ -62,6 +62,7 @@ struct WindowTabBar: View {
 
     @Environment(MirrorWindowManager.self) private var windowManager
     @Environment(MarkdownOpenSuggestionStore.self) private var openSuggestionStore
+    @Environment(AppSettings.self) private var settings
 
     /// Cached width of the split-mode tab strip. Measured via the background
     /// `onGeometryChange` so the HStack can drive intrinsic height instead of
@@ -172,15 +173,15 @@ struct WindowTabBar: View {
                 } action: { newWidth in
                     splitRowWidth = newWidth
                 }
-                .background(.bar)
+                .background(settings.theme.chromeBackgroundColor)
                 .overlay(alignment: .bottom) {
-                    Divider()
+                    tabBarDivider
                 }
             } else {
                 singleSection
-                    .background(.bar)
+                    .background(settings.theme.chromeBackgroundColor)
                     .overlay(alignment: .bottom) {
-                        Divider()
+                        tabBarDivider
                     }
             }
         }
@@ -198,6 +199,17 @@ struct WindowTabBar: View {
             if sessionTabs?.tabOrder != computed {
                 sessionTabs?.tabOrder = computed
             }
+        }
+    }
+
+    @ViewBuilder
+    private var tabBarDivider: some View {
+        if settings.theme == .anysphereDark {
+            Rectangle()
+                .fill(settings.theme.workspaceBorderColor)
+                .frame(height: 1)
+        } else {
+            Divider()
         }
     }
 

@@ -23,16 +23,10 @@ RUN swift package resolve
 # Step 4: Copy the actual source code (changes here only invalidate build, not dependency fetch)
 COPY Sources ./Sources
 
-# Step 5: Create an empty directory for every test target the manifest declares,
-# so `swift package resolve`/`swift build` can load the package graph (the real
-# Tests/ are rsync-excluded from the relay build — their sources aren't needed).
-# Derived from Package.swift rather than hardcoded, so adding a test target can't
-# silently break this build. Every test target name ends in "Tests" by convention
-# (product refs like "VaporTesting"/"DependenciesTestSupport" don't, so they're
-# correctly excluded).
-RUN grep -oE 'name: "[A-Za-z0-9_]+Tests"' Package.swift | grep -oE '[A-Za-z0-9_]+Tests' | sort -u | while read -r t; do \
-        mkdir -p "Tests/$t" && touch "Tests/$t/.gitkeep"; \
-    done
+# Step 5: SwiftPM validates every manifest target even when building one product.
+# Copying the small Tests tree keeps that validation correct for test targets with
+# arbitrary names instead of trying to parse Package.swift with naming guesses.
+COPY Tests ./Tests
 
 # Step 6: Build release binary with BuildKit cache mount for incremental builds
 # The cache mount persists .build across builds but isn't included in the layer,

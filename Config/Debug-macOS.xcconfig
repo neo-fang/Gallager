@@ -3,4 +3,6 @@
 
 #include "Shared-macOS.xcconfig"
 
-// No additional debug-specific overrides needed
+// Optional, untracked signing overrides for local development builds.
+GALLAGER_MAC_DEVELOPMENT_TEAM = XG2WG7U93U
+#include? "Local-macOS.xcconfig"

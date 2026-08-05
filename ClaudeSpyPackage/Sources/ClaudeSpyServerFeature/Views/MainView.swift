@@ -130,8 +130,10 @@ public struct MainView: View {
 
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
+                .background(settings.theme.sidebarBackgroundColor)
         } detail: {
             detailContent
+                .background(settings.theme.workspaceBackgroundColor)
                 .onGeometryChange(for: CGSize.self) { proxy in
                     proxy.size
                 } action: { newSize in
@@ -140,6 +142,10 @@ public struct MainView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
+        .background(settings.theme.workspaceBackgroundColor)
+        .containerBackground(settings.theme.workspaceBackgroundColor, for: .window)
+        .toolbarBackground(settings.theme.chromeBackgroundColor, for: .windowToolbar)
+        .preferredColorScheme(settings.theme.workspaceColorScheme)
         .navigationTitle(selectedSessionTitle ?? "Gallager")
         .toolbar {
             toolbarContent
@@ -490,6 +496,8 @@ public struct MainView: View {
                 remoteHostSections
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(settings.theme.sidebarBackgroundColor)
             .refreshable {
                 await refreshPanes()
                 await coordinator.viewerConnectionManager?.requestAllSessionStates()
@@ -689,7 +697,11 @@ public struct MainView: View {
         .id(session.sessionName)
         .buttonStyle(.plain)
         .help(help ?? "")
-        .listRowBackground(isSelected && selectedRemoteSession == nil ? Color.accentColor.opacity(0.2) : nil)
+        .listRowBackground(
+            settings.highlightSelectedSidebarSession && isSelected && selectedRemoteSession == nil
+                ? settings.theme.selectedSidebarRowBackgroundColor
+                : nil
+        )
         .accessibilityChildren {
             // When the row contains a "Working" ProgressView, SwiftUI merges
             // the Button's children into one `AXBusyIndicator` element and

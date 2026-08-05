@@ -384,7 +384,13 @@ final public class ViewerRelayClient {
             }
 
             Task {
-                await self.sendEncrypted(.command(commandMessage))
+                guard await self.sendEncrypted(.command(commandMessage)) else {
+                    self.timeoutTasks.removeValue(forKey: commandMessage.id)?.cancel()
+                    if let handler = self.pendingCommands.removeValue(forKey: commandMessage.id) {
+                        handler(.failure(ViewerRelayClientError.commandFailed("Unable to send relay message")))
+                    }
+                    return
+                }
             }
 
             let commandId = commandMessage.id
@@ -893,6 +899,12 @@ final public class ViewerRelayClient {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(message)
+            guard data.count <= RelayPayloadLimits.maxWebSocketFrameBytes else {
+                logger.error(
+                    "Refusing oversized WebSocket frame: \(data.count) bytes exceeds \(RelayPayloadLimits.maxWebSocketFrameBytes)"
+                )
+                return false
+            }
             try await task.send(.data(data))
             return true
         } catch {

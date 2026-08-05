@@ -25,6 +25,8 @@
                 VStack(spacing: 12) {
                     compactHeaderSection
 
+                    serverURLSection
+
                     codeInputSection
 
                     if isLoading {
@@ -56,6 +58,42 @@
         }
 
         // MARK: - Sections
+
+        private var serverURLSection: some View {
+            @Bindable var settings = settings
+            let isValid = RelayServerURL.normalized(settings.externalServerURL) != nil
+
+            return VStack(alignment: .leading, spacing: 8) {
+                Text("Relay Server")
+                    .font(.headline)
+
+                TextField("wss://relay.example.com", text: $settings.externalServerURL)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textContentType(.URL)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        normalizeServerURLIfValid()
+                    }
+
+                if isValid {
+                    Text("Use the same WSS address configured in the Gallager host app.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Enter a valid ws:// or wss:// address.", symbol: .exclamationmarkTriangle)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+            )
+        }
 
         private var codeInputSection: some View {
             VStack(spacing: 16) {
@@ -229,14 +267,26 @@
 
         // MARK: - Actions
 
+        private func normalizeServerURLIfValid() {
+            guard let normalized = RelayServerURL.normalized(settings.externalServerURL) else { return }
+            settings.externalServerURL = normalized
+        }
+
         private func performPairing() async {
             guard pairingCode.count == codeLength else { return }
 
+            guard let serverURL = RelayServerURL.normalized(settings.externalServerURL) else {
+                errorMessage = "Enter a valid ws:// or wss:// relay server address"
+                pairingCode = ""
+                return
+            }
+
             isLoading = true
             errorMessage = nil
+            settings.externalServerURL = serverURL
 
             do {
-                let response = try await completePairing(code: pairingCode)
+                let response = try await completePairing(code: pairingCode, serverURL: serverURL)
 
                 switch response {
                 case let .paired(info):
@@ -267,8 +317,8 @@
             isLoading = false
         }
 
-        private func completePairing(code: String) async throws -> PairingResponse {
-            let serverURL = settings.externalServerURL.httpURL
+        private func completePairing(code: String, serverURL: String) async throws -> PairingResponse {
+            let serverURL = serverURL.httpURL
 
             guard let url = URL(string: "\(serverURL)/api/pairing/complete") else {
                 throw PairingError.invalidURL

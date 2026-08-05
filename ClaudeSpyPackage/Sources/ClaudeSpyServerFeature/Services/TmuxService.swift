@@ -188,11 +188,9 @@ final public class TmuxService {
     /// to hardcoded colors — including bold + RGB(0,0,0) for the "● Working"
     /// status, invisible on dark mirror themes.
     ///
-    /// The fg/bg values match the actual colors the mirror's renderer
-    /// applies for the user's currently-selected theme (see
-    /// `TerminalContainerView.applyDarkTheme` / `applyLightTheme`), so the
-    /// cached value and the rendered bg can't drift if the user toggles
-    /// between dark and light themes.
+    /// The fg/bg values come from the same palette as the renderer, so the
+    /// cached value and the rendered background cannot drift when the user
+    /// changes themes.
     private var defaultCommandWrapper: String {
         let shell = Self.userShellPath.posixSingleQuoted
         let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
@@ -201,21 +199,10 @@ final public class TmuxService {
     }
 
     /// Returns the `RRRR/GGGG/BBBB` strings tmux expects in an OSC 10/11
-    /// setter for the given mirror theme. Values mirror exactly what
-    /// `TerminalContainerView.applyDarkTheme` and `applyLightTheme` push
-    /// into SwiftTerm so the cached value in tmux matches what the user
-    /// actually sees rendered.
+    /// setter. The renderer and tmux declaration share the same palette.
     private static func oscColors(for theme: TerminalTheme) -> (fg: String, bg: String) {
-        switch theme {
-        case .defaultDark,
-             .solarizedDark:
-            // applyDarkTheme: fg = NSColor(0.9), bg = NSColor(0.1)
-            return ("e6e6/e6e6/e6e6", "1a1a/1a1a/1a1a")
-        case .defaultLight,
-             .solarizedLight:
-            // applyLightTheme: fg = NSColor(0.1), bg = NSColor(0.95)
-            return ("1a1a/1a1a/1a1a", "f2f2/f2f2/f2f2")
-        }
+        let palette = theme.palette
+        return (palette.foreground.oscValue, palette.background.oscValue)
     }
 
     /// Path to the Gallager CLI for the `$VISUAL` environment variable.

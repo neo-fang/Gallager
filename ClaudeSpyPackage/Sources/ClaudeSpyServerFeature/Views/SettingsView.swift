@@ -141,6 +141,9 @@ struct GeneralSettingsView: View {
                         Text(theme.rawValue).tag(theme)
                     }
                 }
+
+                Toggle("Highlight selected session in sidebar", isOn: $settings.highlightSelectedSidebarSession)
+                    .help("Use a subtle theme-matched background behind the selected local or remote session")
             }
 
             Section("Behavior") {
