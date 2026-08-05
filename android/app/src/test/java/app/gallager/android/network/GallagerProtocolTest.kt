@@ -82,6 +82,7 @@ class GallagerProtocolTest {
             GallagerProtocol.createTmuxSession(
                 sessionName = "mobile",
                 workingDirectory = "/Users/neo/project",
+                configDir = "/Users/neo/.codex-alt",
                 pluginId = "codex",
             ).message,
         )
@@ -94,6 +95,7 @@ class GallagerProtocolTest {
         assertEquals("mobile", createPayload?.get("sessionName")?.jsonPrimitive?.content)
         assertEquals(120, createPayload?.get("width")?.jsonPrimitive?.content?.toInt())
         assertEquals("/Users/neo/project", createPayload?.get("workingDirectory")?.jsonPrimitive?.content)
+        assertEquals("/Users/neo/.codex-alt", createPayload?.get("configDir")?.jsonPrimitive?.content)
         assertEquals("codex", createPayload?.get("pluginID")?.jsonPrimitive?.content)
 
         val split = parseOuterFrame(GallagerProtocol.splitTmuxPane("%7", horizontal = false).message)
@@ -141,5 +143,56 @@ class GallagerProtocolTest {
 
         assertEquals("work:2", pane.windowId)
         assertEquals(1, pane.paneIndex)
+    }
+
+    @Test
+    fun parsesProjectsAndPluginPresentationsFromMac() {
+        val sessionPayload = GallagerProtocol.json.parseToJsonElement(
+            """{
+              "pairId":"pair-1",
+              "homeDirectory":"/Users/neo",
+              "paneStates":{},
+              "agentProjects":[
+                {
+                  "name":"vaka",
+                  "path":"/Users/neo/llm-develop/vaka",
+                  "lastUsed":"2026-08-05T06:30:00Z",
+                  "configDir":"/Users/neo/.codex-vaka",
+                  "pluginID":"codex"
+                },
+                {
+                  "name":"docs",
+                  "path":"/Users/neo/docs",
+                  "pluginID":"claude-code"
+                }
+              ]
+            }""",
+        ).jsonObject
+
+        val projects = GallagerProtocol.parseProjects(sessionPayload)
+
+        assertEquals(2, projects.size)
+        assertEquals("codex:/Users/neo/llm-develop/vaka", projects[0].id)
+        assertEquals("/Users/neo/.codex-vaka", projects[0].configDir)
+
+        val presentationPayload = GallagerProtocol.json.parseToJsonElement(
+            """{
+              "pairId":"pair-1",
+              "presentations":[
+                {
+                  "id":"codex",
+                  "version":"1.0.0",
+                  "displayName":"Codex",
+                  "shortName":"codex",
+                  "color":"#22D3EE"
+                }
+              ]
+            }""",
+        ).jsonObject
+
+        val presentation = GallagerProtocol.parsePluginPresentations(presentationPayload).single()
+
+        assertEquals("codex", presentation.id)
+        assertEquals("#22D3EE", presentation.color)
     }
 }

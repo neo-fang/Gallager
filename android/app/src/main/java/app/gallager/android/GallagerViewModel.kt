@@ -116,8 +116,13 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
         relayClient?.sendInput(paneId, bytes)
     }
 
-    fun createSession(name: String, workingDirectory: String?, pluginId: String) {
-        relayClient?.createSession(name.trim(), workingDirectory?.trim(), pluginId)
+    fun createSession(name: String, workingDirectory: String?, configDir: String?, pluginId: String) {
+        relayClient?.createSession(
+            name = name.trim(),
+            workingDirectory = workingDirectory?.trim(),
+            configDir = configDir?.trim(),
+            pluginId = pluginId,
+        )
     }
 
     fun createWindow(sessionName: String, workingDirectory: String?) {

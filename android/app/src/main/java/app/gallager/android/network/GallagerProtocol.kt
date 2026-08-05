@@ -1,11 +1,14 @@
 package app.gallager.android.network
 
 import app.gallager.android.model.EncryptedPayload
+import app.gallager.android.model.AgentProject
 import app.gallager.android.model.PairedHost
 import app.gallager.android.model.PairingResult
 import app.gallager.android.model.PaneSummary
+import app.gallager.android.model.PluginPresentation
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -22,7 +25,7 @@ import java.util.Base64
 import java.util.UUID
 
 object GallagerProtocol {
-    const val APP_VERSION = "2.1.0"
+    const val APP_VERSION = "2.1.1"
     const val MIN_HOST_VERSION = "2.0"
 
     val json = Json {
@@ -120,6 +123,7 @@ object GallagerProtocol {
         width: Int = 120,
         height: Int = 40,
         workingDirectory: String? = null,
+        configDir: String? = null,
         pluginId: String = "codex",
     ): CommandRequest = commandRequest(
         paneId = "",
@@ -129,6 +133,7 @@ object GallagerProtocol {
             put("width", width)
             put("height", height)
             workingDirectory?.takeIf { it.isNotBlank() }?.let { put("workingDirectory", it) }
+            configDir?.takeIf { it.isNotBlank() }?.let { put("configDir", it) }
             put("pluginID", pluginId)
         },
     )
@@ -215,6 +220,42 @@ object GallagerProtocol {
                 )
             }.getOrNull()
         }.sortedWith(compareBy<PaneSummary> { it.sessionName }.thenBy { it.paneId })
+    }
+
+    fun parseProjects(payload: JsonObject): List<AgentProject> {
+        val projects = payload["agentProjects"] as? JsonArray ?: return emptyList()
+        return projects.mapNotNull { element ->
+            runCatching {
+                val project = element.jsonObject
+                AgentProject(
+                    name = project.requiredString("name"),
+                    path = project.requiredString("path"),
+                    lastUsed = project.string("lastUsed"),
+                    configDir = project.string("configDir"),
+                    pluginId = project.requiredString("pluginID"),
+                )
+            }.getOrNull()
+        }.sortedWith(
+            compareByDescending<AgentProject> { project ->
+                project.lastUsed?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+                    ?: Long.MIN_VALUE
+            }.thenBy { it.name.lowercase() },
+        )
+    }
+
+    fun parsePluginPresentations(payload: JsonObject): List<PluginPresentation> {
+        val presentations = payload["presentations"] as? JsonArray ?: return emptyList()
+        return presentations.mapNotNull { element ->
+            runCatching {
+                val presentation = element.jsonObject
+                PluginPresentation(
+                    id = presentation.requiredString("id"),
+                    displayName = presentation.requiredString("displayName"),
+                    shortName = presentation.requiredString("shortName"),
+                    color = presentation.requiredString("color"),
+                )
+            }.getOrNull()
+        }
     }
 
     fun terminalUpdate(payload: JsonObject): TerminalUpdate? {

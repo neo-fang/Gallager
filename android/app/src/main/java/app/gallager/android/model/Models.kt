@@ -39,6 +39,24 @@ enum class ConnectionStatus {
     ERROR,
 }
 
+data class AgentProject(
+    val name: String,
+    val path: String,
+    val lastUsed: String?,
+    val configDir: String?,
+    val pluginId: String,
+) {
+    val id: String
+        get() = "$pluginId:$path"
+}
+
+data class PluginPresentation(
+    val id: String,
+    val displayName: String,
+    val shortName: String,
+    val color: String,
+)
+
 data class PaneSummary(
     val paneId: String,
     val sessionName: String,
@@ -71,6 +89,10 @@ data class RelaySnapshot(
     val hostConnected: Boolean = false,
     val hostName: String? = null,
     val panes: List<PaneSummary> = emptyList(),
+    val projects: List<AgentProject> = emptyList(),
+    val projectsLoaded: Boolean = false,
+    val homeDirectory: String = "",
+    val pluginPresentations: Map<String, PluginPresentation> = emptyMap(),
     val terminalContent: Map<String, TerminalRender> = emptyMap(),
     val commandInProgress: Boolean = false,
     val commandFeedback: String? = null,

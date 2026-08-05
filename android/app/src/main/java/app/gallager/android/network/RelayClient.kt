@@ -99,9 +99,14 @@ class RelayClient(
         sendEncrypted(GallagerProtocol.sendRawInput(paneId, bytes))
     }
 
-    fun createSession(name: String, workingDirectory: String?, pluginId: String) {
+    fun createSession(name: String, workingDirectory: String?, configDir: String?, pluginId: String) {
         sendManagedCommand(
-            GallagerProtocol.createTmuxSession(name, workingDirectory = workingDirectory, pluginId = pluginId),
+            GallagerProtocol.createTmuxSession(
+                sessionName = name,
+                workingDirectory = workingDirectory,
+                configDir = configDir,
+                pluginId = pluginId,
+            ),
             "Session created",
         )
     }
@@ -235,7 +240,8 @@ class RelayClient(
                 }
                 "ping" -> sendPlain(GallagerProtocol.pong())
                 "commandResponse" -> handleCommandResponse(frame.payload)
-                "pong", "agentSessionStatus", "pluginPresentations", "agentNotification" -> Unit
+                "pluginPresentations" -> handlePluginPresentations(frame.payload)
+                "pong", "agentSessionStatus", "agentNotification" -> Unit
                 "error" -> handleServerError(frame.payload)
             }
         }.onFailure { error ->
@@ -294,7 +300,20 @@ class RelayClient(
 
     private fun handleSessionState(payload: JsonObject?) {
         payload ?: return
-        _snapshot.value = _snapshot.value.copy(panes = GallagerProtocol.parsePanes(payload))
+        _snapshot.value = _snapshot.value.copy(
+            panes = GallagerProtocol.parsePanes(payload),
+            projects = GallagerProtocol.parseProjects(payload),
+            projectsLoaded = true,
+            homeDirectory = payload.string("homeDirectory").orEmpty(),
+        )
+    }
+
+    private fun handlePluginPresentations(payload: JsonObject?) {
+        payload ?: return
+        _snapshot.value = _snapshot.value.copy(
+            pluginPresentations = GallagerProtocol.parsePluginPresentations(payload)
+                .associateBy { it.id },
+        )
     }
 
     private fun handleCommandResponse(payload: JsonObject?) {

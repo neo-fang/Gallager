@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
@@ -54,7 +56,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
@@ -63,6 +64,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -98,8 +100,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.gallager.android.GallagerViewModel
+import app.gallager.android.model.AgentProject
 import app.gallager.android.model.ConnectionStatus
 import app.gallager.android.model.PaneSummary
+import app.gallager.android.model.PluginPresentation
 import app.gallager.android.terminal.TerminalRender
 import app.gallager.android.terminal.TerminalStyle
 
@@ -137,6 +141,10 @@ fun GallagerApp(viewModel: GallagerViewModel) {
             status = state.relay.status,
             statusMessage = state.relay.statusMessage,
             panes = state.relay.panes,
+            projects = state.relay.projects,
+            projectsLoaded = state.relay.projectsLoaded,
+            homeDirectory = state.relay.homeDirectory,
+            pluginPresentations = state.relay.pluginPresentations,
             error = state.relay.error,
             connected = state.relay.hostConnected,
             commandInProgress = state.relay.commandInProgress,
@@ -272,13 +280,17 @@ private fun SessionsScreen(
     status: ConnectionStatus,
     statusMessage: String,
     panes: List<PaneSummary>,
+    projects: List<AgentProject>,
+    projectsLoaded: Boolean,
+    homeDirectory: String,
+    pluginPresentations: Map<String, PluginPresentation>,
     error: String?,
     connected: Boolean,
     commandInProgress: Boolean,
     commandFeedback: String?,
     onRefresh: () -> Unit,
     onSelectPane: (PaneSummary) -> Unit,
-    onCreateSession: (String, String?, String) -> Unit,
+    onCreateSession: (String, String?, String?, String) -> Unit,
     onCreateWindow: (PaneSummary, String?) -> Unit,
     onCloseSession: (PaneSummary) -> Unit,
     onFeedbackShown: () -> Unit,
@@ -298,12 +310,20 @@ private fun SessionsScreen(
     }
 
     if (showNewSessionDialog) {
-        NewSessionDialog(
+        NewSessionSheet(
+            projects = projects,
+            projectsLoaded = projectsLoaded,
+            homeDirectory = homeDirectory,
+            pluginPresentations = pluginPresentations,
             loading = commandInProgress,
             onDismiss = { showNewSessionDialog = false },
-            onCreate = { name, path, pluginId ->
+            onSelect = { project ->
                 showNewSessionDialog = false
-                onCreateSession(name, path, pluginId)
+                if (project == null) {
+                    onCreateSession("terminal", null, null, "codex")
+                } else {
+                    onCreateSession(project.name, project.path, project.configDir, project.pluginId)
+                }
             },
         )
     }
@@ -795,67 +815,211 @@ private fun TerminalScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NewSessionDialog(
+private fun NewSessionSheet(
+    projects: List<AgentProject>,
+    projectsLoaded: Boolean,
+    homeDirectory: String,
+    pluginPresentations: Map<String, PluginPresentation>,
     loading: Boolean,
     onDismiss: () -> Unit,
-    onCreate: (String, String?, String) -> Unit,
+    onSelect: (AgentProject?) -> Unit,
 ) {
-    var name by remember { mutableStateOf("android") }
-    var path by remember { mutableStateOf("") }
-    var pluginId by remember { mutableStateOf("codex") }
-    AlertDialog(
+    var search by remember { mutableStateOf("") }
+    val filteredProjects = remember(projects, search) {
+        val query = search.trim()
+        if (query.isEmpty()) {
+            projects
+        } else {
+            projects.filter { project ->
+                project.name.contains(query, ignoreCase = true) ||
+                    project.path.contains(query, ignoreCase = true) ||
+                    project.pluginId.contains(query, ignoreCase = true)
+            }
+        }
+    }
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text("New terminal session") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it.filterNot(Char::isWhitespace) },
-                    label = { Text("Session name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = path,
-                    onValueChange = { path = it },
-                    label = { Text("Working directory (optional)") },
-                    placeholder = { Text("/Users/name/project") },
-                    leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(14.dp))
-                Text("Agent", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = pluginId == "codex",
-                        onClick = { pluginId = "codex" },
-                        label = { Text("Codex") },
-                    )
-                    FilterChip(
-                        selected = pluginId == "claude-code",
-                        onClick = { pluginId = "claude-code" },
-                        label = { Text("Claude") },
-                    )
+        containerColor = GallagerBackground,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+        ) {
+            Text(
+                "New Session",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                placeholder = { Text("Search projects…") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 260.dp, max = 560.dp),
+                contentPadding = PaddingValues(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (search.isBlank()) {
+                    item {
+                        ProjectPickerRow(
+                            title = "New Terminal",
+                            subtitle = if (homeDirectory.isBlank()) {
+                                "Start in home directory"
+                            } else {
+                                "Start in ${abbreviateHome(homeDirectory, homeDirectory)}"
+                            },
+                            badge = null,
+                            badgeColor = GallagerAccent,
+                            loading = loading,
+                            icon = { Icon(Icons.Outlined.Terminal, contentDescription = null, tint = GallagerMuted) },
+                            onClick = { onSelect(null) },
+                        )
+                    }
+                    item {
+                        Text(
+                            "PROJECTS",
+                            color = GallagerMuted,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.2.sp,
+                            modifier = Modifier.padding(start = 4.dp, top = 8.dp),
+                        )
+                    }
                 }
+
+                when {
+                    !projectsLoaded -> item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(20.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(10.dp))
+                            Text("Loading projects…", color = GallagerMuted)
+                        }
+                    }
+                    filteredProjects.isEmpty() -> item {
+                        Text(
+                            if (search.isBlank()) "No projects were reported by the Mac" else "No matching projects",
+                            color = GallagerMuted,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(20.dp),
+                        )
+                    }
+                    else -> items(filteredProjects, key = { it.id }) { project ->
+                        val presentation = pluginPresentations[project.pluginId]
+                        ProjectPickerRow(
+                            title = project.name,
+                            subtitle = abbreviateHome(project.path, homeDirectory),
+                            badge = presentation?.shortName ?: project.pluginId,
+                            badgeColor = presentation?.color.toComposeColor() ?: GallagerAccent,
+                            loading = loading,
+                            icon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null, tint = GallagerAccent) },
+                            onClick = { onSelect(project) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectPickerRow(
+    title: String,
+    subtitle: String,
+    badge: String?,
+    badgeColor: Color,
+    loading: Boolean,
+    icon: @Composable () -> Unit,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(enabled = !loading, onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = GallagerSurface),
+        border = CardDefaults.outlinedCardBorder(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.size(28.dp), contentAlignment = Alignment.Center) { icon() }
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    badge?.let {
+                        Spacer(Modifier.width(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = badgeColor.copy(alpha = 0.16f),
+                        ) {
+                            Text(
+                                it,
+                                color = badgeColor,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(3.dp))
                 Text(
-                    "The Agent starts when a working directory is provided and auto-run is enabled on the Mac.",
+                    subtitle,
                     color = GallagerMuted,
                     style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !loading && name.isNotBlank(),
-                onClick = { onCreate(name.trim(), path.trim().ifBlank { null }, pluginId) },
-            ) { Text("Create") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
+            Spacer(Modifier.width(8.dp))
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Outlined.ChevronRight, contentDescription = null, tint = GallagerMuted)
+            }
+        }
+    }
+}
+
+private fun abbreviateHome(path: String, homeDirectory: String): String =
+    if (homeDirectory.isNotBlank() && path.startsWith(homeDirectory)) {
+        "~${path.removePrefix(homeDirectory)}"
+    } else {
+        path
+    }
+
+private fun String?.toComposeColor(): Color? {
+    val value = this?.trim()?.removePrefix("#") ?: return null
+    if (value.length != 6) return null
+    val rgb = value.toLongOrNull(16) ?: return null
+    return Color((0xFF000000L or rgb).toInt())
 }
 
 @Composable
