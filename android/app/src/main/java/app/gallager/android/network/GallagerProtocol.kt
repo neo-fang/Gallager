@@ -21,7 +21,7 @@ import java.util.Base64
 import java.util.UUID
 
 object GallagerProtocol {
-    const val APP_VERSION = "2.0.0"
+    const val APP_VERSION = "2.0.1"
     const val MIN_HOST_VERSION = "2.0"
 
     val json = Json {
@@ -170,6 +170,8 @@ object GallagerProtocol {
                 paneId = paneId,
                 type = TerminalUpdateType.INITIAL,
                 bytes = data?.string("contentBase64")?.let(Base64.getDecoder()::decode),
+                width = data?.get("width")?.jsonPrimitive?.intOrNull,
+                height = data?.get("height")?.jsonPrimitive?.intOrNull,
             )
             "dataChunk" -> TerminalUpdate(
                 paneId = paneId,
@@ -256,4 +258,6 @@ data class TerminalUpdate(
     val paneId: String,
     val type: TerminalUpdateType,
     val bytes: ByteArray? = null,
+    val width: Int? = null,
+    val height: Int? = null,
 )

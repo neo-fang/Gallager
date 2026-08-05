@@ -51,6 +51,7 @@ class RelayClient(
     private var reconnectJob: Job? = null
     private var keepAliveJob: Job? = null
     private var reconnectAttempt = 0
+    private var activePaneId: String? = null
     @Volatile private var shouldReconnect = false
 
     fun connect() {
@@ -80,10 +81,12 @@ class RelayClient(
     }
 
     fun startTerminalStream(paneId: String) {
+        activePaneId = paneId
         sendEncrypted(GallagerProtocol.startTerminalStream(paneId))
     }
 
     fun stopTerminalStream(paneId: String) {
+        if (activePaneId == paneId) activePaneId = null
         sendEncrypted(GallagerProtocol.stopTerminalStream(paneId))
     }
 
@@ -248,6 +251,7 @@ class RelayClient(
             error = null,
         )
         sendEncrypted(GallagerProtocol.requestSessionState())
+        activePaneId?.let { sendEncrypted(GallagerProtocol.startTerminalStream(it)) }
     }
 
     private fun handleSessionState(payload: JsonObject?) {
@@ -260,7 +264,11 @@ class RelayClient(
         val update = GallagerProtocol.terminalUpdate(payload) ?: return
         val transcript = transcripts.getOrPut(update.paneId) { TerminalTranscript() }
         when (update.type) {
-            TerminalUpdateType.INITIAL -> transcript.reset(update.bytes ?: ByteArray(0))
+            TerminalUpdateType.INITIAL -> transcript.reset(
+                bytes = update.bytes ?: ByteArray(0),
+                columns = update.width,
+                rows = update.height,
+            )
             TerminalUpdateType.CHUNK -> transcript.feed(update.bytes ?: ByteArray(0))
             TerminalUpdateType.END -> Unit
         }

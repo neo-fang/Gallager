@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -73,6 +74,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -431,7 +433,14 @@ private fun TerminalScreen(
 ) {
     BackHandler(onBack = onBack)
     val scrollState = rememberScrollState()
+    val horizontalScrollState = rememberScrollState()
     var input by remember(pane.paneId) { mutableStateOf("") }
+    val sendText = {
+        if (connected && input.isNotEmpty()) {
+            onSend((input + "\r").toByteArray(Charsets.UTF_8))
+            input = ""
+        }
+    }
     LaunchedEffect(terminalText.length) {
         scrollState.scrollTo(scrollState.maxValue)
     }
@@ -484,16 +493,15 @@ private fun TerminalScreen(
                         onValueChange = { input = it },
                         placeholder = { Text("Send text to terminal") },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { sendText() }),
                         modifier = Modifier.weight(1f),
                         textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     )
                     Spacer(Modifier.width(8.dp))
                     IconButton(
                         enabled = connected && input.isNotEmpty(),
-                        onClick = {
-                            onSend(input.toByteArray(Charsets.UTF_8))
-                            input = ""
-                        },
+                        onClick = sendText,
                         modifier = Modifier
                             .size(52.dp)
                             .semantics { contentDescription = "Send terminal input" },
@@ -509,12 +517,14 @@ private fun TerminalScreen(
                 text = terminalText.ifBlank { "Waiting for terminal stream…" },
                 color = if (terminalText.isBlank()) GallagerMuted else Color(0xFFE2E8F0),
                 fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                softWrap = false,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
                     .verticalScroll(scrollState)
+                    .horizontalScroll(horizontalScrollState)
                     .padding(12.dp),
             )
         }

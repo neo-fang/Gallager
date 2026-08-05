@@ -1,119 +1,236 @@
 package app.gallager.android.terminal
 
 /**
- * Small VT transcript used by the Android MVP. It preserves readable terminal
- * text while handling the control sequences most coding agents use for redraws.
- * A full cell-grid renderer can replace this without changing the relay layer.
+ * Small stateful VT screen used by the Android companion.
+ *
+ * Gallager's initial terminal snapshot and live chunks contain cursor movement
+ * and erase commands, not a printable transcript. Keeping a cell screen lets
+ * full-screen TUIs such as Codex redraw in place instead of collapsing all
+ * positioned text into one line.
  */
-class TerminalTranscript(private val maxChars: Int = 200_000) {
-    private val text = StringBuilder()
-    private var cursor = 0
+class TerminalTranscript(
+    initialColumns: Int = DEFAULT_COLUMNS,
+    initialRows: Int = DEFAULT_ROWS,
+) {
+    private var columns = initialColumns.coerceIn(1, MAX_COLUMNS)
+    private var rows = initialRows.coerceIn(1, MAX_ROWS)
+    private var screen = newScreen()
+    private var cursorRow = 0
+    private var cursorColumn = 0
+    private var savedRow = 0
+    private var savedColumn = 0
+    private var state = ParserState.TEXT
+    private val sequence = StringBuilder()
 
-    fun reset(bytes: ByteArray) {
-        text.clear()
-        cursor = 0
+    fun reset(bytes: ByteArray, columns: Int? = null, rows: Int? = null) {
+        this.columns = (columns ?: this.columns).coerceIn(1, MAX_COLUMNS)
+        this.rows = (rows ?: this.rows).coerceIn(1, MAX_ROWS)
+        screen = newScreen()
+        cursorRow = 0
+        cursorColumn = 0
+        savedRow = 0
+        savedColumn = 0
+        state = ParserState.TEXT
+        sequence.clear()
         feed(bytes)
     }
 
     fun feed(bytes: ByteArray) {
-        val input = bytes.toString(Charsets.UTF_8)
-        var index = 0
-        while (index < input.length) {
-            when (val char = input[index]) {
-                '\u001b' -> index = consumeEscape(input, index)
-                '\r' -> {
-                    cursor = lineStart(cursor)
-                    index++
-                }
-                '\b' -> {
-                    cursor = maxOf(lineStart(cursor), cursor - 1)
-                    index++
-                }
-                '\u0000' -> index++
-                else -> {
-                    if (char == '\n') {
-                        insertOrOverwrite('\n')
-                    } else if (!char.isISOControl()) {
-                        insertOrOverwrite(char)
-                    }
-                    index++
-                }
-            }
-        }
-        trimIfNeeded()
+        bytes.toString(Charsets.UTF_8).forEach(::consume)
     }
 
-    fun value(): String = text.toString()
+    fun value(): String = screen
+        .joinToString("\n") { String(it).trimEnd() }
+        .trimEnd('\n')
 
-    private fun consumeEscape(input: String, start: Int): Int {
-        if (start + 1 >= input.length) return input.length
-        return when (input[start + 1]) {
-            '[' -> consumeCsi(input, start + 2)
-            ']' -> consumeOsc(input, start + 2)
-            else -> minOf(input.length, start + 2)
+    private fun consume(char: Char) {
+        when (state) {
+            ParserState.TEXT -> consumeText(char)
+            ParserState.ESCAPE -> consumeEscape(char)
+            ParserState.CSI -> consumeCsi(char)
+            ParserState.OSC -> consumeOsc(char)
+            ParserState.OSC_ESCAPE -> {
+                state = if (char == '\\') ParserState.TEXT else ParserState.OSC
+            }
         }
     }
 
-    private fun consumeCsi(input: String, start: Int): Int {
-        var index = start
-        while (index < input.length && input[index].code !in 0x40..0x7e) index++
-        if (index >= input.length) return input.length
-        val command = input[index]
-        val params = input.substring(start, index)
-        when (command) {
-            'J' -> if (params == "2" || params == "3") {
-                text.clear()
-                cursor = 0
+    private fun consumeText(char: Char) {
+        when (char) {
+            '\u001b' -> state = ParserState.ESCAPE
+            '\r' -> cursorColumn = 0
+            '\n', '\u000b', '\u000c' -> moveDown()
+            '\b' -> cursorColumn = (cursorColumn - 1).coerceAtLeast(0)
+            '\t' -> cursorColumn = (cursorColumn + (8 - cursorColumn % 8)).coerceAtMost(columns - 1)
+            '\u0000', '\u0007' -> Unit
+            else -> if (!char.isISOControl()) put(char)
+        }
+    }
+
+    private fun consumeEscape(char: Char) {
+        when (char) {
+            '[' -> {
+                sequence.clear()
+                state = ParserState.CSI
             }
-            'K' -> clearLineFromCursor()
-            'G' -> cursor = lineStart(cursor) + ((params.toIntOrNull() ?: 1) - 1).coerceAtLeast(0)
+            ']' -> state = ParserState.OSC
+            '7' -> {
+                saveCursor()
+                state = ParserState.TEXT
+            }
+            '8' -> {
+                restoreCursor()
+                state = ParserState.TEXT
+            }
+            'c' -> {
+                clearScreen()
+                state = ParserState.TEXT
+            }
+            else -> state = ParserState.TEXT
+        }
+    }
+
+    private fun consumeCsi(char: Char) {
+        if (char.code !in 0x40..0x7e) {
+            if (sequence.length < MAX_SEQUENCE_LENGTH) sequence.append(char)
+            return
+        }
+
+        val raw = sequence.toString()
+        val params = raw.trimStart('?', '>', '!').split(';').map { it.toIntOrNull() }
+        fun param(index: Int, fallback: Int = 1): Int = params.getOrNull(index) ?: fallback
+
+        when (char) {
+            'A' -> cursorRow = (cursorRow - param(0)).coerceAtLeast(0)
+            'B', 'e' -> cursorRow = (cursorRow + param(0)).coerceAtMost(rows - 1)
+            'C', 'a' -> cursorColumn = (cursorColumn + param(0)).coerceAtMost(columns - 1)
+            'D' -> cursorColumn = (cursorColumn - param(0)).coerceAtLeast(0)
+            'E' -> {
+                cursorRow = (cursorRow + param(0)).coerceAtMost(rows - 1)
+                cursorColumn = 0
+            }
+            'F' -> {
+                cursorRow = (cursorRow - param(0)).coerceAtLeast(0)
+                cursorColumn = 0
+            }
+            'G', '`' -> cursorColumn = (param(0) - 1).coerceIn(0, columns - 1)
+            'd' -> cursorRow = (param(0) - 1).coerceIn(0, rows - 1)
             'H', 'f' -> {
-                // Full-screen cursor positioning is intentionally approximated as
-                // end-of-transcript; the next printable update remains readable.
-                cursor = text.length
+                cursorRow = (param(0) - 1).coerceIn(0, rows - 1)
+                cursorColumn = (param(1) - 1).coerceIn(0, columns - 1)
             }
+            'J' -> eraseDisplay(param(0, 0))
+            'K' -> eraseLine(param(0, 0))
+            'X' -> eraseCharacters(param(0))
+            'P' -> deleteCharacters(param(0))
+            '@' -> insertCharacters(param(0))
+            's' -> saveCursor()
+            'u' -> restoreCursor()
+            'h' -> if (raw.contains("1049") || raw.contains("1047") || raw == "?47") clearScreen()
+            'l', 'm', 'n', 'r', 't' -> Unit
         }
-        return index + 1
+        sequence.clear()
+        state = ParserState.TEXT
     }
 
-    private fun consumeOsc(input: String, start: Int): Int {
-        var index = start
-        while (index < input.length) {
-            if (input[index] == '\u0007') return index + 1
-            if (input[index] == '\u001b' && index + 1 < input.length && input[index + 1] == '\\') {
-                return index + 2
-            }
-            index++
+    private fun consumeOsc(char: Char) {
+        when (char) {
+            '\u0007' -> state = ParserState.TEXT
+            '\u001b' -> state = ParserState.OSC_ESCAPE
         }
-        return input.length
     }
 
-    private fun insertOrOverwrite(char: Char) {
-        if (cursor < text.length && text[cursor] != '\n') {
-            text.setCharAt(cursor, char)
-        } else if (cursor <= text.length) {
-            text.insert(cursor, char)
+    private fun put(char: Char) {
+        if (cursorColumn >= columns) {
+            cursorColumn = 0
+            moveDown()
+        }
+        screen[cursorRow][cursorColumn] = char
+        cursorColumn++
+    }
+
+    private fun moveDown() {
+        if (cursorRow < rows - 1) {
+            cursorRow++
         } else {
-            while (text.length < cursor) text.append(' ')
-            text.append(char)
+            screen.removeAt(0)
+            screen.add(blankRow())
         }
-        cursor++
     }
 
-    private fun clearLineFromCursor() {
-        val end = text.indexOf("\n", cursor).let { if (it == -1) text.length else it }
-        if (end > cursor) text.delete(cursor, end)
+    private fun eraseDisplay(mode: Int) {
+        when (mode) {
+            0 -> {
+                eraseRange(cursorRow, cursorColumn, columns)
+                for (row in cursorRow + 1 until rows) screen[row].fill(' ')
+            }
+            1 -> {
+                for (row in 0 until cursorRow) screen[row].fill(' ')
+                eraseRange(cursorRow, 0, cursorColumn + 1)
+            }
+            2, 3 -> screen.forEach { it.fill(' ') }
+        }
     }
 
-    private fun lineStart(position: Int): Int {
-        val safe = position.coerceIn(0, text.length)
-        return text.lastIndexOf("\n", maxOf(0, safe - 1)).let { if (it == -1) 0 else it + 1 }
+    private fun eraseLine(mode: Int) {
+        when (mode) {
+            0 -> eraseRange(cursorRow, cursorColumn, columns)
+            1 -> eraseRange(cursorRow, 0, cursorColumn + 1)
+            2 -> screen[cursorRow].fill(' ')
+        }
     }
 
-    private fun trimIfNeeded() {
-        if (text.length <= maxChars) return
-        val remove = text.length - maxChars
-        text.delete(0, remove)
-        cursor = maxOf(0, cursor - remove)
+    private fun eraseCharacters(count: Int) {
+        eraseRange(cursorRow, cursorColumn, (cursorColumn + count).coerceAtMost(columns))
+    }
+
+    private fun deleteCharacters(count: Int) {
+        val amount = count.coerceIn(1, columns - cursorColumn)
+        val line = screen[cursorRow]
+        for (column in cursorColumn until columns - amount) line[column] = line[column + amount]
+        for (column in columns - amount until columns) line[column] = ' '
+    }
+
+    private fun insertCharacters(count: Int) {
+        val amount = count.coerceIn(1, columns - cursorColumn)
+        val line = screen[cursorRow]
+        for (column in columns - 1 downTo cursorColumn + amount) line[column] = line[column - amount]
+        for (column in cursorColumn until cursorColumn + amount) line[column] = ' '
+    }
+
+    private fun eraseRange(row: Int, start: Int, end: Int) {
+        for (column in start.coerceAtLeast(0) until end.coerceAtMost(columns)) {
+            screen[row][column] = ' '
+        }
+    }
+
+    private fun saveCursor() {
+        savedRow = cursorRow
+        savedColumn = cursorColumn
+    }
+
+    private fun restoreCursor() {
+        cursorRow = savedRow.coerceIn(0, rows - 1)
+        cursorColumn = savedColumn.coerceIn(0, columns - 1)
+    }
+
+    private fun clearScreen() {
+        screen.forEach { it.fill(' ') }
+        cursorRow = 0
+        cursorColumn = 0
+    }
+
+    private fun newScreen(): MutableList<CharArray> = MutableList(rows) { blankRow() }
+
+    private fun blankRow(): CharArray = CharArray(columns) { ' ' }
+
+    private enum class ParserState { TEXT, ESCAPE, CSI, OSC, OSC_ESCAPE }
+
+    companion object {
+        private const val DEFAULT_COLUMNS = 120
+        private const val DEFAULT_ROWS = 40
+        private const val MAX_COLUMNS = 500
+        private const val MAX_ROWS = 200
+        private const val MAX_SEQUENCE_LENGTH = 128
     }
 }

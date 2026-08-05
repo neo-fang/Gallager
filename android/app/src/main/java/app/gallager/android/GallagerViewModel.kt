@@ -36,6 +36,7 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
 
     private var relayClient: RelayClient? = null
     private var relayCollection: Job? = null
+    private var streamingPaneId: String? = null
 
     init {
         _uiState.value.pairedHost?.let(::connect)
@@ -94,14 +95,19 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
     }
 
     fun selectPane(pane: PaneSummary) {
-        val previous = _uiState.value.selectedPaneId
+        val previous = streamingPaneId
         if (previous != null && previous != pane.paneId) relayClient?.stopTerminalStream(previous)
         _uiState.update { it.copy(selectedPaneId = pane.paneId) }
-        relayClient?.startTerminalStream(pane.paneId)
+        if (previous != pane.paneId) {
+            streamingPaneId = pane.paneId
+            relayClient?.startTerminalStream(pane.paneId)
+        }
     }
 
     fun closeTerminal() {
-        _uiState.value.selectedPaneId?.let { relayClient?.stopTerminalStream(it) }
+        // Keep the one active stream subscribed while the user visits the
+        // session list. Re-entering the same pane can then reuse its current
+        // screen instead of racing stop/start commands through the relay.
         _uiState.update { it.copy(selectedPaneId = null) }
     }
 
@@ -116,6 +122,7 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
             relayCollection?.cancel()
             relayClient?.destroy()
             relayClient = null
+            streamingPaneId = null
             runCatching { application.pairingApi.unpair(host.serverUrl, host.pairId) }
             application.pairingStore.clearHost()
             application.crypto.clearSession()
@@ -126,6 +133,7 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
     private fun connect(host: PairedHost) {
         relayCollection?.cancel()
         relayClient?.destroy()
+        streamingPaneId = null
         val client = RelayClient(
             client = application.httpClient,
             crypto = application.crypto,
