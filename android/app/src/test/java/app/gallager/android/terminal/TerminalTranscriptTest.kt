@@ -72,4 +72,52 @@ class TerminalTranscriptTest {
         assertEquals("Ready", rendered.text)
         assertEquals(0xFF0DBC79.toInt(), rendered.spans.single().style.foreground)
     }
+
+    @Test
+    fun wideChineseCharactersKeepCursorColumnsAligned() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 2)
+        transcript.feed("测试AB".toByteArray())
+        transcript.feed("\u001B[1;5HOK\u001B[K".toByteArray())
+
+        assertEquals("测试OK", transcript.value())
+    }
+
+    @Test
+    fun supplementaryEmojiIsOneWideGlyphAndUtf8CanSpanChunks() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 2)
+        val bytes = "A🟡B".toByteArray()
+        transcript.feed(bytes.copyOfRange(0, 3))
+        transcript.feed(bytes.copyOfRange(3, bytes.size))
+        transcript.feed("\u001B[1;4HX\u001B[K".toByteArray())
+
+        assertEquals("A🟡X", transcript.value())
+        assertFalse(transcript.value().contains('\uFFFD'))
+    }
+
+    @Test
+    fun ignoresCharsetDesignationAndDeviceControlStrings() {
+        val transcript = TerminalTranscript(initialColumns = 20, initialRows = 2)
+        transcript.feed("A\u001B(B\u001BPprivate payload\u001B\\B".toByteArray())
+
+        assertEquals("AB", transcript.value())
+    }
+
+    @Test
+    fun scrollRegionAndLineInsertionMatchFullScreenTuiUpdates() {
+        val transcript = TerminalTranscript(initialColumns = 8, initialRows = 4)
+        transcript.feed("one\r\ntwo\r\nthree\r\nfour".toByteArray())
+        transcript.feed("\u001B[2;4r\u001B[3;1H\u001B[LNEW".toByteArray())
+
+        assertEquals("one\ntwo\nNEW\nthree", transcript.value())
+    }
+
+    @Test
+    fun resizeAppliesHostDimensionChangesWithoutDiscardingContent() {
+        val transcript = TerminalTranscript(initialColumns = 8, initialRows = 2)
+        transcript.feed("hello".toByteArray())
+        transcript.resize(columns = 12, rows = 3)
+        transcript.feed("\u001B[3;1Hbottom".toByteArray())
+
+        assertEquals("hello\n\nbottom", transcript.value())
+    }
 }

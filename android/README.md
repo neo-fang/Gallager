@@ -13,7 +13,8 @@ Mac and iOS apps; the relay and Mac host do not require Android-specific changes
 - live session list with agent state, project, and Git-branch metadata;
 - searchable Mac project discovery with Codex/Claude plugin labels;
 - project-aware session creation using the Mac-reported path, plugin, and config directory;
-- live ANSI/VT terminal stream with foreground/background colors and text styles;
+- live ANSI/VT terminal stream with colors, text styles, CJK/emoji width handling,
+  scroll regions, and host dimension changes;
 - remote UTF-8 input plus Escape, Ctrl-C, Tab, arrows, Backspace, and Enter;
 - create tmux sessions, create windows, split panes, and close windows/sessions;
 - local unpairing plus relay-side pair deletion.

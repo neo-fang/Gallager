@@ -25,7 +25,7 @@ import java.util.Base64
 import java.util.UUID
 
 object GallagerProtocol {
-    const val APP_VERSION = "2.1.1"
+    const val APP_VERSION = "2.1.2"
     const val MIN_HOST_VERSION = "2.0"
 
     val json = Json {
@@ -277,6 +277,12 @@ object GallagerProtocol {
                 type = TerminalUpdateType.CHUNK,
                 bytes = data?.string("dataBase64")?.let(Base64.getDecoder()::decode),
             )
+            "dimensionChange" -> TerminalUpdate(
+                paneId = paneId,
+                type = TerminalUpdateType.DIMENSION,
+                width = data?.get("width")?.jsonPrimitive?.intOrNull,
+                height = data?.get("height")?.jsonPrimitive?.intOrNull,
+            )
             "streamEnd" -> TerminalUpdate(paneId, TerminalUpdateType.END)
             else -> null
         }
@@ -364,7 +370,7 @@ fun parseOuterFrame(text: String): OuterFrame {
     )
 }
 
-enum class TerminalUpdateType { INITIAL, CHUNK, END }
+enum class TerminalUpdateType { INITIAL, CHUNK, DIMENSION, END }
 
 data class TerminalUpdate(
     val paneId: String,

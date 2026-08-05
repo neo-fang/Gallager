@@ -77,6 +77,22 @@ class GallagerProtocolTest {
     }
 
     @Test
+    fun parsesTerminalDimensionChanges() {
+        val payload = GallagerProtocol.json.parseToJsonElement(
+            """{
+              "paneId":"%6",
+              "updateType":{"dimensionChange":{"_0":{"width":225,"height":61}}}
+            }""",
+        ).jsonObject
+
+        val update = GallagerProtocol.terminalUpdate(payload)
+
+        assertEquals(TerminalUpdateType.DIMENSION, update?.type)
+        assertEquals(225, update?.width)
+        assertEquals(61, update?.height)
+    }
+
+    @Test
     fun emitsSwiftCompatibleCreateAndSplitCommands() {
         val create = parseOuterFrame(
             GallagerProtocol.createTmuxSession(

@@ -345,6 +345,10 @@ class RelayClient(
                 rows = update.height,
             )
             TerminalUpdateType.CHUNK -> transcript.feed(update.bytes ?: ByteArray(0))
+            TerminalUpdateType.DIMENSION -> transcript.resize(
+                columns = update.width ?: return,
+                rows = update.height ?: return,
+            )
             TerminalUpdateType.END -> Unit
         }
         _snapshot.value = _snapshot.value.copy(
