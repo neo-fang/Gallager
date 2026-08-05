@@ -37,12 +37,12 @@
 - 现有 Description、Emoji、Color、State、Rename Window 和终端输入行为不回归。
 - 聚焦单元测试、受影响的 Swift package 测试以及 macOS/iOS 构建通过。
 
-## Stage 2：iOS Terminal Stream 自动恢复
+## Stage 2：远程 Terminal Stream 自动恢复
 
 ### 目标
 
-当 iPhone 网络切换、App 前后台切换或 relay WebSocket 短暂重连时，当前终端页
-自动恢复，不再因为一次瞬时失败永久停留在 `Stream Error`。
+当 iPhone 或 Mac viewer 网络切换、App 前后台切换或 relay WebSocket 短暂重连时，
+当前终端页自动恢复，不再因为一次瞬时失败永久停留在错误或断开状态。
 
 ### 实施范围
 
@@ -56,6 +56,9 @@
 4. 已连接状态下的瞬时 start 失败自动做一次清理重试；仍失败时显示错误和手动
    `Retry` 操作。
 5. 保持多 pane、键盘输入、剪贴板和 terminal stream 消息路由行为不变。
+6. Mac viewer 的 `NSViewRepresentable` 在 host 连接状态变化时同步 stream 生命周期；
+   `updateNSView` 不重复 start，只有连接边沿或人工 Retry 才触发恢复。
+7. iOS 与 Mac 共用同一个 stream recovery 决策模型，不维护两套订阅计数规则。
 
 ### 验收标准
 
@@ -65,3 +68,6 @@
 - 同一连接上的一次瞬时 start 失败可自动恢复；持续失败时用户可手动重试。
 - 恢复后的 initial state 替换断线前的旧画面，不混入断线期间缺失的数据块。
 - 聚焦单元测试、iOS Simulator 构建及 iPhone 真机验证通过。
+- Mac viewer 的 host 短断、start 瞬时失败及 `streamEnd` 均可在原页面恢复；持续
+  失败时保留明确错误和人工 Retry。
+- `ClaudeSpyServer` macOS 构建通过，并在本机 viewer 验证远程 terminal 输入无回归。
