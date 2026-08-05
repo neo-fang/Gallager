@@ -124,7 +124,7 @@
             }
 
             feed(byteArray: bytes)
-            extractAndClearPayloads()
+            extractAndClearPayloads(afterFeeding: bytes)
 
             blockScrollChanges = false
             setNeedsLayout()
@@ -182,8 +182,8 @@
             )
         }
 
-        private func extractAndClearPayloads() {
-            payloadCache.extractAndClear(from: getTerminal())
+        private func extractAndClearPayloads(afterFeeding bytes: ArraySlice<UInt8>) {
+            payloadCache.update(from: getTerminal(), afterFeeding: bytes)
         }
 
         private func setupURLLongPress() {

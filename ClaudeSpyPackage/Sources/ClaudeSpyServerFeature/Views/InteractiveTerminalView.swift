@@ -1167,8 +1167,8 @@
             )
         }
 
-        private func extractAndClearPayloads() {
-            payloadCache.extractAndClear(from: terminalView.getTerminal())
+        private func extractAndClearPayloads(afterFeeding bytes: ArraySlice<UInt8>) {
+            payloadCache.update(from: terminalView.getTerminal(), afterFeeding: bytes)
         }
 
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
@@ -1622,7 +1622,7 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
-            extractAndClearPayloads()
+            extractAndClearPayloads(afterFeeding: byteArray)
             needsLayout = true
         }
 
@@ -1633,7 +1633,7 @@
             // - Position <= 0.001 (no scrollback yet, or at very top)
             let wasAtExtreme = savedPosition >= 0.999 || savedPosition <= 0.001
             terminalView.feed(byteArray: bytes)
-            extractAndClearPayloads()
+            extractAndClearPayloads(afterFeeding: bytes)
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
