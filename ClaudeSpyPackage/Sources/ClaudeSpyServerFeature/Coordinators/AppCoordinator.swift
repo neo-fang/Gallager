@@ -3029,7 +3029,7 @@
             let streamService = terminalStreamService
             let tmux = tmuxService
             let editorManager = editorSessionManager
-            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, weak connectionManager] command in
+            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, paneStreaming, weak connectionManager] command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
@@ -3120,6 +3120,21 @@
                         }
                     }
                     return .success(for: command.id)
+                }
+
+                // Rename the real tmux session, then refresh every host-side
+                // cache before publishing the replacement name to viewers.
+                if case let .renameTmuxSession(spec) = command.command {
+                    do {
+                        try await tmux.renameSession(from: spec.sessionName, to: spec.newName)
+                        let allPanes = await tmux.refreshPanes()
+                        winManager.updatePaneStates(from: allPanes)
+                        await paneStreaming.updateMonitoring(panes: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                        return .success(for: command.id)
+                    } catch {
+                        return .failure(for: command.id, error: error.localizedDescription)
+                    }
                 }
 
                 // Handle session description (applied to every pane in the session)

@@ -22,6 +22,7 @@
 
         @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
+        @State private var renameError: String?
         @State private var selectedHostForNewSession: PairedHost?
 
         var body: some View {
@@ -71,6 +72,20 @@
                     Text(error)
                 }
             }
+            .alert("Session Rename Failed", isPresented: .init(
+                get: { renameError != nil },
+                set: {
+                    if !$0 {
+                        renameError = nil
+                    }
+                }
+            )) {
+                Button("OK") { renameError = nil }
+            } message: {
+                if let renameError {
+                    Text(renameError)
+                }
+            }
             .sheet(item: $selectedHostForNewSession) { host in
                 ProjectPickerSheet(
                     host: host,
@@ -95,6 +110,18 @@
                         showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
                             selectedHostForNewSession = host
+                        },
+                        onRename: { sessionName, newName in
+                            Task {
+                                let result = await connectionManager.sendCommand(
+                                    RenameTmuxSession(sessionName: sessionName, newName: newName),
+                                    paneId: "",
+                                    hostId: host.id
+                                )
+                                if case let .failure(error) = result {
+                                    renameError = error.localizedDescription
+                                }
+                            }
                         },
                         onSetDescription: { sessionName, description in
                             Task {
@@ -242,6 +269,7 @@
         let sessions: [TmuxSession]
         var showUsername = false
         let onNewSession: () -> Void
+        var onRename: (String, String) -> Void = { _, _ in }
         var onSetDescription: (String, String?) -> Void = { _, _ in }
         var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
         var onSetEmoji: (String, String?) -> Void = { _, _ in }
@@ -383,6 +411,7 @@
                 currentDescription: session.customDescription,
                 currentEmoji: session.customEmoji,
                 isDisabled: connection?.isHostConnected != true,
+                onRename: onRename,
                 onSetDescription: onSetDescription,
                 onSetEmoji: onSetEmoji,
                 additionalMenu: {

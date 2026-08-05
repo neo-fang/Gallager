@@ -43,8 +43,8 @@
         /// subscriber.
         private struct ReaderContext {
             let reader: PipePaneReader
-            let target: String
-            let sessionName: String
+            var target: String
+            var sessionName: String
             var width: Int
             var height: Int
             var subscriberIds: Set<UUID>
@@ -534,6 +534,21 @@
         /// (e.g. set during async startup before pipe-pane attached).
         public func updateMonitoring(panes: [PaneInfo]) async {
             let currentPaneIds = Set(panes.map(\.paneId))
+            let previousSessionPaneIds = Dictionary(grouping: readers, by: { $0.value.sessionName })
+                .mapValues { Set($0.map(\.key)) }
+            let currentSessionPaneIds = Dictionary(grouping: panes, by: \.sessionName)
+                .mapValues { Set($0.map(\.paneId)) }
+
+            // A moved pane also changes its textual target. Only rekey the
+            // session-wide control client when the old session disappeared and
+            // its complete pane-ID set reappeared under one new name.
+            let renamedSessions = SessionRenameMapping.detectNames(
+                from: previousSessionPaneIds,
+                to: currentSessionPaneIds
+            )
+            for (oldName, newName) in renamedSessions {
+                await controlClientManager.sessionRenamed(from: oldName, to: newName)
+            }
 
             let staleIds = readers.keys.filter { !currentPaneIds.contains($0) }
             for paneId in staleIds {
@@ -550,6 +565,17 @@
                     initialHeight: pane.height,
                     seedTitle: seedTitle
                 )
+            }
+
+            // `rename-session` preserves pane IDs and live pipe-pane readers,
+            // but every textual target changes. Update the reader context so
+            // capture, mouse-mode and teardown commands stop using the old target.
+            for pane in panes {
+                guard var context = readers[pane.paneId] else { continue }
+                guard context.target != pane.target || context.sessionName != pane.sessionName else { continue }
+                context.target = pane.target
+                context.sessionName = pane.sessionName
+                readers[pane.paneId] = context
             }
 
             // Seed/update custom titles missed by the OSC reader (e.g. titles

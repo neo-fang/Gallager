@@ -23,6 +23,7 @@ public struct MainView: View {
     @State private var selectedWindow: LocalTmuxWindow?
     @State private var selectedRemoteSession: RemoteSessionSelection?
     @State private var selectedRemoteWindowId: String?
+    @State private var localSessionRenameRequest: String?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var projects: [AgentProject] = []
@@ -229,11 +230,18 @@ public struct MainView: View {
         .onChange(of: coordinator.editorOverrideProbeResult) {
             coordinator.maybePresentEditorOverrideDialog()
         }
-        .onChange(of: tmuxService.panes) { _, newPanes in
+        .onChange(of: tmuxService.panes) { oldPanes, newPanes in
             // Ensure pane states exist for all known panes so the detail view
             // can render immediately when a window is selected (without waiting
             // for the periodic validation timer).
             windowManager.updatePaneStates(from: newPanes)
+
+            // A session rename keeps the exact pane set but changes every
+            // session/window textual ID. Migrate private view state before the
+            // stale-session cleanup below can interpret the old key as deleted.
+            for rename in SessionRenameMapping.detect(from: oldPanes, to: newPanes) {
+                migrateLocalSessionState(rename)
+            }
 
             // Clean up explorer-active flags for windows that no longer exist
             let currentWindowIds = Set(tmuxService.windows.map(\.id))
@@ -613,6 +621,9 @@ public struct MainView: View {
                             await createRemoteSession(on: host, inProject: project)
                         }
                     },
+                    onRename: { sessionName, newName in
+                        renameRemoteSession(on: host, from: sessionName, to: newName)
+                    },
                     onSetDescription: { sessionName, description in
                         Task {
                             guard let manager = coordinator.viewerConnectionManager else { return }
@@ -690,7 +701,11 @@ public struct MainView: View {
             .first
 
         return Button {
-            selectLocalSession(session)
+            if NSApp.currentEvent?.clickCount == 2 {
+                localSessionRenameRequest = session.sessionName
+            } else {
+                selectLocalSession(session)
+            }
         } label: {
             SessionSidebarRow(session: session)
         }
@@ -715,6 +730,17 @@ public struct MainView: View {
             sessionName: session.sessionName,
             currentDescription: description,
             currentEmoji: emoji,
+            renameRequest: Binding(
+                get: { localSessionRenameRequest == session.sessionName },
+                set: { requested in
+                    if !requested, localSessionRenameRequest == session.sessionName {
+                        localSessionRenameRequest = nil
+                    }
+                }
+            ),
+            onRename: { sessionName, newName in
+                renameLocalSession(from: sessionName, to: newName)
+            },
             onSetDescription: { sessionName, description in
                 windowManager.setSessionDescription(description, for: sessionName)
             },
@@ -2374,6 +2400,73 @@ public struct MainView: View {
 
     private func refreshPanes() async {
         await tmuxService.refreshPanes()
+    }
+
+    private func renameLocalSession(from sessionName: String, to newName: String) {
+        let oldPanes = tmuxService.panes
+        Task {
+            do {
+                try await tmuxService.renameSession(from: sessionName, to: newName)
+                let newPanes = await tmuxService.refreshPanes()
+                windowManager.updatePaneStates(from: newPanes)
+                for rename in SessionRenameMapping.detect(from: oldPanes, to: newPanes) {
+                    migrateLocalSessionState(rename)
+                }
+                await coordinator.paneStreamManager.updateMonitoring(panes: newPanes)
+                await coordinator.connectedViewerManager?.pushSessionStateToAll()
+            } catch {
+                attachError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Moves every MainView-owned cache that uses the mutable tmux session or
+    /// window ID as a key. This is idempotent because the old keys disappear on
+    /// the first pass; both the explicit rename action and pane-snapshot change
+    /// detection may call it during the same render cycle.
+    private func migrateLocalSessionState(_ rename: SessionRenameMapping) {
+        let oldName = rename.oldName
+        let newName = rename.newName
+
+        if let state = fileBrowserStates.removeValue(forKey: oldName) {
+            fileBrowserStates[newName] = state
+        }
+        if let tabs = sessionFileTabsStates.removeValue(forKey: oldName) {
+            tabs.remapWindowIDs(rename.windowIDs)
+            sessionFileTabsStates[newName] = tabs
+        }
+        if let store = gitWorkbenchStores.removeValue(forKey: oldName) {
+            gitWorkbenchStores[newName] = store
+        }
+        if seededSessions.remove(oldName) != nil {
+            seededSessions.insert(newName)
+        }
+        if let layout = lastPersistedLayouts.removeValue(forKey: oldName) {
+            lastPersistedLayouts[newName] = layout
+        }
+        if let save = pendingLayoutSaves.removeValue(forKey: oldName) {
+            pendingLayoutSaves[newName] = save
+        }
+
+        fileBrowserActiveWindowIds = Set(fileBrowserActiveWindowIds.map { rename.windowIDs[$0] ?? $0 })
+        gitActiveWindowIds = Set(gitActiveWindowIds.map { rename.windowIDs[$0] ?? $0 })
+        if scrollToWindowId == oldName {
+            scrollToWindowId = newName
+        }
+        markdownOpenSuggestionStore.sessionRenamed(from: oldName, to: newName)
+
+        guard let selected = selectedWindow, selected.sessionName == oldName else { return }
+        if
+            let newWindowID = rename.windowIDs[selected.id],
+            let replacement = tmuxService.windows.first(where: { $0.id == newWindowID }) {
+            selectedWindow = replacement
+        } else if
+            let paneID = selected.activePane?.paneId ?? selected.panes.first?.paneId,
+            let replacement = tmuxService.windows.first(where: { window in
+                window.panes.contains(where: { $0.paneId == paneID })
+            }) {
+            selectedWindow = replacement
+        }
     }
 
     private func attachToTerminal(_ pane: PaneInfo) {
@@ -4397,7 +4490,79 @@ public struct MainView: View {
         }
     }
 
-    // MARK: - Remote Session Creation
+    // MARK: - Remote Session Rename / Creation
+
+    private func renameRemoteSession(on host: PairedHost, from sessionName: String, to newName: String) {
+        let oldSession = coordinator.remoteSessionStore?.sessions(for: host.id)
+            .first(where: { $0.sessionName == sessionName })
+        let windowIDs = Dictionary(uniqueKeysWithValues: (oldSession?.windows ?? []).map {
+            ($0.id, "\(newName):\($0.windowIndex)")
+        })
+
+        Task {
+            guard let manager = coordinator.viewerConnectionManager else {
+                attachError = "Viewer connection not available"
+                return
+            }
+
+            let result = await manager.sendCommand(
+                RenameTmuxSession(sessionName: sessionName, newName: newName),
+                paneId: "",
+                hostId: host.id
+            )
+            switch result {
+            case .success:
+                migrateRemoteSessionState(
+                    hostId: host.id,
+                    from: sessionName,
+                    to: newName,
+                    windowIDs: windowIDs
+                )
+                await manager.requestSessionState(for: host.id)
+            case let .failure(error):
+                attachError = "Failed to rename session on \(host.displayName): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func migrateRemoteSessionState(
+        hostId: String,
+        from oldName: String,
+        to newName: String,
+        windowIDs: [String: String]
+    ) {
+        let oldKey = remoteTabsKey(hostId: hostId, sessionName: oldName)
+        let newKey = remoteTabsKey(hostId: hostId, sessionName: newName)
+
+        if let tabs = remoteSessionTabsStates.removeValue(forKey: oldKey) {
+            tabs.remapWindowIDs(windowIDs)
+            remoteSessionTabsStates[newKey] = tabs
+        }
+        if seededRemoteSessions.remove(oldKey) != nil {
+            seededRemoteSessions.insert(newKey)
+        }
+        if let layout = lastPersistedRemoteLayouts.removeValue(forKey: oldKey) {
+            lastPersistedRemoteLayouts[newKey] = layout
+        }
+        if let save = pendingRemoteLayoutSaves.removeValue(forKey: oldKey) {
+            pendingRemoteLayoutSaves[newKey] = save
+        }
+
+        guard
+            let selected = selectedRemoteSession,
+            selected.hostId == hostId,
+            selected.sessionName == oldName
+        else { return }
+
+        selectedRemoteSession = RemoteSessionSelection(
+            hostId: hostId,
+            hostName: selected.hostName,
+            sessionName: newName
+        )
+        if let selectedRemoteWindowId {
+            self.selectedRemoteWindowId = windowIDs[selectedRemoteWindowId] ?? selectedRemoteWindowId
+        }
+    }
 
     private func createRemoteSession(on host: PairedHost, inProject project: AgentProject?) async {
         guard creatingSelection == nil else { return }

@@ -101,6 +101,26 @@ final public class MarkdownOpenSuggestionStore {
         dismiss(sessionName: sessionName)
     }
 
+    /// Moves a pending suggestion with its tmux session rename. If its dismiss
+    /// timer had started, restart the bounded delay under the new dictionary key
+    /// rather than letting the old captured key leave the suggestion immortal.
+    public func sessionRenamed(from oldName: String, to newName: String) {
+        guard oldName != newName, let old = suggestionsBySession.removeValue(forKey: oldName) else { return }
+        let hadDismissalTask = dismissalTasks[oldName] != nil
+        cancelDismissalTask(for: oldName)
+
+        suggestionsBySession[newName] = MarkdownOpenSuggestion(
+            filePath: old.filePath,
+            directoryPath: old.directoryPath,
+            sessionName: newName,
+            isPlan: old.isPlan,
+            id: old.id
+        )
+        if hadDismissalTask {
+            userSubmittedPrompt(sessionName: newName)
+        }
+    }
+
     private func cancelDismissalTask(for sessionName: String) {
         dismissalTasks[sessionName]?.cancel()
         dismissalTasks[sessionName] = nil

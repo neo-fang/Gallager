@@ -346,6 +346,32 @@ final class SessionFileTabsState {
         })
     }
 
+    /// Rewrites every live reference to a tmux window after its owning session
+    /// is renamed. Window indices and pane IDs stay stable, but tmux window IDs
+    /// embed the session name and therefore all change together.
+    func remapWindowIDs(_ mapping: [String: String]) {
+        guard !mapping.isEmpty else { return }
+
+        for index in openFileTabs.indices {
+            switch openFileTabs[index].origin {
+            case let .terminalWindow(windowID):
+                openFileTabs[index].origin = .terminalWindow(mapping[windowID] ?? windowID)
+            case let .gitTab(windowID):
+                openFileTabs[index].origin = .gitTab(windowId: mapping[windowID] ?? windowID)
+            case nil:
+                break
+            }
+        }
+        for index in openBrowserTabs.indices {
+            guard let windowID = openBrowserTabs[index].originWindowId else { continue }
+            openBrowserTabs[index].originWindowId = mapping[windowID] ?? windowID
+        }
+
+        rightSide = Set(rightSide.map { $0.remappingWindowID(using: mapping) })
+        selectedRight = selectedRight?.remappingWindowID(using: mapping)
+        tabOrder = tabOrder.map { $0.remappingWindowID(using: mapping) }
+    }
+
     /// Cancels in-flight browser downloads across every tab, deleting their
     /// partial files. Must be called before this whole state is dropped
     /// (session killed, host unpaired) — deallocating a `BrowserTabState`

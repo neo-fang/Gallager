@@ -65,6 +65,7 @@ public actor TmuxCommandExecutor {
                  .createTmuxWindow,
                  .setYoloMode,
                  .markHandled,
+                 .renameTmuxSession,
                  .setSessionDescription,
                  .setSessionColor,
                  .setSessionEmoji,

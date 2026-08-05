@@ -840,6 +840,11 @@ enum TabDragPayload: Codable, Hashable, Transferable {
         }
     }
 
+    func remappingWindowID(using mapping: [String: String]) -> TabDragPayload {
+        guard case let .window(windowID) = self else { return self }
+        return .window(mapping[windowID] ?? windowID)
+    }
+
     static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .gallagerTabDrag)
     }
