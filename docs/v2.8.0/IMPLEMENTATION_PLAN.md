@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：🟡 进行中
-- **进度**：1/2 stages
+- **进度**：1/3 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -71,3 +71,27 @@
 - Mac viewer 的 host 短断和 start 瞬时失败可在原页面恢复；替换订阅期间旧 stream
   的 `streamEnd` 不得终止新连接。持续失败时保留明确错误和人工 Retry。
 - `ClaudeSpyServer` macOS 构建通过，并在本机 viewer 验证远程 terminal 输入无回归。
+
+## Stage 3：Terminal Payload 缓存性能
+
+### 目标
+
+降低 Codex 等高频刷新 TUI 在 Mac viewer 中的持续 CPU 占用，同时保持 OSC 8
+超链接识别、普通 URL 检测和终端渲染行为不变。
+
+### 实施范围
+
+1. 让共享 payload 缓存识别输入数据中真正的 OSC 8 起始序列，并正确处理序列跨
+   数据块拆分的情况。
+2. 只有出现新 OSC 8 序列时才扫描终端缓冲区并提取 payload；普通终端输出仅校验
+   已缓存的链接单元格，不再遍历所有行列。
+3. macOS 与 iOS 共用同一优化路径，不增加平台分支或 relay 协议字段。
+4. 增加序列检测聚焦测试，并用持续刷新的真实 Codex pane 对比修复前后 CPU。
+
+### 验收标准
+
+- 完整及跨数据块拆分的 `ESC ] 8 ;`、C1 OSC 8 序列都能触发 payload 提取。
+- 普通文本、CSI 动画和其他 OSC 序列不触发全缓冲区扫描。
+- 已缓存链接被普通文本覆盖或被 scrollback 淘汰后仍会失效。
+- OSC 8 链接点击、普通 URL 检测和终端显示不回归。
+- 聚焦单元测试、macOS 构建通过；同一高频刷新 pane 的空闲观察 CPU 明显下降。
