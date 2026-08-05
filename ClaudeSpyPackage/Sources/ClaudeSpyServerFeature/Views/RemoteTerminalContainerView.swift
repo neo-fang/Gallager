@@ -611,7 +611,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         let wasEditorActive = nsView.isEditorActive
         nsView.isEditorActive = isEditorActive
         if wasEditorActive, !isEditorActive {
-            nsView.window?.makeFirstResponder(nsView)
+            nsView.focusTerminal()
         }
     }
 

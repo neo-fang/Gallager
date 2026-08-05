@@ -86,7 +86,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // When editor just closed, restore focus to the terminal
         if wasEditorActive, !editorActive {
-            nsView.window?.makeFirstResponder(nsView)
+            nsView.focusTerminal()
         }
 
         // Update pane state — tmux rearranges pane indices when panes are

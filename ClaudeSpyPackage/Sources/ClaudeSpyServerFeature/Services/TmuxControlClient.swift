@@ -53,6 +53,22 @@ enum TmuxControlError: Error, LocalizedError {
 ///
 /// Live terminal data is delivered separately via `PipePaneReader` (pipe-pane raw bytes).
 actor TmuxControlClient {
+    /// A control-mode client has no TTY, so GUI launches commonly inherit no
+    /// `TERM` (or `dumb`). tmux exposes that value as `client_termname`, which
+    /// terminal apps such as Codex inspect even when the pane itself has a valid
+    /// `TERM`. Advertise the renderer's xterm-compatible capabilities without
+    /// overwriting a real terminal supplied by a development launch.
+    static func controlClientEnvironment(
+        inheriting inherited: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String] {
+        var environment = inherited
+        let term = environment["TERM"] ?? ""
+        if term.isEmpty || term.caseInsensitiveCompare("dumb") == .orderedSame {
+            environment["TERM"] = "xterm-256color"
+        }
+        return environment
+    }
+
     private let tmuxPath: String
     private let socketPath: String?
     private let logger = Logger(label: "com.claudespy.tmuxcontrol")
@@ -155,6 +171,7 @@ actor TmuxControlClient {
             arguments = ["-S", socketPath] + arguments
         }
         process.arguments = arguments
+        process.environment = Self.controlClientEnvironment()
 
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()

@@ -391,7 +391,13 @@
 
         /// When true, a prompt editor overlay is active above this terminal.
         /// Keyboard events and auto-focus are suppressed so the editor gets input.
-        var isEditorActive = false
+        var isEditorActive = false {
+            didSet {
+                if isEditorActive {
+                    isFocused = false
+                }
+            }
+        }
 
         // URL detection state
         private var isOverURL = false
@@ -415,6 +421,7 @@
 
         /// Using nonisolated(unsafe) for notification observer cleanup in deinit
         private nonisolated(unsafe) var windowObservers: [any NSObjectProtocol] = []
+        private nonisolated(unsafe) var keyEventMonitor: Any?
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
@@ -440,6 +447,9 @@
             for observer in windowObservers {
                 NotificationCenter.default.removeObserver(observer)
             }
+            if let keyEventMonitor {
+                NSEvent.removeMonitor(keyEventMonitor)
+            }
         }
 
         // MARK: - Setup
@@ -453,7 +463,7 @@
                 self?.scrollHorizontally(by: delta)
             }
             overlay.onMouseDown = { [weak self] in
-                self?.window?.makeFirstResponder(self)
+                self?.focusTerminal()
             }
             overlay.onMouseMoved = { [weak self] event in
                 self?.handleMouseMoved(event)
@@ -508,24 +518,52 @@
         // MARK: - First Responder
 
         override var acceptsFirstResponder: Bool {
-            true
+            false
         }
 
-        override func becomeFirstResponder() -> Bool {
-            isFocused = true
-            // Drive TerminalView's hasFocus so CaretView renders as filled cursor
-            // with the correct DECSCUSR style (block/bar/underline). Without this,
-            // the caret draws as a hollow rectangle since TerminalView itself never
-            // becomes first responder.
-            terminalView.hasFocus = true
+        @discardableResult
+        func focusTerminal() -> Bool {
+            guard let window, window.makeFirstResponder(terminalView) else { return false }
+            if let contentView = window.contentView {
+                updateFocusBorders(in: contentView)
+            }
             onBecomeFirstResponder?()
-            return super.becomeFirstResponder()
+            return true
         }
 
-        override func resignFirstResponder() -> Bool {
-            isFocused = false
-            terminalView.hasFocus = false
-            return super.resignFirstResponder()
+        private func updateFocusBorders(in view: NSView) {
+            if let terminal = view as? InteractiveTerminalView {
+                terminal.isFocused = terminal === self
+            }
+            for subview in view.subviews {
+                updateFocusBorders(in: subview)
+            }
+        }
+
+        private func interceptTerminalKeyDown(_ event: NSEvent) -> Bool {
+            guard
+                !isEditorActive,
+                event.window === window,
+                window?.firstResponder === terminalView
+            else { return false }
+
+            // SwiftTerm's legacy keyDown path dispatches both Enter and
+            // Shift+Enter through `insertNewline:`, collapsing the modifier
+            // to plain `\r`. SwiftTerm only preserves the modifier when the
+            // inner app pushes kitty mode, which can't happen here because
+            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
+            let returnChars: Set = ["\r", "\u{3}"]
+            guard
+                let chars = event.charactersIgnoringModifiers,
+                returnChars.contains(chars)
+            else { return false }
+
+            let activeModifiers = event.modifierFlags
+                .intersection([.shift, .control, .option, .command])
+            guard activeModifiers == .shift else { return false }
+
+            onInput?([.shiftEnter])
+            return true
         }
 
         override func viewDidMoveToWindow() {
@@ -536,8 +574,17 @@
                 NotificationCenter.default.removeObserver(observer)
             }
             windowObservers.removeAll()
+            if let keyEventMonitor {
+                NSEvent.removeMonitor(keyEventMonitor)
+                self.keyEventMonitor = nil
+            }
 
             guard let window else { return }
+
+            keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                return self.interceptTerminalKeyDown(event) ? nil : event
+            }
 
             // Auto-focus when added to a window (disabled in multi-pane layouts
             // where multiple terminals share one window to avoid focus fighting,
@@ -545,7 +592,7 @@
             if autoFocusEnabled, !isEditorActive {
                 Task { [weak self] in
                     guard let self else { return }
-                    self.window?.makeFirstResponder(self)
+                    self.focusTerminal()
                 }
             }
 
@@ -566,15 +613,16 @@
                         // overriding the user's explicit click.
                         let currentResponder = window.firstResponder
                         let siblingHasFocus =
-                            currentResponder !== self &&
-                            currentResponder is InteractiveTerminalView
+                            currentResponder !== self.terminalView &&
+                            currentResponder is TerminalView
                         if !siblingHasFocus {
-                            window.makeFirstResponder(self)
+                            self.focusTerminal()
                         }
                     }
                     // If we're already first responder, restore cursor appearance
-                    if window.firstResponder === self {
+                    if window.firstResponder === self.terminalView {
                         self.terminalView.hasFocus = true
+                        self.isFocused = true
                     }
                 }
             })
@@ -587,6 +635,7 @@
             ) { [weak self] _ in
                 Task { @MainActor in
                     self?.terminalView.hasFocus = false
+                    self?.isFocused = false
                 }
             })
         }
@@ -979,7 +1028,7 @@
             // returns true consumes the event. In a multi-pane layout, that means
             // any sibling pane could claim Cmd+V or Cmd+C and route input to the
             // wrong tmux target. Only act when this pane actually has focus.
-            guard isFocused else { return false }
+            guard window?.firstResponder === terminalView else { return false }
 
             guard event.modifierFlags.contains(.command) else {
                 return false
@@ -1072,29 +1121,6 @@
         /// from a real Finder.
         func simulateFileDrop(_ urls: [URL]) {
             onFileDrop?(urls)
-        }
-
-        override func keyDown(with event: NSEvent) {
-            guard !isEditorActive else { return }
-
-            // SwiftTerm's legacy keyDown path dispatches both Enter and
-            // Shift+Enter through `insertNewline:`, collapsing the modifier
-            // to plain `\r`. SwiftTerm only preserves the modifier when the
-            // inner app pushes kitty mode, which can't happen here because
-            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
-            // Intercept and route as `.shiftEnter` so tmux delivers the
-            // proper extended-key sequence to the pane.
-            let returnChars: Set = ["\r", "\u{3}"]
-            if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
-                let activeModifiers = event.modifierFlags
-                    .intersection([.shift, .control, .option, .command])
-                if activeModifiers == .shift {
-                    onInput?([.shiftEnter])
-                    return
-                }
-            }
-
-            terminalView.keyDown(with: event)
         }
 
         // MARK: - URL Detection

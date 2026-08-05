@@ -45,6 +45,31 @@
 
     @Suite("TmuxControlClient Tests")
     struct TmuxControlClientTests {
+        @Suite("Control Client Environment")
+        struct ControlClientEnvironmentTests {
+            @Test("Unavailable TERM uses xterm-256color")
+            func unavailableTermUsesFallback() {
+                for term in [String?.none, "", "dumb", "DUMB"] {
+                    var inherited = ["PATH": "/usr/bin"]
+                    inherited["TERM"] = term
+
+                    let environment = TmuxControlClient.controlClientEnvironment(inheriting: inherited)
+
+                    #expect(environment["TERM"] == "xterm-256color")
+                    #expect(environment["PATH"] == "/usr/bin")
+                }
+            }
+
+            @Test("Existing terminal type is preserved")
+            func existingTermIsPreserved() {
+                let inherited = ["TERM": "tmux-256color", "PATH": "/opt/homebrew/bin"]
+
+                let environment = TmuxControlClient.controlClientEnvironment(inheriting: inherited)
+
+                #expect(environment == inherited)
+            }
+        }
+
         // MARK: - Session Name Extraction Tests
 
         @Suite("Session Name Extraction")
