@@ -423,7 +423,11 @@
         let defaultBg = NSColor.black
 
         private func makeMapper() -> TerminalColorMapper {
-            TerminalColorMapper(defaultFg: defaultFg, defaultBg: defaultBg)
+            TerminalColorMapper(
+                defaultFg: defaultFg,
+                defaultBg: defaultBg,
+                base16: TerminalTheme.defaultDark.palette.nativeANSIColors
+            )
         }
 
         @Test("Default color returns fg/bg defaults")
@@ -464,6 +468,19 @@
             let normal = mapper.mapColor(.ansi256(code: 196), isFg: true, isBold: false)
             let bold = mapper.mapColor(.ansi256(code: 196), isFg: true, isBold: true)
             #expect(normal == bold)
+        }
+
+        @Test("Uses the selected theme's ANSI colors")
+        func selectedThemeColors() {
+            let theme = TerminalTheme.anysphereDark.palette
+            let mapper = TerminalColorMapper(
+                defaultFg: theme.foreground.nativeColor,
+                defaultBg: theme.background.nativeColor,
+                base16: theme.nativeANSIColors
+            )
+
+            #expect(mapper.mapColor(.ansi256(code: 1), isFg: true, isBold: false) == TerminalRGB(hex: 0xFC6B83).nativeColor)
+            #expect(mapper.mapColor(.ansi256(code: 10), isFg: true, isBold: false) == TerminalRGB(hex: 0x70B489).nativeColor)
         }
 
         @Test("True color produces correct NSColor")

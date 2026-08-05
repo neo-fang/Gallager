@@ -7,8 +7,15 @@
 
     // MARK: - Focus Border Overlay
 
-    /// Provides a subtle border highlight when the terminal has keyboard focus.
+    /// Provides a focus highlight when multiple terminal panes share a window.
     final private class FocusBorderView: NSView {
+        var showsIndicator = false {
+            didSet {
+                guard showsIndicator != oldValue else { return }
+                needsDisplay = true
+            }
+        }
+
         var isFocused = false {
             didSet {
                 guard isFocused != oldValue else { return }
@@ -27,7 +34,7 @@
         }
 
         override func draw(_ dirtyRect: NSRect) {
-            guard isFocused else { return }
+            guard showsIndicator, isFocused else { return }
 
             let borderColor = NSColor.controlAccentColor.withAlphaComponent(0.6)
             borderColor.setStroke()
@@ -318,7 +325,7 @@
     /// - Implements `TerminalViewDelegate` to capture typed characters
     /// - Converts raw bytes to `TmuxKey` representations for relay transmission
     /// - Preserves scroll position when new content arrives
-    /// - Shows subtle border highlight when focused
+    /// - Shows a focus highlight only when multiple panes share a window
     /// - Supports horizontal scrolling for wide terminals
     /// - Detects plain-text URLs: Cmd+hover highlights, Cmd+click opens in browser
     final class InteractiveTerminalView: NSView {
@@ -373,6 +380,14 @@
         /// Used in multi-pane layouts where multiple terminals share one window.
         var autoFocusEnabled = true
 
+        /// Whether keyboard focus should be drawn around this terminal.
+        /// Enabled only when multiple panes share a window.
+        var showsFocusIndicator = false {
+            didSet {
+                focusBorderView?.showsIndicator = showsFocusIndicator
+            }
+        }
+
         /// Fires whenever this view becomes the window's first responder
         /// (mouse click, programmatic, tabbing). Used to propagate focus back
         /// to tmux via `select-pane` so external clients see the same active pane.
@@ -412,6 +427,13 @@
         /// we clear them to suppress SwiftTerm's own dashed underline rendering.
         /// See `TerminalPayloadCache` for the full rationale.
         private let payloadCache = TerminalPayloadCache()
+
+        /// ANSI base colors used when copying terminal content as rich text.
+        /// Updated together with SwiftTerm by `applyTheme(_:)`.
+        private var richCopyANSIColors = TerminalTheme.defaultDark.palette.nativeANSIColors
+
+        /// Avoids forcing a full SwiftTerm redraw on unrelated SwiftUI updates.
+        private var appliedTheme: TerminalTheme?
 
         private var isFocused = false {
             didSet {
@@ -503,6 +525,7 @@
         private func setupFocusBorder() {
             let borderView = FocusBorderView(frame: bounds)
             borderView.autoresizingMask = [.width, .height]
+            borderView.showsIndicator = showsFocusIndicator
             addSubview(borderView)
             focusBorderView = borderView
         }
@@ -667,7 +690,11 @@
             let baseFont = terminalView.font as NSFont
             let defaultFg = terminalView.nativeForegroundColor
             let defaultBg = terminalView.nativeBackgroundColor
-            let colorMapper = TerminalColorMapper(defaultFg: defaultFg, defaultBg: defaultBg)
+            let colorMapper = TerminalColorMapper(
+                defaultFg: defaultFg,
+                defaultBg: defaultBg,
+                base16: richCopyANSIColors
+            )
             let fontMapper = TerminalFontMapper(base: baseFont)
 
             // Build attributed string for all visible rows.
@@ -1541,6 +1568,17 @@
             set { terminalView.customBlockGlyphs = newValue }
         }
 
+        func applyTheme(_ theme: TerminalTheme) {
+            guard appliedTheme != theme else { return }
+
+            let palette = theme.palette
+            terminalView.installColors(palette.swiftTermANSIColors)
+            nativeForegroundColor = palette.foreground.nativeColor
+            nativeBackgroundColor = palette.background.nativeColor
+            richCopyANSIColors = palette.nativeANSIColors
+            appliedTheme = theme
+        }
+
         var nativeForegroundColor: NSColor {
             get { terminalView.nativeForegroundColor }
             set { terminalView.nativeForegroundColor = newValue }
@@ -1712,10 +1750,10 @@
         let defaultBg: NSColor
         private let palette: [NSColor]
 
-        init(defaultFg: NSColor, defaultBg: NSColor) {
+        init(defaultFg: NSColor, defaultBg: NSColor, base16: [NSColor]) {
             self.defaultFg = defaultFg
             self.defaultBg = defaultBg
-            self.palette = Self.buildPalette()
+            self.palette = Self.buildPalette(base16: base16)
         }
 
         func mapColor(_ color: Attribute.Color, isFg: Bool, isBold: Bool) -> NSColor {
@@ -1738,19 +1776,9 @@
             }
         }
 
-        /// Builds the standard 256-color ANSI palette (matching SwiftTerm's terminalAppColors default).
-        private static func buildPalette() -> [NSColor] {
-            // First 16: SwiftTerm's terminalAppColors
-            let base16: [(UInt8, UInt8, UInt8)] = [
-                (0, 0, 0), (194, 54, 33), (37, 188, 36), (173, 173, 39),
-                (73, 46, 225), (211, 56, 211), (51, 187, 200), (203, 204, 205),
-                (129, 131, 131), (252, 57, 31), (49, 231, 34), (234, 236, 35),
-                (88, 51, 255), (249, 53, 248), (20, 240, 240), (233, 235, 235),
-            ]
-
-            var colors: [NSColor] = base16.map { r, g, b in
-                NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-            }
+        /// Builds the 256-color ANSI palette from the selected theme's base colors.
+        private static func buildPalette(base16: [NSColor]) -> [NSColor] {
+            var colors = base16
 
             // 216 color cube (indices 16-231)
             let v: [CGFloat] = [0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF].map { CGFloat($0) / 255 }

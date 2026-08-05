@@ -164,6 +164,7 @@ struct RemoteWindowPaneLayoutView: View {
                 showStatusBar: false,
                 isEditorActive: paneState.editorSession != nil,
                 autoFocus: isSingle || isActiveInTmux,
+                showsFocusIndicator: !isSingle,
                 onFocus: {
                     // Mirror focus back to the remote tmux so external clients
                     // attached on the host see the same active pane. Idempotent
@@ -243,7 +244,7 @@ struct RemoteWindowPaneLayoutView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(settings.theme.chromeBackgroundColor)
     }
 
     /// The window's agent-session pane (first pane carrying an `AgentSession`) —

@@ -27,6 +27,8 @@ struct RemoteTerminalContainerView: View {
     /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
     /// Used in multi-pane layouts where multiple terminals share one window.
     var autoFocus = true
+    /// Shows a focus outline when this terminal is one tile in a multi-pane layout.
+    var showsFocusIndicator = false
     /// Fires whenever this terminal becomes the window's first responder.
     /// Used to mirror focus back to the remote tmux via `SelectTmuxPane`.
     var onFocus: (@MainActor () -> Void)?
@@ -57,6 +59,7 @@ struct RemoteTerminalContainerView: View {
                 settings: settings,
                 isEditorActive: isEditorActive,
                 autoFocus: autoFocus,
+                showsFocusIndicator: showsFocusIndicator,
                 onFocus: onFocus,
                 onOpenURL: onOpenURL,
                 onStateChange: { state, width, height in
@@ -321,7 +324,7 @@ struct RemoteTerminalContainerView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(settings.theme.chromeBackgroundColor)
     }
 
     private var statusColor: SwiftUI.Color {
@@ -556,6 +559,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     let settings: AppSettings
     let isEditorActive: Bool
     let autoFocus: Bool
+    let showsFocusIndicator: Bool
     let onFocus: (@MainActor () -> Void)?
     let onOpenURL: TerminalOpenURLHandler?
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
@@ -572,6 +576,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires).
         coordinator.terminalView.autoFocusEnabled = autoFocus
+        coordinator.terminalView.showsFocusIndicator = showsFocusIndicator
 
         coordinator.start(
             paneId: paneId,
@@ -602,6 +607,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
+        nsView.showsFocusIndicator = showsFocusIndicator
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
 
@@ -659,7 +665,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             )
             // Disable custom block glyph rendering — see TerminalContainerView.init for details.
             terminalView.customBlockGlyphs = false
-            applyDarkTheme()
+            terminalView.applyTheme(.defaultDark)
         }
 
         func start(
@@ -677,7 +683,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             self.onTitleChange = onTitleChange
 
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
 
             // Wire keystroke forwarding via relay
             terminalView.onInput = { [weak self] keys in
@@ -827,7 +833,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         func updateSettings(_ settings: AppSettings) {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
             terminalView.autoCopyOnSelect = settings.autoCopyOnSelect
         }
 
@@ -845,27 +851,6 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
             terminalView.font = font
             updateTerminalFrameSize()
-        }
-
-        func applyTheme(_ theme: TerminalTheme) {
-            switch theme {
-            case .defaultDark,
-                 .solarizedDark:
-                applyDarkTheme()
-            case .defaultLight,
-                 .solarizedLight:
-                applyLightTheme()
-            }
-        }
-
-        private func applyDarkTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        }
-
-        private func applyLightTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
         }
 
         // MARK: - Private Helpers

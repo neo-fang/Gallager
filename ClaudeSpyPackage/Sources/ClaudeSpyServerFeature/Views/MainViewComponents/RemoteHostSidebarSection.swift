@@ -134,7 +134,11 @@ struct RemoteHostSidebarSection: View {
             )
         }
         .buttonStyle(.plain)
-        .listRowBackground(isSelected ? Color.accentColor.opacity(0.2) : nil)
+        .listRowBackground(
+            settings.highlightSelectedSidebarSession && isSelected
+                ? settings.theme.selectedSidebarRowBackgroundColor
+                : nil
+        )
         .accessibilityChildren {
             SessionProgressAccessibilityProxy(progress: sessionProgress)
         }

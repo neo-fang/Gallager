@@ -31,6 +31,8 @@ struct TerminalContainerView: NSViewRepresentable {
     /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
     /// Used in multi-pane layouts where multiple terminals share one window.
     var autoFocus = true
+    /// Shows a focus outline when this terminal is one tile in a multi-pane layout.
+    var showsFocusIndicator = false
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
     var onOpenURL: TerminalOpenURLHandler?
@@ -55,6 +57,7 @@ struct TerminalContainerView: NSViewRepresentable {
         // session is already active on that pane (e.g., tab switch), viewDidMoveToWindow
         // would otherwise auto-grab focus before updateNSView flips the flag.
         coordinator.terminalView.autoFocusEnabled = autoFocus
+        coordinator.terminalView.showsFocusIndicator = showsFocusIndicator
         coordinator.terminalView.isEditorActive =
             editorSessionManager.session(for: paneState.paneId) != nil
 
@@ -78,6 +81,8 @@ struct TerminalContainerView: NSViewRepresentable {
 
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
+
+        nsView.showsFocusIndicator = showsFocusIndicator
 
         // Update editor state — suppress keyboard/focus when editor overlay is active
         let editorActive = editorSessionManager.session(for: paneState.paneId) != nil
@@ -182,7 +187,7 @@ struct TerminalContainerView: NSViewRepresentable {
             // this causes cumulative positioning drift — up to ~42pt at column 100 on non-Retina.
             // Using the font's own box drawing glyphs keeps them on the same text grid.
             terminalView.customBlockGlyphs = false
-            applyDarkTheme()
+            terminalView.applyTheme(.defaultDark)
         }
 
         // MARK: Lifecycle
@@ -206,7 +211,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             // Apply initial settings
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
 
             // Wire up input handling. SwiftTerm emits a Meta/Option sequence as
             // TWO synchronous send() callbacks — a lone ESC, then the key — so we
@@ -519,7 +524,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         func updateSettings(_ settings: AppSettings) {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
             terminalView.autoCopyOnSelect = settings.autoCopyOnSelect
         }
 
@@ -536,27 +541,6 @@ struct TerminalContainerView: NSViewRepresentable {
             // SwiftTerm's resetFont() recalculates cols/rows from frame.width
             // without subtracting scroller width. Re-apply our correct dimensions.
             reapplyDimensionsIfNeeded()
-        }
-
-        func applyTheme(_ theme: TerminalTheme) {
-            switch theme {
-            case .defaultDark,
-                 .solarizedDark:
-                applyDarkTheme()
-            case .defaultLight,
-                 .solarizedLight:
-                applyLightTheme()
-            }
-        }
-
-        private func applyDarkTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        }
-
-        private func applyLightTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
         }
 
         // MARK: External Dimension Changes

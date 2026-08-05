@@ -150,6 +150,7 @@ struct WindowPaneLayoutView: View {
             TerminalContainerView(
                 paneState: paneState,
                 autoFocus: isSingle || isActiveInTmux,
+                showsFocusIndicator: !isSingle,
                 onStateChange: { _, _, _ in },
                 onTitleChange: { title in
                     windowManager.updateTerminalTitle(paneId: paneState.paneId, title: title)
@@ -231,7 +232,7 @@ struct WindowPaneLayoutView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(settings.theme.chromeBackgroundColor)
     }
 
     /// The window's agent-session pane (first pane carrying an `AgentSession`) —
