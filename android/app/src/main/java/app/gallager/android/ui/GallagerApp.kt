@@ -46,10 +46,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -499,14 +501,24 @@ private fun TerminalScreen(
                         textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     )
                     Spacer(Modifier.width(8.dp))
-                    IconButton(
+                    FilledIconButton(
                         enabled = connected && input.isNotEmpty(),
                         onClick = sendText,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = GallagerAccent,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            disabledContainerColor = GallagerSurfaceRaised,
+                            disabledContentColor = GallagerMuted,
+                        ),
                         modifier = Modifier
                             .size(52.dp)
                             .semantics { contentDescription = "Send terminal input" },
                     ) {
-                        Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = null)
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
                     }
                 }
             }
