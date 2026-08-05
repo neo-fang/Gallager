@@ -266,14 +266,21 @@ struct TerminalContainerView: NSViewRepresentable {
             guard let tmuxService else { return }
 
             do {
-                // Batched send: a contiguous run of same-mode keys becomes a
-                // single `send-keys` invocation (sendKeystrokes still splits
-                // across `.delay` boundaries and literal/non-literal transitions).
-                // This is what keeps a split Meta sequence (e.g. `[.escape,
-                // .backspace]` for Option-Backspace) intact — the two land in one
-                // `send-keys`, whereas sent one-by-one tmux delivers a bare Escape
-                // then Backspace and the app only deletes a character, not a word.
-                try await tmuxService.sendKeystrokes(target, keys: keys)
+                if let paneState, let paneStreamManager {
+                    do {
+                        try await paneStreamManager.sendKeystrokes(
+                            paneId: paneState.paneId,
+                            sessionName: paneState.sessionName,
+                            keys: keys
+                        )
+                    } catch {
+                        // Keep input reliable if the persistent control connection
+                        // is reconnecting; the subprocess path is slower but safe.
+                        try await tmuxService.sendKeystrokes(target, keys: keys)
+                    }
+                } else {
+                    try await tmuxService.sendKeystrokes(target, keys: keys)
+                }
                 consecutiveKeyFailures = 0
             } catch {
                 consecutiveKeyFailures += 1

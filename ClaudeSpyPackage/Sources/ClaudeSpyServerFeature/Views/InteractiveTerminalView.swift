@@ -443,7 +443,6 @@
 
         /// Using nonisolated(unsafe) for notification observer cleanup in deinit
         private nonisolated(unsafe) var windowObservers: [any NSObjectProtocol] = []
-        private nonisolated(unsafe) var keyEventMonitor: Any?
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
@@ -468,9 +467,6 @@
         deinit {
             for observer in windowObservers {
                 NotificationCenter.default.removeObserver(observer)
-            }
-            if let keyEventMonitor {
-                NSEvent.removeMonitor(keyEventMonitor)
             }
         }
 
@@ -541,52 +537,25 @@
         // MARK: - First Responder
 
         override var acceptsFirstResponder: Bool {
-            false
+            true
         }
 
         @discardableResult
         func focusTerminal() -> Bool {
-            guard let window, window.makeFirstResponder(terminalView) else { return false }
-            if let contentView = window.contentView {
-                updateFocusBorders(in: contentView)
-            }
+            window?.makeFirstResponder(self) ?? false
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            isFocused = true
+            terminalView.hasFocus = true
             onBecomeFirstResponder?()
-            return true
+            return super.becomeFirstResponder()
         }
 
-        private func updateFocusBorders(in view: NSView) {
-            if let terminal = view as? InteractiveTerminalView {
-                terminal.isFocused = terminal === self
-            }
-            for subview in view.subviews {
-                updateFocusBorders(in: subview)
-            }
-        }
-
-        private func interceptTerminalKeyDown(_ event: NSEvent) -> Bool {
-            guard
-                !isEditorActive,
-                event.window === window,
-                window?.firstResponder === terminalView
-            else { return false }
-
-            // SwiftTerm's legacy keyDown path dispatches both Enter and
-            // Shift+Enter through `insertNewline:`, collapsing the modifier
-            // to plain `\r`. SwiftTerm only preserves the modifier when the
-            // inner app pushes kitty mode, which can't happen here because
-            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
-            let returnChars: Set = ["\r", "\u{3}"]
-            guard
-                let chars = event.charactersIgnoringModifiers,
-                returnChars.contains(chars)
-            else { return false }
-
-            let activeModifiers = event.modifierFlags
-                .intersection([.shift, .control, .option, .command])
-            guard activeModifiers == .shift else { return false }
-
-            onInput?([.shiftEnter])
-            return true
+        override func resignFirstResponder() -> Bool {
+            isFocused = false
+            terminalView.hasFocus = false
+            return super.resignFirstResponder()
         }
 
         override func viewDidMoveToWindow() {
@@ -597,17 +566,8 @@
                 NotificationCenter.default.removeObserver(observer)
             }
             windowObservers.removeAll()
-            if let keyEventMonitor {
-                NSEvent.removeMonitor(keyEventMonitor)
-                self.keyEventMonitor = nil
-            }
 
             guard let window else { return }
-
-            keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self else { return event }
-                return self.interceptTerminalKeyDown(event) ? nil : event
-            }
 
             // Auto-focus when added to a window (disabled in multi-pane layouts
             // where multiple terminals share one window to avoid focus fighting,
@@ -636,14 +596,14 @@
                         // overriding the user's explicit click.
                         let currentResponder = window.firstResponder
                         let siblingHasFocus =
-                            currentResponder !== self.terminalView &&
-                            currentResponder is TerminalView
+                            currentResponder !== self &&
+                            currentResponder is InteractiveTerminalView
                         if !siblingHasFocus {
                             self.focusTerminal()
                         }
                     }
                     // If we're already first responder, restore cursor appearance
-                    if window.firstResponder === self.terminalView {
+                    if window.firstResponder === self {
                         self.terminalView.hasFocus = true
                         self.isFocused = true
                     }
@@ -1055,7 +1015,7 @@
             // returns true consumes the event. In a multi-pane layout, that means
             // any sibling pane could claim Cmd+V or Cmd+C and route input to the
             // wrong tmux target. Only act when this pane actually has focus.
-            guard window?.firstResponder === terminalView else { return false }
+            guard isFocused else { return false }
 
             guard event.modifierFlags.contains(.command) else {
                 return false
@@ -1148,6 +1108,43 @@
         /// from a real Finder.
         func simulateFileDrop(_ urls: [URL]) {
             onFileDrop?(urls)
+        }
+
+        override func keyDown(with event: NSEvent) {
+            guard !isEditorActive else { return }
+
+            // Preserve Shift+Enter before AppKit's text input manager collapses
+            // it to a plain newline.
+            let returnChars: Set = ["\r", "\u{3}"]
+            if
+                !hasMarkedText(),
+                let chars = event.charactersIgnoringModifiers,
+                returnChars.contains(chars)
+            {
+                let activeModifiers = event.modifierFlags
+                    .intersection([.shift, .control, .option, .command])
+                if activeModifiers == .shift {
+                    onInput?([.shiftEnter])
+                    return
+                }
+            }
+
+            // This wrapper owns first-responder status so macOS IME callbacks
+            // arrive consistently. Ordinary text is interpreted here and the
+            // NSTextInputClient bridge below delegates composition to SwiftTerm.
+            // Function and modified keys stay on SwiftTerm's native path, which
+            // preserves arrows, Home/End (Fn+Left/Right), Ctrl and Option keys.
+            let terminalModifiers = event.modifierFlags
+                .intersection([.control, .option, .command, .function])
+            if hasMarkedText() || terminalModifiers.isEmpty {
+                interpretKeyEvents([event])
+            } else {
+                terminalView.keyDown(with: event)
+            }
+        }
+
+        override func doCommand(by selector: Selector) {
+            terminalView.doCommand(by: selector)
         }
 
         // MARK: - URL Detection
@@ -1657,6 +1654,62 @@
     // MARK: - TerminalActions
 
     extension InteractiveTerminalView: @preconcurrency TerminalActions { }
+
+    // MARK: - NSTextInputClient
+
+    /// The wrapper owns focus for reliable multi-pane routing while SwiftTerm
+    /// remains the source of truth for marked-text/IME state.
+    extension InteractiveTerminalView: @preconcurrency NSTextInputClient {
+        func insertText(_ string: Any, replacementRange: NSRange) {
+            terminalView.insertText(string, replacementRange: replacementRange)
+        }
+
+        func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+            terminalView.setMarkedText(
+                string,
+                selectedRange: selectedRange,
+                replacementRange: replacementRange
+            )
+        }
+
+        func unmarkText() {
+            terminalView.unmarkText()
+        }
+
+        func selectedRange() -> NSRange {
+            terminalView.selectedRange()
+        }
+
+        func markedRange() -> NSRange {
+            terminalView.markedRange()
+        }
+
+        func hasMarkedText() -> Bool {
+            terminalView.hasMarkedText()
+        }
+
+        func attributedSubstring(
+            forProposedRange range: NSRange,
+            actualRange: NSRangePointer?
+        ) -> NSAttributedString? {
+            terminalView.attributedSubstring(forProposedRange: range, actualRange: actualRange)
+        }
+
+        func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+            terminalView.validAttributesForMarkedText()
+        }
+
+        func firstRect(
+            forCharacterRange range: NSRange,
+            actualRange: NSRangePointer?
+        ) -> NSRect {
+            terminalView.firstRect(forCharacterRange: range, actualRange: actualRange)
+        }
+
+        func characterIndex(for point: NSPoint) -> Int {
+            terminalView.characterIndex(for: point)
+        }
+    }
 
     // MARK: - TerminalViewDelegate
 

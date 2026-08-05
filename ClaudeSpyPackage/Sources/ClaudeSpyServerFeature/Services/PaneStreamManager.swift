@@ -109,6 +109,74 @@
             readers[paneId]?.terminalTitle
         }
 
+        /// Sends interactive input over the already-open tmux control-mode
+        /// connection. This avoids spawning a new `tmux` process for every
+        /// keystroke, which is especially noticeable with terminal local echo.
+        public func sendKeystrokes(
+            paneId: String,
+            sessionName: String,
+            keys: [TmuxKey]
+        ) async throws {
+            if keys.contains(where: {
+                if case .delay = $0 { return true }
+                return false
+            }) {
+                throw TmuxControlError.invalidResponse(message: "Timed key sequences require the CLI path")
+            }
+            for command in Self.sendKeysCommands(paneId: paneId, keys: keys) {
+                let response = try await controlClientManager.sendCommand(
+                    command,
+                    sessionName: sessionName
+                )
+                if response.isError {
+                    throw TmuxControlError.commandFailed(message: response.output)
+                }
+            }
+        }
+
+        /// Builds control-mode commands without shell quoting user text. Literal
+        /// UTF-8 bytes travel through tmux's hex mode; special keys remain named
+        /// keys so tmux can honor the pane's cursor/application key mode.
+        static func sendKeysCommands(paneId: String, keys: [TmuxKey]) -> [String] {
+            var commands: [String] = []
+            var literalBytes: [UInt8] = []
+            var namedKeys: [String] = []
+
+            func flushLiteral() {
+                guard !literalBytes.isEmpty else { return }
+                let hex = literalBytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+                commands.append("send-keys -t '\(paneId)' -H \(hex)")
+                literalBytes.removeAll(keepingCapacity: true)
+            }
+
+            func flushNamed() {
+                guard !namedKeys.isEmpty else { return }
+                commands.append("send-keys -t '\(paneId)' \(namedKeys.joined(separator: " "))")
+                namedKeys.removeAll(keepingCapacity: true)
+            }
+
+            for key in keys {
+                switch key {
+                case let .text(text):
+                    flushNamed()
+                    literalBytes.append(contentsOf: text.utf8)
+                case let .delay(milliseconds):
+                    // `sendKeystrokes` rejects timed sequences before building.
+                    // Keep ordering deterministic if the pure builder is used in
+                    // a unit test or diagnostic.
+                    flushLiteral()
+                    flushNamed()
+                    _ = milliseconds
+                default:
+                    flushLiteral()
+                    namedKeys.append(key.tmuxKeyName)
+                }
+            }
+            flushLiteral()
+            flushNamed()
+            return commands
+        }
+
         /// Known default pane titles to filter out when seeding from tmux state.
         /// Tmux initializes `pane_title` to the system hostname, which may appear
         /// in various forms depending on the system configuration.
