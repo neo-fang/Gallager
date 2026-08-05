@@ -1085,7 +1085,11 @@
             // Intercept and route as `.shiftEnter` so tmux delivers the
             // proper extended-key sequence to the pane.
             let returnChars: Set = ["\r", "\u{3}"]
-            if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
+            if
+                !hasMarkedText(),
+                let chars = event.charactersIgnoringModifiers,
+                returnChars.contains(chars)
+            {
                 let activeModifiers = event.modifierFlags
                     .intersection([.shift, .control, .option, .command])
                 if activeModifiers == .shift {
@@ -1094,7 +1098,25 @@
                 }
             }
 
-            terminalView.keyDown(with: event)
+            // `InteractiveTerminalView` is the window's first responder, not
+            // SwiftTerm's nested `TerminalView`. Forwarding every event through
+            // `terminalView.keyDown` works for direct Latin keystrokes, but the
+            // macOS input manager sends marked-text callbacks to the actual first
+            // responder. Interpret ordinary text events here so this wrapper's
+            // NSTextInputClient bridge receives IME composition and delegates it
+            // to SwiftTerm. Keep modified/function keys on SwiftTerm's native path
+            // so Ctrl/Option shortcuts and terminal key protocols are unchanged.
+            let terminalModifiers = event.modifierFlags
+                .intersection([.control, .option, .command, .function])
+            if hasMarkedText() || terminalModifiers.isEmpty {
+                interpretKeyEvents([event])
+            } else {
+                terminalView.keyDown(with: event)
+            }
+        }
+
+        override func doCommand(by selector: Selector) {
+            terminalView.doCommand(by: selector)
         }
 
         // MARK: - URL Detection
@@ -1593,6 +1615,63 @@
     // MARK: - TerminalActions
 
     extension InteractiveTerminalView: @preconcurrency TerminalActions { }
+
+    // MARK: - NSTextInputClient
+
+    /// The wrapper owns focus so multi-pane selection, focus borders, and the
+    /// scroll overlay stay coherent. SwiftTerm still owns the terminal input
+    /// model, so delegate the complete marked-text contract to it.
+    extension InteractiveTerminalView: @preconcurrency NSTextInputClient {
+        func insertText(_ string: Any, replacementRange: NSRange) {
+            terminalView.insertText(string, replacementRange: replacementRange)
+        }
+
+        func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+            terminalView.setMarkedText(
+                string,
+                selectedRange: selectedRange,
+                replacementRange: replacementRange
+            )
+        }
+
+        func unmarkText() {
+            terminalView.unmarkText()
+        }
+
+        func selectedRange() -> NSRange {
+            terminalView.selectedRange()
+        }
+
+        func markedRange() -> NSRange {
+            terminalView.markedRange()
+        }
+
+        func hasMarkedText() -> Bool {
+            terminalView.hasMarkedText()
+        }
+
+        func attributedSubstring(
+            forProposedRange range: NSRange,
+            actualRange: NSRangePointer?
+        ) -> NSAttributedString? {
+            terminalView.attributedSubstring(forProposedRange: range, actualRange: actualRange)
+        }
+
+        func validAttributesForMarkedText() -> [NSAttributedString.Key] {
+            terminalView.validAttributesForMarkedText()
+        }
+
+        func firstRect(
+            forCharacterRange range: NSRange,
+            actualRange: NSRangePointer?
+        ) -> NSRect {
+            terminalView.firstRect(forCharacterRange: range, actualRange: actualRange)
+        }
+
+        func characterIndex(for point: NSPoint) -> Int {
+            terminalView.characterIndex(for: point)
+        }
+    }
 
     // MARK: - TerminalViewDelegate
 

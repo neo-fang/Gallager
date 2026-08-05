@@ -1,5 +1,6 @@
 #if os(macOS)
     import AppKit
+    import ClaudeSpyNetworking
     import Testing
     @testable import ClaudeSpyServerFeature
     @testable import SwiftTerm
@@ -7,6 +8,51 @@
     // MARK: - Type Aliases
 
     private typealias ITV = InteractiveTerminalView
+
+    // MARK: - Input Method Tests
+
+    @Suite("NSTextInputClient bridge")
+    @MainActor
+    struct TextInputClientBridgeTests {
+        @Test("Marked text is owned by SwiftTerm and committed as UTF-8 text")
+        func markedTextCommit() {
+            let view = ITV(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+            var received: [TmuxKey] = []
+            view.onInput = { received.append(contentsOf: $0) }
+
+            view.setMarkedText(
+                "zhongwen",
+                selectedRange: NSRange(location: 8, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+
+            #expect(view.hasMarkedText())
+            #expect(view.markedRange().length == 8)
+
+            view.insertText(
+                "中文" as NSString,
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+
+            #expect(!view.hasMarkedText())
+            #expect(received == [.text("中文")])
+        }
+
+        @Test("Cancelling composition clears marked text")
+        func cancelMarkedText() {
+            let view = ITV(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
+            view.setMarkedText(
+                "pinyin",
+                selectedRange: NSRange(location: 6, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+
+            view.unmarkText()
+
+            #expect(!view.hasMarkedText())
+            #expect(view.markedRange().location == NSNotFound)
+        }
+    }
 
     // MARK: - SGR Color Params Tests
 
