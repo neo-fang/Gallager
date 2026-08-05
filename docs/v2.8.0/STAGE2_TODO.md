@@ -3,15 +3,15 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 0/5 tasks
+- **Progress**: 4/5 tasks
 - **Dependencies**: Stage 1 ✅
 
 ## Tasks
 
-- [ ] 让 iOS terminal stream 生命周期跟随 host 连接状态。
-- [ ] 重连时安全替换旧订阅并刷新完整 initial state。
-- [ ] 增加一次自动重试和持续失败后的手动 Retry。
-- [ ] 增加 stream recovery 状态决策的聚焦测试。
+- [x] 让 iOS terminal stream 生命周期跟随 host 连接状态。
+- [x] 重连时安全替换旧订阅并刷新完整 initial state。
+- [x] 增加一次自动重试和持续失败后的手动 Retry。
+- [x] 增加 stream recovery 状态决策的聚焦测试。
 - [ ] 完成 package 测试、iOS 构建和真机断线恢复验收。
 
 ## Decisions
@@ -24,4 +24,7 @@
 
 ## Validation
 
-- 待完成。
+- `swift test --filter TerminalStream`：5 tests 通过。
+- iOS Simulator `ClaudeSpy` Debug 构建通过。
+- iPhone Debug 真机构建、签名、安装和启动通过。
+- 待在真实 terminal 页面制造 relay / 网络短断，验收页面内自动恢复。
