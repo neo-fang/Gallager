@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -21,7 +22,7 @@ import java.util.Base64
 import java.util.UUID
 
 object GallagerProtocol {
-    const val APP_VERSION = "2.0.3"
+    const val APP_VERSION = "2.1.0"
     const val MIN_HOST_VERSION = "2.0"
 
     val json = Json {
@@ -114,6 +115,61 @@ object GallagerProtocol {
         },
     )
 
+    fun createTmuxSession(
+        sessionName: String,
+        width: Int = 120,
+        height: Int = 40,
+        workingDirectory: String? = null,
+        pluginId: String = "codex",
+    ): CommandRequest = commandRequest(
+        paneId = "",
+        commandName = "createTmuxSession",
+        commandPayload = buildJsonObject {
+            put("sessionName", sessionName)
+            put("width", width)
+            put("height", height)
+            workingDirectory?.takeIf { it.isNotBlank() }?.let { put("workingDirectory", it) }
+            put("pluginID", pluginId)
+        },
+    )
+
+    fun createTmuxWindow(sessionName: String, workingDirectory: String? = null): CommandRequest =
+        commandRequest(
+            paneId = "",
+            commandName = "createTmuxWindow",
+            commandPayload = buildJsonObject {
+                put("sessionName", sessionName)
+                workingDirectory?.takeIf { it.isNotBlank() }?.let { put("workingDirectory", it) }
+            },
+        )
+
+    fun splitTmuxPane(paneId: String, horizontal: Boolean): CommandRequest = commandRequest(
+        paneId = paneId,
+        commandName = "splitTmuxPane",
+        commandPayload = buildJsonObject {
+            put("direction", if (horizontal) "horizontal" else "vertical")
+        },
+    )
+
+    fun killTmuxWindow(windowId: String): CommandRequest = commandRequest(
+        paneId = "",
+        commandName = "killTmuxWindow",
+        commandPayload = buildJsonObject { put("windowId", windowId) },
+    )
+
+    fun killTmuxSession(sessionName: String): CommandRequest = commandRequest(
+        paneId = "",
+        commandName = "killTmuxSession",
+        commandPayload = buildJsonObject { put("sessionName", sessionName) },
+    )
+
+    fun parseCommandResponse(payload: JsonObject): CommandResponse = CommandResponse(
+        commandId = payload.requiredString("commandId"),
+        success = payload["success"]?.jsonPrimitive?.booleanOrNull ?: false,
+        error = payload.string("error"),
+        paneId = payload.string("paneId"),
+    )
+
     fun encrypted(payload: EncryptedPayload): String = frame(
         "encrypted",
         buildJsonObject {
@@ -146,6 +202,8 @@ object GallagerProtocol {
                 PaneSummary(
                     paneId = pane.string("paneId") ?: paneId,
                     sessionName = pane.string("sessionName").orEmpty(),
+                    windowIndex = pane["windowIndex"]?.jsonPrimitive?.intOrNull ?: 0,
+                    paneIndex = pane["paneIndex"]?.jsonPrimitive?.intOrNull ?: 0,
                     windowName = pane.string("windowName").orEmpty(),
                     terminalTitle = pane.string("terminalTitle"),
                     currentPath = pane.string("currentPath"),
@@ -201,17 +259,30 @@ object GallagerProtocol {
         }
     }
 
-    private fun commandFrame(paneId: String, commandName: String, commandPayload: JsonObject): String {
-        val associatedValue = buildJsonObject { put("_0", commandPayload) }
-        return frame(
+    private fun commandFrame(paneId: String, commandName: String, commandPayload: JsonObject): String =
+        commandRequest(paneId, commandName, commandPayload).message
+
+    private fun commandRequest(
+        paneId: String,
+        commandName: String,
+        commandPayload: JsonObject,
+    ): CommandRequest {
+        val id = UUID.randomUUID().toString()
+        val message = frame(
             "command",
             buildJsonObject {
-                put("id", UUID.randomUUID().toString())
+                put("id", id)
                 put("paneId", paneId)
-                put("command", buildJsonObject { put(commandName, associatedValue) })
+                put(
+                    "command",
+                    buildJsonObject {
+                        put(commandName, buildJsonObject { put("_0", commandPayload) })
+                    },
+                )
                 put("timestamp", Instant.now().truncatedTo(ChronoUnit.SECONDS).toString())
             },
         )
+        return CommandRequest(id, message)
     }
 
     private fun frame(type: String, payload: JsonElement? = null): String = buildJsonObject {
@@ -260,4 +331,16 @@ data class TerminalUpdate(
     val bytes: ByteArray? = null,
     val width: Int? = null,
     val height: Int? = null,
+)
+
+data class CommandRequest(
+    val id: String,
+    val message: String,
+)
+
+data class CommandResponse(
+    val commandId: String,
+    val success: Boolean,
+    val error: String?,
+    val paneId: String?,
 )

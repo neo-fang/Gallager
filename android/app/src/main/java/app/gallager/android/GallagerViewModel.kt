@@ -116,6 +116,33 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
         relayClient?.sendInput(paneId, bytes)
     }
 
+    fun createSession(name: String, workingDirectory: String?, pluginId: String) {
+        relayClient?.createSession(name.trim(), workingDirectory?.trim(), pluginId)
+    }
+
+    fun createWindow(sessionName: String, workingDirectory: String?) {
+        relayClient?.createWindow(sessionName, workingDirectory?.trim())
+    }
+
+    fun splitPane(horizontal: Boolean) {
+        val paneId = _uiState.value.selectedPaneId ?: return
+        relayClient?.splitPane(paneId, horizontal)
+    }
+
+    fun closeWindow(pane: PaneSummary) {
+        relayClient?.killWindow(pane.windowId)
+        closeTerminal()
+    }
+
+    fun closeSession(pane: PaneSummary) {
+        relayClient?.killSession(pane.sessionName)
+        closeTerminal()
+    }
+
+    fun clearCommandFeedback() {
+        relayClient?.clearCommandFeedback()
+    }
+
     fun unpair() {
         val host = _uiState.value.pairedHost ?: return
         viewModelScope.launch {

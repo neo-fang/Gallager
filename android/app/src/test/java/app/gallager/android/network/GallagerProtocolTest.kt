@@ -2,6 +2,7 @@ package app.gallager.android.network
 
 import app.gallager.android.model.EncryptedPayload
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -73,5 +74,72 @@ class GallagerProtocolTest {
 
         assertEquals(TerminalUpdateType.INITIAL, update?.type)
         assertEquals("hello", update?.bytes?.toString(Charsets.UTF_8))
+    }
+
+    @Test
+    fun emitsSwiftCompatibleCreateAndSplitCommands() {
+        val create = parseOuterFrame(
+            GallagerProtocol.createTmuxSession(
+                sessionName = "mobile",
+                workingDirectory = "/Users/neo/project",
+                pluginId = "codex",
+            ).message,
+        )
+        val createPayload = create.payload
+            ?.get("command")?.jsonObject
+            ?.get("createTmuxSession")?.jsonObject
+            ?.get("_0")?.jsonObject
+
+        assertEquals("", create.payload?.get("paneId")?.jsonPrimitive?.content)
+        assertEquals("mobile", createPayload?.get("sessionName")?.jsonPrimitive?.content)
+        assertEquals(120, createPayload?.get("width")?.jsonPrimitive?.content?.toInt())
+        assertEquals("/Users/neo/project", createPayload?.get("workingDirectory")?.jsonPrimitive?.content)
+        assertEquals("codex", createPayload?.get("pluginID")?.jsonPrimitive?.content)
+
+        val split = parseOuterFrame(GallagerProtocol.splitTmuxPane("%7", horizontal = false).message)
+        val splitPayload = split.payload
+            ?.get("command")?.jsonObject
+            ?.get("splitTmuxPane")?.jsonObject
+            ?.get("_0")?.jsonObject
+        assertEquals("%7", split.payload?.get("paneId")?.jsonPrimitive?.content)
+        assertEquals("vertical", splitPayload?.get("direction")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parsesCommandResponseFromMac() {
+        val payload = GallagerProtocol.json.parseToJsonElement(
+            """{
+              "commandId":"00000000-0000-0000-0000-000000000005",
+              "success":true,
+              "paneId":"%12"
+            }""",
+        ).jsonObject
+
+        val response = GallagerProtocol.parseCommandResponse(payload)
+
+        assertEquals(true, response.success)
+        assertEquals("%12", response.paneId)
+    }
+
+    @Test
+    fun parsesWindowIdentityForManagementActions() {
+        val payload = GallagerProtocol.json.parseToJsonElement(
+            """{
+              "paneStates": {
+                "%3": {
+                  "paneId":"%3",
+                  "sessionName":"work",
+                  "windowIndex":2,
+                  "paneIndex":1,
+                  "windowName":"editor"
+                }
+              }
+            }""",
+        ).jsonObject
+
+        val pane = GallagerProtocol.parsePanes(payload).single()
+
+        assertEquals("work:2", pane.windowId)
+        assertEquals(1, pane.paneIndex)
     }
 }

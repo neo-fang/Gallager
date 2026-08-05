@@ -28,6 +28,7 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.min
 
 class RelayClient(
@@ -52,6 +53,7 @@ class RelayClient(
     private var keepAliveJob: Job? = null
     private var reconnectAttempt = 0
     private var activePaneId: String? = null
+    private val pendingCommands = ConcurrentHashMap<String, String>()
     @Volatile private var shouldReconnect = false
 
     fun connect() {
@@ -65,6 +67,7 @@ class RelayClient(
         shouldReconnect = false
         reconnectJob?.cancel()
         keepAliveJob?.cancel()
+        pendingCommands.clear()
         webSocket?.close(1000, "Client closed")
         webSocket = null
         crypto.clearSession()
@@ -72,6 +75,7 @@ class RelayClient(
             status = ConnectionStatus.DISCONNECTED,
             statusMessage = "Disconnected",
             hostConnected = false,
+            commandInProgress = false,
         )
     }
 
@@ -93,6 +97,39 @@ class RelayClient(
     fun sendInput(paneId: String, bytes: ByteArray) {
         if (bytes.isEmpty()) return
         sendEncrypted(GallagerProtocol.sendRawInput(paneId, bytes))
+    }
+
+    fun createSession(name: String, workingDirectory: String?, pluginId: String) {
+        sendManagedCommand(
+            GallagerProtocol.createTmuxSession(name, workingDirectory = workingDirectory, pluginId = pluginId),
+            "Session created",
+        )
+    }
+
+    fun createWindow(sessionName: String, workingDirectory: String?) {
+        sendManagedCommand(
+            GallagerProtocol.createTmuxWindow(sessionName, workingDirectory),
+            "Terminal window created",
+        )
+    }
+
+    fun splitPane(paneId: String, horizontal: Boolean) {
+        sendManagedCommand(
+            GallagerProtocol.splitTmuxPane(paneId, horizontal),
+            if (horizontal) "Pane split to the right" else "Pane split below",
+        )
+    }
+
+    fun killWindow(windowId: String) {
+        sendManagedCommand(GallagerProtocol.killTmuxWindow(windowId), "Terminal window closed")
+    }
+
+    fun killSession(sessionName: String) {
+        sendManagedCommand(GallagerProtocol.killTmuxSession(sessionName), "Session closed")
+    }
+
+    fun clearCommandFeedback() {
+        _snapshot.value = _snapshot.value.copy(commandFeedback = null, commandFailed = false)
     }
 
     private fun openSocket() {
@@ -197,7 +234,8 @@ class RelayClient(
                     failTerminal("Pairing was removed on the Mac")
                 }
                 "ping" -> sendPlain(GallagerProtocol.pong())
-                "pong", "commandResponse", "agentSessionStatus", "pluginPresentations", "agentNotification" -> Unit
+                "commandResponse" -> handleCommandResponse(frame.payload)
+                "pong", "agentSessionStatus", "pluginPresentations", "agentNotification" -> Unit
                 "error" -> handleServerError(frame.payload)
             }
         }.onFailure { error ->
@@ -259,6 +297,24 @@ class RelayClient(
         _snapshot.value = _snapshot.value.copy(panes = GallagerProtocol.parsePanes(payload))
     }
 
+    private fun handleCommandResponse(payload: JsonObject?) {
+        payload ?: return
+        val response = GallagerProtocol.parseCommandResponse(payload)
+        val successMessage = pendingCommands.remove(response.commandId) ?: return
+        _snapshot.value = _snapshot.value.copy(
+            commandInProgress = pendingCommands.isNotEmpty(),
+            commandFeedback = if (response.success) successMessage else response.error ?: "Command failed",
+            commandFailed = !response.success,
+        )
+        if (response.success) {
+            sendEncrypted(GallagerProtocol.requestSessionState())
+            scope.launch {
+                delay(350)
+                sendEncrypted(GallagerProtocol.requestSessionState())
+            }
+        }
+    }
+
     private fun handleTerminalStream(payload: JsonObject?) {
         payload ?: return
         val update = GallagerProtocol.terminalUpdate(payload) ?: return
@@ -302,6 +358,33 @@ class RelayClient(
         }
     }
 
+    private fun sendManagedCommand(request: CommandRequest, successMessage: String) {
+        if (!_snapshot.value.hostConnected) {
+            _snapshot.value = _snapshot.value.copy(
+                commandFeedback = "Mac is not connected",
+                commandFailed = true,
+            )
+            return
+        }
+        pendingCommands[request.id] = successMessage
+        _snapshot.value = _snapshot.value.copy(
+            commandInProgress = true,
+            commandFeedback = null,
+            commandFailed = false,
+        )
+        sendEncrypted(request.message)
+        scope.launch {
+            delay(COMMAND_TIMEOUT_MILLIS)
+            if (pendingCommands.remove(request.id) != null) {
+                _snapshot.value = _snapshot.value.copy(
+                    commandInProgress = pendingCommands.isNotEmpty(),
+                    commandFeedback = "Mac did not respond. Please try again.",
+                    commandFailed = true,
+                )
+            }
+        }
+    }
+
     private fun sendPlain(text: String) {
         webSocket?.send(text)
     }
@@ -310,10 +393,12 @@ class RelayClient(
         if (webSocket == null && reconnectJob?.isActive == true) return
         webSocket = null
         keepAliveJob?.cancel()
+        pendingCommands.clear()
         _snapshot.value = _snapshot.value.copy(
             status = ConnectionStatus.DISCONNECTED,
             statusMessage = reason,
             hostConnected = false,
+            commandInProgress = false,
         )
         if (!shouldReconnect) return
         reconnectAttempt++
@@ -347,4 +432,8 @@ class RelayClient(
 
     private fun JsonObject.string(name: String): String? =
         (this[name] as? JsonPrimitive)?.contentOrNull
+
+    companion object {
+        private const val COMMAND_TIMEOUT_MILLIS = 15_000L
+    }
 }

@@ -42,6 +42,8 @@ enum class ConnectionStatus {
 data class PaneSummary(
     val paneId: String,
     val sessionName: String,
+    val windowIndex: Int,
+    val paneIndex: Int,
     val windowName: String,
     val terminalTitle: String?,
     val currentPath: String?,
@@ -51,6 +53,9 @@ data class PaneSummary(
     val customDescription: String?,
     val customEmoji: String?,
 ) {
+    val windowId: String
+        get() = "$sessionName:$windowIndex"
+
     val displayName: String
         get() = customDescription
             ?.takeIf { it.isNotBlank() }
@@ -67,6 +72,9 @@ data class RelaySnapshot(
     val hostName: String? = null,
     val panes: List<PaneSummary> = emptyList(),
     val terminalContent: Map<String, TerminalRender> = emptyMap(),
+    val commandInProgress: Boolean = false,
+    val commandFeedback: String? = null,
+    val commandFailed: Boolean = false,
     val error: String? = null,
 )
 

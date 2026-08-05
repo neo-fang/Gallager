@@ -1,24 +1,26 @@
-# Gallager for Android (MVP)
+# Gallager for Android
 
 This directory contains the native Android companion for Gallager. It speaks the
 same relay, pairing, WebSocket, and end-to-end-encryption protocol as the existing
 Mac and iOS apps; the relay and Mac host do not require Android-specific changes.
 
-## Included in this MVP
+## Included
 
 - six-letter pairing through the hosted or a self-hosted relay;
 - X25519 key agreement, HKDF-SHA256, and ChaCha20-Poly1305 wire compatibility;
 - private-key persistence encrypted by Android Keystore;
 - reconnecting WebSocket viewer connection and encrypted peer-version handshake;
 - live session list with agent state, project, and Git-branch metadata;
-- live terminal stream rendered as a readable VT transcript;
+- live ANSI/VT terminal stream with foreground/background colors and text styles;
 - remote UTF-8 input plus Escape, Ctrl-C, Tab, arrows, Backspace, and Enter;
+- create tmux sessions, create windows, split panes, and close windows/sessions;
 - local unpairing plus relay-side pair deletion.
 
 The Android app currently does **not** implement FCM push notifications, the
-full ANSI cell-grid/mouse protocol, structured agent response forms, file/Git
-browsers, image upload, or Google Play distribution. These are follow-up work;
-the core pairing and terminal-control path is functional without them.
+mouse protocol, structured agent response forms, host project discovery,
+file/Git browsers, image upload, or Google Play distribution. These are
+follow-up work; the core pairing and terminal-control path is functional
+without them.
 
 ## Requirements
 

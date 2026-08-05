@@ -33,9 +33,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AddBox
+import androidx.compose.material.icons.automirrored.outlined.CallSplit
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Code
 import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Refresh
@@ -45,9 +51,13 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +66,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -110,8 +122,15 @@ fun GallagerApp(viewModel: GallagerViewModel) {
             pane = selectedPane,
             terminalContent = state.relay.terminalContent[selectedPane.paneId] ?: TerminalRender(),
             connected = state.relay.hostConnected,
+            commandInProgress = state.relay.commandInProgress,
+            commandFeedback = state.relay.commandFeedback,
             onBack = viewModel::closeTerminal,
             onSend = viewModel::sendInput,
+            onCreateWindow = { path -> viewModel.createWindow(selectedPane.sessionName, path) },
+            onSplit = viewModel::splitPane,
+            onCloseWindow = { viewModel.closeWindow(selectedPane) },
+            onCloseSession = { viewModel.closeSession(selectedPane) },
+            onFeedbackShown = viewModel::clearCommandFeedback,
         )
         else -> SessionsScreen(
             hostName = state.pairedHost?.hostName ?: "Mac",
@@ -119,8 +138,15 @@ fun GallagerApp(viewModel: GallagerViewModel) {
             statusMessage = state.relay.statusMessage,
             panes = state.relay.panes,
             error = state.relay.error,
+            connected = state.relay.hostConnected,
+            commandInProgress = state.relay.commandInProgress,
+            commandFeedback = state.relay.commandFeedback,
             onRefresh = viewModel::retryConnection,
             onSelectPane = viewModel::selectPane,
+            onCreateSession = viewModel::createSession,
+            onCreateWindow = { pane, path -> viewModel.createWindow(pane.sessionName, path) },
+            onCloseSession = viewModel::closeSession,
+            onFeedbackShown = viewModel::clearCommandFeedback,
             onUnpair = viewModel::unpair,
         )
     }
@@ -247,11 +273,66 @@ private fun SessionsScreen(
     statusMessage: String,
     panes: List<PaneSummary>,
     error: String?,
+    connected: Boolean,
+    commandInProgress: Boolean,
+    commandFeedback: String?,
     onRefresh: () -> Unit,
     onSelectPane: (PaneSummary) -> Unit,
+    onCreateSession: (String, String?, String) -> Unit,
+    onCreateWindow: (PaneSummary, String?) -> Unit,
+    onCloseSession: (PaneSummary) -> Unit,
+    onFeedbackShown: () -> Unit,
     onUnpair: () -> Unit,
 ) {
     var showUnpairConfirmation by remember { mutableStateOf(false) }
+    var showNewSessionDialog by remember { mutableStateOf(false) }
+    var windowTarget by remember { mutableStateOf<PaneSummary?>(null) }
+    var closeTarget by remember { mutableStateOf<PaneSummary?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(commandFeedback) {
+        commandFeedback?.let {
+            snackbarHostState.showSnackbar(it)
+            onFeedbackShown()
+        }
+    }
+
+    if (showNewSessionDialog) {
+        NewSessionDialog(
+            loading = commandInProgress,
+            onDismiss = { showNewSessionDialog = false },
+            onCreate = { name, path, pluginId ->
+                showNewSessionDialog = false
+                onCreateSession(name, path, pluginId)
+            },
+        )
+    }
+
+    windowTarget?.let { pane ->
+        NewWindowDialog(
+            sessionName = pane.sessionName,
+            initialPath = pane.currentPath,
+            loading = commandInProgress,
+            onDismiss = { windowTarget = null },
+            onCreate = { path ->
+                windowTarget = null
+                onCreateWindow(pane, path)
+            },
+        )
+    }
+
+    closeTarget?.let { pane ->
+        ConfirmDestructiveDialog(
+            title = "Close session?",
+            message = "This closes every terminal in ${pane.sessionName}. Running processes will be stopped.",
+            confirmLabel = "Close session",
+            onDismiss = { closeTarget = null },
+            onConfirm = {
+                closeTarget = null
+                onCloseSession(pane)
+            },
+        )
+    }
 
     if (showUnpairConfirmation) {
         AlertDialog(
@@ -278,6 +359,23 @@ private fun SessionsScreen(
 
     Scaffold(
         containerColor = GallagerBackground,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            if (connected) {
+                FloatingActionButton(
+                    onClick = { if (!commandInProgress) showNewSessionDialog = true },
+                    containerColor = GallagerAccent,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.semantics { contentDescription = "Create terminal session" },
+                ) {
+                    if (commandInProgress) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Outlined.Add, contentDescription = null)
+                    }
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
@@ -323,7 +421,13 @@ private fun SessionsScreen(
                     )
                 }
                 items(panes, key = { it.paneId }) { pane ->
-                    SessionCard(pane = pane, onClick = { onSelectPane(pane) })
+                    SessionCard(
+                        pane = pane,
+                        actionsEnabled = connected && !commandInProgress,
+                        onClick = { onSelectPane(pane) },
+                        onCreateWindow = { windowTarget = pane },
+                        onCloseSession = { closeTarget = pane },
+                    )
                 }
             }
             else -> EmptySessions(
@@ -338,7 +442,14 @@ private fun SessionsScreen(
 }
 
 @Composable
-private fun SessionCard(pane: PaneSummary, onClick: () -> Unit) {
+private fun SessionCard(
+    pane: PaneSummary,
+    actionsEnabled: Boolean,
+    onClick: () -> Unit,
+    onCreateWindow: () -> Unit,
+    onCloseSession: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -377,12 +488,33 @@ private fun SessionCard(pane: PaneSummary, onClick: () -> Unit) {
                 )
             }
             StatePill(pane.state)
-            Spacer(Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = null,
-                tint = GallagerMuted,
-            )
+            Box {
+                IconButton(
+                    enabled = actionsEnabled,
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.semantics { contentDescription = "Session actions" },
+                ) {
+                    Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = GallagerMuted)
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("New terminal window") },
+                        leadingIcon = { Icon(Icons.Outlined.AddBox, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onCreateWindow()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Close session", color = GallagerDanger) },
+                        leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = GallagerDanger) },
+                        onClick = {
+                            menuExpanded = false
+                            onCloseSession()
+                        },
+                    )
+                }
+            }
         }
     }
 }
@@ -436,13 +568,62 @@ private fun TerminalScreen(
     pane: PaneSummary,
     terminalContent: TerminalRender,
     connected: Boolean,
+    commandInProgress: Boolean,
+    commandFeedback: String?,
     onBack: () -> Unit,
     onSend: (ByteArray) -> Unit,
+    onCreateWindow: (String?) -> Unit,
+    onSplit: (Boolean) -> Unit,
+    onCloseWindow: () -> Unit,
+    onCloseSession: () -> Unit,
+    onFeedbackShown: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val scrollState = rememberScrollState()
     val horizontalScrollState = rememberScrollState()
     var input by remember(pane.paneId) { mutableStateOf("") }
+    var actionMenuExpanded by remember { mutableStateOf(false) }
+    var showNewWindowDialog by remember { mutableStateOf(false) }
+    var closeAction by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(commandFeedback) {
+        commandFeedback?.let {
+            snackbarHostState.showSnackbar(it)
+            onFeedbackShown()
+        }
+    }
+
+    if (showNewWindowDialog) {
+        NewWindowDialog(
+            sessionName = pane.sessionName,
+            initialPath = pane.currentPath,
+            loading = commandInProgress,
+            onDismiss = { showNewWindowDialog = false },
+            onCreate = { path ->
+                showNewWindowDialog = false
+                onCreateWindow(path)
+            },
+        )
+    }
+
+    closeAction?.let { action ->
+        val closeSession = action == "session"
+        ConfirmDestructiveDialog(
+            title = if (closeSession) "Close session?" else "Close terminal window?",
+            message = if (closeSession) {
+                "This closes every terminal in ${pane.sessionName}. Running processes will be stopped."
+            } else {
+                "This closes ${pane.windowName.ifBlank { pane.windowId }} and stops its running processes."
+            },
+            confirmLabel = if (closeSession) "Close session" else "Close window",
+            onDismiss = { closeAction = null },
+            onConfirm = {
+                closeAction = null
+                if (closeSession) onCloseSession() else onCloseWindow()
+            },
+        )
+    }
     val sendText = {
         if (connected && input.isNotEmpty()) {
             onSend((input + "\r").toByteArray(Charsets.UTF_8))
@@ -455,6 +636,7 @@ private fun TerminalScreen(
 
     Scaffold(
         containerColor = TerminalBackground,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -478,6 +660,66 @@ private fun TerminalScreen(
                         modifier = Modifier.semantics { contentDescription = "Back to sessions" },
                     ) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
+                    }
+                },
+                actions = {
+                    Box {
+                        IconButton(
+                            enabled = connected && !commandInProgress,
+                            onClick = { actionMenuExpanded = true },
+                            modifier = Modifier.semantics { contentDescription = "Terminal actions" },
+                        ) {
+                            if (commandInProgress) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = actionMenuExpanded,
+                            onDismissRequest = { actionMenuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("New terminal window") },
+                                leadingIcon = { Icon(Icons.Outlined.AddBox, contentDescription = null) },
+                                onClick = {
+                                    actionMenuExpanded = false
+                                    showNewWindowDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Split right") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.CallSplit, contentDescription = null) },
+                                onClick = {
+                                    actionMenuExpanded = false
+                                    onSplit(true)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Split below") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.CallSplit, contentDescription = null) },
+                                onClick = {
+                                    actionMenuExpanded = false
+                                    onSplit(false)
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Close window", color = GallagerDanger) },
+                                leadingIcon = { Icon(Icons.Outlined.Close, contentDescription = null, tint = GallagerDanger) },
+                                onClick = {
+                                    actionMenuExpanded = false
+                                    closeAction = "window"
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Close session", color = GallagerDanger) },
+                                leadingIcon = { Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = GallagerDanger) },
+                                onClick = {
+                                    actionMenuExpanded = false
+                                    closeAction = "session"
+                                },
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = GallagerSurface),
@@ -551,6 +793,123 @@ private fun TerminalScreen(
             )
         }
     }
+}
+
+@Composable
+private fun NewSessionDialog(
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (String, String?, String) -> Unit,
+) {
+    var name by remember { mutableStateOf("android") }
+    var path by remember { mutableStateOf("") }
+    var pluginId by remember { mutableStateOf("codex") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New terminal session") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.filterNot(Char::isWhitespace) },
+                    label = { Text("Session name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = path,
+                    onValueChange = { path = it },
+                    label = { Text("Working directory (optional)") },
+                    placeholder = { Text("/Users/name/project") },
+                    leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(14.dp))
+                Text("Agent", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = pluginId == "codex",
+                        onClick = { pluginId = "codex" },
+                        label = { Text("Codex") },
+                    )
+                    FilterChip(
+                        selected = pluginId == "claude-code",
+                        onClick = { pluginId = "claude-code" },
+                        label = { Text("Claude") },
+                    )
+                }
+                Text(
+                    "The Agent starts when a working directory is provided and auto-run is enabled on the Mac.",
+                    color = GallagerMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !loading && name.isNotBlank(),
+                onClick = { onCreate(name.trim(), path.trim().ifBlank { null }, pluginId) },
+            ) { Text("Create") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun NewWindowDialog(
+    sessionName: String,
+    initialPath: String?,
+    loading: Boolean,
+    onDismiss: () -> Unit,
+    onCreate: (String?) -> Unit,
+) {
+    var path by remember(initialPath) { mutableStateOf(initialPath.orEmpty()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("New terminal window") },
+        text = {
+            Column {
+                Text("Create a new window in $sessionName.", color = GallagerMuted)
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = path,
+                    onValueChange = { path = it },
+                    label = { Text("Working directory (optional)") },
+                    leadingIcon = { Icon(Icons.Outlined.CreateNewFolder, contentDescription = null) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !loading, onClick = { onCreate(path.trim().ifBlank { null }) }) {
+                Text("Create")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun ConfirmDestructiveDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text(confirmLabel, color = GallagerDanger) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 private fun terminalAnnotatedString(content: TerminalRender) = buildAnnotatedString {

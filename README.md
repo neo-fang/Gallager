@@ -10,7 +10,7 @@ Monitor and drive your coding-agent sessions — **Claude Code**, **Codex CLI**,
 
 - **Live tmux mirroring** — every agent session runs in a tmux pane that Gallager mirrors in real time on your Mac and mobile device.
 - **Session awareness** — knows when an agent is working, finished, or waiting on you (permission prompts, questions, plan approvals) and raises badges and notifications instead of making you poll terminals.
-- **Remote control** — answer permission prompts, reply to questions, send keystrokes, and start new sessions from iOS. The Android MVP provides live session monitoring, terminal streaming, and terminal input.
+- **Remote control** — answer permission prompts, reply to questions, send keystrokes, create sessions and windows, split panes, and manage terminals remotely. Android supports terminal streaming/input and core tmux session management; advanced agent forms remain available on iOS.
 - **Workbench** — file browser, git status, and an in-app prompt editor (Ctrl-G from the terminal) around each session.
 - **Token/cost meter** — per-session token, cost, and latency tracking via OTLP telemetry.
 - **End-to-end encrypted** — the relay only routes ciphertext; it can't read your terminals. Self-host it or use the hosted one.
@@ -24,7 +24,7 @@ Anything that runs in tmux can be mirrored and streamed as a plain terminal; age
 | Mac app | tmux pane mirroring, agent hooks, workbench UI | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
 | Relay server | Vapor app (Docker/Linux): device pairing, WebSocket routing, E2EE passthrough | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
 | iOS app | Remote monitoring and command dispatch | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
-| Android app (MVP) | Pairing, session monitoring, terminal streaming, and remote input | `android/app` |
+| Android app | Pairing, session monitoring, terminal streaming/input, and tmux session/window/pane management | `android/app` |
 
 > Internal target and module names predate the rename to Gallager and still say "ClaudeSpy" — same project.
 
