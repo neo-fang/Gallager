@@ -59,6 +59,10 @@
         /// Tracks keyboard visibility to sync toolbar icon and trigger layout updates
         @State private var keyboardVisible = false
 
+        /// Changes when the user manually retries a failed stream. Combined with
+        /// `isConnected`, this gives the stream task a stable, explicit identity.
+        @State private var streamRetryGeneration = 0
+
         init(
             paneId: String,
             responseState: Binding<ResponseState?>,
@@ -142,8 +146,8 @@
                     }
                 }
             }
-            .task {
-                await startStreaming()
+            .task(id: StreamTaskID(isConnected: isConnected, retryGeneration: streamRetryGeneration)) {
+                await synchronizeStreamingWithConnection()
             }
             .onDisappear {
                 Task { await stopStreaming() }
@@ -239,71 +243,121 @@
                 }
 
             case .error:
-                ContentUnavailableView(
-                    "Stream Error",
-                    symbol: .exclamationmarkTriangle,
-                    description: coordinator.error ?? "Unknown error"
-                )
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "Stream Error",
+                        symbol: .exclamationmarkTriangle,
+                        description: coordinator.error ?? "Unknown error"
+                    )
+
+                    Button("Retry") {
+                        streamRetryGeneration &+= 1
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isConnected)
+                }
             }
         }
 
         // MARK: - Streaming
 
-        private func startStreaming() async {
+        private func synchronizeStreamingWithConnection() async {
             guard isConnected else {
-                coordinator.streamState = .error
-                coordinator.error = "Host is not connected"
+                coordinator.prepareForReconnect()
                 return
             }
 
-            // Generate a unique session ID for this streaming attempt
-            // This prevents stale callbacks from processing messages
-            let streamSessionId = UUID()
-            coordinator.streamSessionId = streamSessionId
-            coordinator.streamState = .connecting
+            await startStreaming()
+        }
 
-            // Capture coordinator strongly - it's held by @State so won't outlive the view,
-            // and stopStreaming() clears the callback to break the reference
-            let currentCoordinator = coordinator
-            let currentPaneId = paneId
+        private func startStreaming() async {
+            var startMode = coordinator.nextStartMode()
 
-            // Set up per-pane stream message handler BEFORE sending the command
-            // Use strong capture to prevent the coordinator from being deallocated during async gaps
-            relayClient.setTerminalStreamHandler(for: currentPaneId) { message in
-                // Verify this callback is for the current stream session
-                guard currentCoordinator.streamSessionId == streamSessionId else { return }
-                currentCoordinator.handleStreamMessage(message)
-            }
+            // One retry handles a command response lost during an otherwise
+            // successful reconnect. WebSocket reconnection remains responsible
+            // for longer outages; this loop must never become an infinite poll.
+            for attempt in 0..<2 {
+                guard !Task.isCancelled, relayClient.isHostConnected else {
+                    coordinator.prepareForReconnect()
+                    return
+                }
 
-            // Request stream start
-            let result = await relayClient.sendCommand(
-                StartTerminalStream(),
-                paneId: paneId
-            )
+                let streamSessionId = coordinator.beginAttempt()
+                let currentCoordinator = coordinator
+                let currentPaneId = paneId
 
-            // Only handle failure - streaming state is set when initial state arrives
-            if case let .failure(err) = result {
-                // Only update state if this is still the active stream session
-                if coordinator.streamSessionId == streamSessionId {
-                    coordinator.streamState = .error
-                    coordinator.error = err.localizedDescription
+                // Install the handler before sending commands. The host sends the
+                // initial state before its start response, so registering later can
+                // lose the only complete screen snapshot.
+                relayClient.setTerminalStreamHandler(for: currentPaneId) { message in
+                    guard currentCoordinator.streamSessionId == streamSessionId else { return }
+                    currentCoordinator.handleStreamMessage(message)
+                }
+
+                if startMode == .replaceExisting {
+                    _ = await relayClient.sendCommand(
+                        StopTerminalStream(),
+                        paneId: paneId
+                    )
+
+                    guard
+                        !Task.isCancelled,
+                        relayClient.isHostConnected,
+                        coordinator.streamSessionId == streamSessionId
+                    else {
+                        coordinator.prepareForReconnect()
+                        return
+                    }
+                }
+
+                let result = await relayClient.sendCommand(
+                    StartTerminalStream(),
+                    paneId: paneId
+                )
+
+                guard coordinator.streamSessionId == streamSessionId else { return }
+
+                switch result {
+                case .success:
+                    // The initialState message transitions the coordinator to
+                    // `.streaming`; it is sent before this command response.
+                    return
+
+                case let .failure(error):
+                    guard !Task.isCancelled, relayClient.isHostConnected else {
+                        coordinator.prepareForReconnect()
+                        return
+                    }
+
+                    if attempt == 0 {
+                        startMode = .replaceExisting
+                        do {
+                            try await Task.sleep(for: .milliseconds(500))
+                        } catch {
+                            return
+                        }
+                        continue
+                    }
+
+                    coordinator.fail(error)
                 }
             }
         }
 
         private func stopStreaming() async {
-            // Cancel any in-flight key sends before tearing down the session
-            coordinator.cancelPendingKeys()
-
-            // Invalidate the current stream session first
-            coordinator.streamSessionId = nil
+            let shouldStopHostStream = coordinator.endStreaming()
             relayClient.setTerminalStreamHandler(for: paneId, handler: nil)
 
-            guard isConnected else { return }
+            guard shouldStopHostStream, isConnected else { return }
             _ = await relayClient.sendCommand(
                 StopTerminalStream(),
                 paneId: paneId
             )
+        }
+
+        private struct StreamTaskID: Equatable {
+            let isConnected: Bool
+            let retryGeneration: Int
         }
     }
 
@@ -335,6 +389,8 @@
         @ObservationIgnored
         private var keystrokeDebouncer: KeystrokeDebouncer?
 
+        @ObservationIgnored private var recoveryPolicy = TerminalStreamRecoveryPolicy()
+
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
             self.fontName = fontName
@@ -344,6 +400,44 @@
         /// Cancel any in-flight key-send chain.
         func cancelPendingKeys() {
             keystrokeDebouncer?.cancelAll()
+        }
+
+        func nextStartMode() -> TerminalStreamRecoveryPolicy.StartMode {
+            recoveryPolicy.nextStartMode()
+        }
+
+        /// Starts a fresh attempt and invalidates callbacks from every earlier
+        /// attempt. Old terminal contents are discarded because output emitted
+        /// while disconnected cannot be safely replayed as incremental chunks.
+        func beginAttempt() -> UUID {
+            cancelPendingKeys()
+            let id = UUID()
+            streamSessionId = id
+            streamState = .connecting
+            terminalState = nil
+            error = nil
+            return id
+        }
+
+        func prepareForReconnect() {
+            cancelPendingKeys()
+            streamSessionId = nil
+            streamState = .connecting
+            terminalState = nil
+            error = nil
+        }
+
+        func fail(_ error: Error) {
+            streamState = .error
+            self.error = error.localizedDescription
+        }
+
+        /// Returns whether this view may own a host-side subscription that needs
+        /// balancing with a stop command.
+        func endStreaming() -> Bool {
+            cancelPendingKeys()
+            streamSessionId = nil
+            return recoveryPolicy.hasRequestedStream
         }
 
         /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
