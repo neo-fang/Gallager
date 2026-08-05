@@ -2,15 +2,15 @@
 
 # Gallager
 
-Monitor and drive your coding-agent sessions — **Claude Code**, **Codex CLI**, **opencode**, and **pi** — from a Mac menu-bar app, with an iOS companion that works from anywhere over an end-to-end-encrypted relay.
+Monitor and drive your coding-agent sessions — **Claude Code**, **Codex CLI**, **opencode**, and **pi** — from a Mac menu-bar app, with iOS and Android companions that work from anywhere over an end-to-end-encrypted relay.
 
 **Website & downloads: [gallager.app](https://gallager.app)**
 
 ## What it does
 
-- **Live tmux mirroring** — every agent session runs in a tmux pane that Gallager mirrors in real time, on your Mac and on your iPhone.
+- **Live tmux mirroring** — every agent session runs in a tmux pane that Gallager mirrors in real time on your Mac and mobile device.
 - **Session awareness** — knows when an agent is working, finished, or waiting on you (permission prompts, questions, plan approvals) and raises badges and notifications instead of making you poll terminals.
-- **Remote control** — answer permission prompts, reply to questions, send keystrokes, and start new sessions from the iOS app.
+- **Remote control** — answer permission prompts, reply to questions, send keystrokes, and start new sessions from iOS. The Android MVP provides live session monitoring, terminal streaming, and terminal input.
 - **Workbench** — file browser, git status, and an in-app prompt editor (Ctrl-G from the terminal) around each session.
 - **Token/cost meter** — per-session token, cost, and latency tracking via OTLP telemetry.
 - **End-to-end encrypted** — the relay only routes ciphertext; it can't read your terminals. Self-host it or use the hosted one.
@@ -24,6 +24,7 @@ Anything that runs in tmux can be mirrored and streamed as a plain terminal; age
 | Mac app | tmux pane mirroring, agent hooks, workbench UI | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
 | Relay server | Vapor app (Docker/Linux): device pairing, WebSocket routing, E2EE passthrough | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
 | iOS app | Remote monitoring and command dispatch | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
+| Android app (MVP) | Pairing, session monitoring, terminal streaming, and remote input | `android/app` |
 
 > Internal target and module names predate the rename to Gallager and still say "ClaudeSpy" — same project.
 
@@ -31,20 +32,22 @@ Anything that runs in tmux can be mirrored and streamed as a plain terminal; age
 
 - **Mac app** — download from [gallager.app](https://gallager.app); updates arrive via Sparkle.
 - **iOS app** — [TestFlight](https://testflight.apple.com/join/yFQnxgDv).
+- **Android app** — build the current MVP from [`android/`](android/README.md); a Play Store build is not published yet.
 
 ## Build from source
 
-Requires a recent Xcode (Swift 6.3+ toolchain), macOS 15+, and tmux.
+The Apple targets require a recent Xcode (Swift 6.3+ toolchain), macOS 15+, and tmux. The Android target requires JDK 17 and Android SDK 35.
 
 - **Mac app** — open `ClaudeSpy.xcworkspace`, build the `ClaudeSpyServer` scheme.
 - **iOS app** — same workspace, `ClaudeSpy` scheme (iOS 17+).
+- **Android app** — `cd android && ./gradlew assembleDebug` (Android 8.0/API 26+); see [`android/README.md`](android/README.md).
 - **Relay server** —
   ```sh
   cd ClaudeSpyPackage
   cp .env.example .env
   docker compose up -d
   ```
-- **Tests** — `swift test` in `ClaudeSpyPackage`; end-to-end suite via `./scripts/e2e-test.sh` (see [docs/e2e-testing.md](docs/e2e-testing.md)).
+- **Tests** — `swift test` in `ClaudeSpyPackage`; `./gradlew testDebugUnitTest` in `android`; end-to-end suite via `./scripts/e2e-test.sh` (see [docs/e2e-testing.md](docs/e2e-testing.md)).
 
 Tip: the repo carries e2e screenshot baselines, so a blobless clone is much faster: `git clone --filter=blob:none https://github.com/gpambrozio/Gallager.git`
 

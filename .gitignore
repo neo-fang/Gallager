@@ -85,3 +85,10 @@ claudespy-signing.tar.gz
 
 # Python bytecode (scripts/ and bundled E2E Scripts import as modules in tests)
 __pycache__/
+
+# Android / Gradle
+.gradle/
+**/local.properties
+**/.idea/
+**/*.iml
+**/captures/
