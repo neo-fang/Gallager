@@ -68,6 +68,6 @@
 - 同一连接上的一次瞬时 start 失败可自动恢复；持续失败时用户可手动重试。
 - 恢复后的 initial state 替换断线前的旧画面，不混入断线期间缺失的数据块。
 - 聚焦单元测试、iOS Simulator 构建及 iPhone 真机验证通过。
-- Mac viewer 的 host 短断、start 瞬时失败及 `streamEnd` 均可在原页面恢复；持续
-  失败时保留明确错误和人工 Retry。
+- Mac viewer 的 host 短断和 start 瞬时失败可在原页面恢复；替换订阅期间旧 stream
+  的 `streamEnd` 不得终止新连接。持续失败时保留明确错误和人工 Retry。
 - `ClaudeSpyServer` macOS 构建通过，并在本机 viewer 验证远程 terminal 输入无回归。
