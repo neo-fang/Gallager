@@ -3,17 +3,17 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 0/8 tasks
+- **Progress**: 6/8 tasks
 - **Dependencies**: Stage 4 ✅，Stage 5 ✅
 
 ## Tasks
 
-- [ ] 记录异地 Mac 现场状态并确认故障边界。
-- [ ] 为 per-pane reader 创建增加 single-flight 所有权。
-- [ ] 覆盖 reader 创建成功时的并发复用。
-- [ ] 覆盖 reader 创建失败后的清理与重试。
-- [ ] 本地 New Window 等待新 pane 出现在缓存后再选中。
-- [ ] 运行聚焦测试和完整 Swift package 测试。
+- [x] 记录异地 Mac 现场状态并确认故障边界。
+- [x] 为 per-pane reader 创建增加 single-flight 所有权。
+- [x] 覆盖 reader 创建成功时的并发复用。
+- [x] 覆盖 reader 创建失败后的清理与重试。
+- [x] 本地 New Window 等待新 pane 出现在缓存后再选中。
+- [x] 运行聚焦测试和完整 Swift package 测试。
 - [ ] 运行 macOS arm64 Release 构建与签名结构校验。
 - [ ] 安装本机验证版并完成真实 New Window 输入回归。
 
@@ -25,6 +25,7 @@
   时跨 `await` 启动同一 pane reader，目前没有 in-flight 去重。
 - 本地 New Window 创建后只查一次 `tmuxService.windows`；并行 refresh 会返回旧缓存，
   该路径未复用其他创建流程已有的 `PaneSurfaceRetry`。
+- `PaneLifecycleRaceTests` 5/5 通过；完整 Swift package 回归 1564/1564 通过。
 
 ## Decisions
 

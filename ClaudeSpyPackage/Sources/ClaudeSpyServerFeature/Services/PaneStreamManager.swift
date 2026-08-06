@@ -3,6 +3,53 @@
     import Foundation
     import Logging
 
+    /// Coalesces concurrent attempts to start the same pane reader.
+    ///
+    /// Pane discovery and a newly-created terminal view can observe an unknown
+    /// pane at the same time. Starting two readers would make both instances
+    /// replace the same tmux `pipe-pane` and FIFO, leaving one retained reader
+    /// permanently disconnected. MainActor isolation makes a task table enough;
+    /// no lock or second actor is needed.
+    @MainActor
+    final class PaneReaderStartGate {
+        private struct Flight {
+            let token: UUID
+            let task: Task<Bool, Never>
+        }
+
+        private var flights: [String: Flight] = [:]
+
+        func run(
+            paneId: String,
+            operation: @escaping @MainActor () async -> Bool
+        ) async -> Bool {
+            if let flight = flights[paneId] {
+                return await flight.task.value
+            }
+
+            let token = UUID()
+            let task = Task { await operation() }
+            flights[paneId] = Flight(token: token, task: task)
+
+            let result = await task.value
+            if flights[paneId]?.token == token {
+                flights.removeValue(forKey: paneId)
+            }
+            return result
+        }
+
+        func cancelAll() async {
+            let active = Array(flights.values)
+            flights.removeAll()
+            for flight in active {
+                flight.task.cancel()
+            }
+            for flight in active {
+                _ = await flight.task.value
+            }
+        }
+    }
+
     /// Manages a single persistent `PipePaneReader` per tmux pane and routes its
     /// events to subscribers.
     ///
@@ -72,6 +119,14 @@
 
         /// Task for periodic pane discovery (needed to detect new tmux sessions)
         private var paneRefreshTask: Task<Void, Never>?
+
+        /// Per-pane single-flight for reader startup. Without this, an on-demand
+        /// subscribe can race pane discovery and both replace the same FIFO.
+        private let readerStartGate = PaneReaderStartGate()
+
+        /// `disconnectAll` is terminal for this manager. Keep late callbacks
+        /// from restarting readers while shutdown drains in-flight work.
+        private var isShuttingDown = false
 
         /// Global notification handler — called for any notification on any pane,
         /// regardless of which subscribers are active. Used by macOS to show desktop notifications.
@@ -211,7 +266,7 @@
             // viewer doesn't have to wait for the periodic refresh tick.
             if readers[paneId] == nil {
                 let dims = (try? await tmuxService.getPaneDimensions(target)) ?? (width: 80, height: 24)
-                await startReader(
+                await ensureReader(
                     paneId: paneId,
                     sessionName: sessionName,
                     target: target,
@@ -499,6 +554,9 @@
 
         /// Disconnect all readers (called on app shutdown).
         public func disconnectAll() async {
+            isShuttingDown = true
+            await readerStartGate.cancelAll()
+
             let paneIds = Array(readers.keys)
             for paneId in paneIds {
                 await tearDownReader(paneId: paneId)
@@ -516,7 +574,7 @@
         public func startMonitoring(panes: [PaneInfo]) async {
             for pane in panes where readers[pane.paneId] == nil {
                 let seedTitle = isCustomPaneTitle(pane.paneTitle) ? pane.paneTitle : nil
-                await startReader(
+                await ensureReader(
                     paneId: pane.paneId,
                     sessionName: pane.sessionName,
                     target: pane.target,
@@ -557,7 +615,7 @@
 
             for pane in panes where readers[pane.paneId] == nil {
                 let seedTitle = isCustomPaneTitle(pane.paneTitle) ? pane.paneTitle : nil
-                await startReader(
+                await ensureReader(
                     paneId: pane.paneId,
                     sessionName: pane.sessionName,
                     target: pane.target,
@@ -607,6 +665,32 @@
 
         // MARK: - Reader Lifecycle Helpers
 
+        @discardableResult
+        private func ensureReader(
+            paneId: String,
+            sessionName: String,
+            target: String,
+            initialWidth: Int,
+            initialHeight: Int,
+            seedTitle: String?
+        ) async -> Bool {
+            guard !isShuttingDown else { return false }
+            if readers[paneId] != nil { return true }
+
+            return await readerStartGate.run(paneId: paneId) { [weak self] in
+                guard let self, !self.isShuttingDown else { return false }
+                if self.readers[paneId] != nil { return true }
+                return await self.startReader(
+                    paneId: paneId,
+                    sessionName: sessionName,
+                    target: target,
+                    initialWidth: initialWidth,
+                    initialHeight: initialHeight,
+                    seedTitle: seedTitle
+                )
+            }
+        }
+
         private func startReader(
             paneId: String,
             sessionName: String,
@@ -614,7 +698,7 @@
             initialWidth: Int,
             initialHeight: Int,
             seedTitle: String?
-        ) async {
+        ) async -> Bool {
             let reader = PipePaneReader(paneId: paneId)
             await reader.setDelegate(self)
 
@@ -623,6 +707,13 @@
                     controlClientManager: controlClientManager,
                     sessionName: sessionName
                 )
+                guard !Task.isCancelled, !isShuttingDown else {
+                    await reader.stopPipePane(
+                        controlClientManager: controlClientManager,
+                        sessionName: sessionName
+                    )
+                    return false
+                }
                 readers[paneId] = ReaderContext(
                     reader: reader,
                     target: target,
@@ -637,11 +728,13 @@
                     onTitleChange?(paneId, target, seedTitle)
                 }
                 logger.debug("Started reader", metadata: ["paneId": "\(paneId)"])
+                return true
             } catch {
                 logger.debug("Failed to start reader", metadata: [
                     "paneId": "\(paneId)",
                     "error": "\(error)",
                 ])
+                return false
             }
         }
 
