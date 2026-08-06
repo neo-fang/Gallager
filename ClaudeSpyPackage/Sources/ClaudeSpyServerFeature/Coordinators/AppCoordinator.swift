@@ -3029,16 +3029,17 @@
             let streamService = terminalStreamService
             let tmux = tmuxService
             let editorManager = editorSessionManager
-            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, paneStreaming, weak connectionManager] command in
+            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, paneStreaming, weak connectionManager] viewerId, command in
                 // Handle stream commands
                 if case .startTerminalStream = command.command {
                     return await Self.handleStartStream(
                         command: command,
+                        viewerId: viewerId,
                         streamService: streamService
                     )
                 }
                 if case .stopTerminalStream = command.command {
-                    await streamService.stopStreaming(paneId: command.paneId)
+                    await streamService.stopStreaming(paneId: command.paneId, viewerId: viewerId)
                     return .success(for: command.id)
                 }
 
@@ -3549,6 +3550,7 @@
 
         private static func handleStartStream(
             command: CommandMessage,
+            viewerId: String,
             streamService: TerminalStreamService
         ) async -> CommandResponseMessage? {
             let paneId = command.paneId
@@ -3557,7 +3559,8 @@
             do {
                 try await streamService.startStreaming(
                     paneId: paneId,
-                    target: paneTarget
+                    target: paneTarget,
+                    viewerId: viewerId
                 )
 
                 return .success(for: command.id)

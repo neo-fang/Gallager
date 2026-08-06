@@ -86,7 +86,8 @@ final public class TerminalStreamService {
     ///   - target: The pane target (e.g., "mysession:0.1")
     public func startStreaming(
         paneId: String,
-        target: String
+        target: String,
+        viewerId: String
     ) async throws {
         guard let connectionManager else {
             logger.error("Connection manager not configured, cannot start streaming")
@@ -100,22 +101,23 @@ final public class TerminalStreamService {
 
         // If a stream is already active for this pane, reuse it.
         // Multiple viewers can watch the same pane simultaneously.
-        // We just increment the subscriber count and send the current state.
+        // Record ownership by viewer ID and send the current state.
         if let context = activeStreams[paneId] {
-            // Capture current content first — only increment count if we succeed.
-            // This avoids inflating the count when the pane is no longer available.
+            // Capture current content first — only record ownership if we succeed.
+            // This avoids retaining an owner when the pane is no longer available.
             guard let current = await paneStreamManager.currentContent(for: paneId) else {
                 logger.error("Failed to capture content for existing stream", metadata: [
                     "paneId": "\(paneId)",
                 ])
+                await stopStreaming(paneId: paneId, force: true)
                 throw StreamError.paneNotAvailable
             }
 
-            context.deviceSubscriberCount += 1
+            context.ownership.subscribe(viewerId)
 
-            logger.info("Additional device subscribing to existing stream", metadata: [
+            logger.info("Viewer subscribing to existing stream", metadata: [
                 "paneId": "\(paneId)",
-                "subscriberCount": "\(context.deviceSubscriberCount)",
+                "subscriberCount": "\(context.ownership.count)",
             ])
 
             // Send current state as initialState to all devices.
@@ -144,24 +146,18 @@ final public class TerminalStreamService {
         ])
 
         // Create context for batching
-        let context = StreamContext(paneId: paneId)
+        let context = StreamContext(paneId: paneId, viewerId: viewerId)
 
         // Store context BEFORE subscribing so callbacks work immediately
         activeStreams[paneId] = context
 
-        // Create ordered data stream for this pane.
-        // The onData callback yields into the stream (synchronous, no Task needed),
-        // and a single consumer task processes items strictly in order.
-        // This prevents the out-of-order execution that occurs when spawning
-        // a new Task {} per callback under high throughput.
+        // Create the ordered data stream before subscribing so bytes emitted during
+        // the atomic snapshot are retained. Do not start its consumer yet: live data
+        // must never enter the WebSocket send chain before initialState. Under heavy
+        // output that old ordering could starve the start response until the viewer's
+        // command timeout and leave it on Stream Error.
         let (dataStream, dataContinuation) = AsyncStream.makeStream(of: Data.self)
         dataStreams[paneId] = dataContinuation
-        dataConsumerTasks[paneId] = Task { [weak self] in
-            for await data in dataStream {
-                guard let self, self.activeStreams[paneId] != nil else { break }
-                await self.handleIncomingData(context: context, paneId: paneId, data: data)
-            }
-        }
 
         // Subscribe to PaneStreamManager for data
         // This returns initial content captured atomically with the subscription
@@ -229,6 +225,25 @@ final public class TerminalStreamService {
             paneStreamManager: paneStreamManager
         )
         await connectionManager.sendTerminalStreamToAll(initialMessage)
+
+        // Only now drain live bytes. AsyncStream retained everything yielded while
+        // capture and initialState were in flight, preserving byte order without
+        // allowing high-volume output to overtake terminal initialization.
+        guard let activeContext = activeStreams[paneId], activeContext === context else {
+            dataContinuation.finish()
+            dataStreams.removeValue(forKey: paneId)
+            throw StreamError.paneNotAvailable
+        }
+        dataConsumerTasks[paneId] = Task { [weak self] in
+            for await data in dataStream {
+                guard
+                    let self,
+                    let activeContext = self.activeStreams[paneId],
+                    activeContext === context
+                else { break }
+                await self.handleIncomingData(context: context, paneId: paneId, data: data)
+            }
+        }
     }
 
     /// Builds an `initialState` message with the pane's current mouse-mode escape sequences
@@ -254,33 +269,47 @@ final public class TerminalStreamService {
 
     /// Stop streaming a pane.
     ///
-    /// Decrements the device subscriber count. Only truly stops (unsubscribes, sends streamEnd)
-    /// when the last subscriber leaves or when `force` is true.
+    /// Removes the requesting viewer's ownership. Only truly stops (unsubscribes,
+    /// sends streamEnd) when the last viewer leaves or when `force` is true.
     ///
     /// - Parameters:
     ///   - paneId: The pane identifier
     ///   - force: If true, stop immediately regardless of subscriber count (used for system cleanup)
-    public func stopStreaming(paneId: String, force: Bool = false) async {
+    public func stopStreaming(
+        paneId: String,
+        viewerId: String? = nil,
+        force: Bool = false
+    ) async {
         guard let context = activeStreams[paneId] else {
             logger.debug("No active stream for pane \(paneId)")
             return
         }
 
         if !force {
-            if context.deviceSubscriberCount <= 0 {
-                // Count already at or below zero — force-stop to clean up inconsistent state
-                logger.warning("Subscriber count already at \(context.deviceSubscriberCount), force-stopping", metadata: [
+            guard let viewerId else {
+                logger.error("Missing viewer ID when stopping terminal stream", metadata: [
                     "paneId": "\(paneId)",
                 ])
-            } else {
-                context.deviceSubscriberCount -= 1
-                if context.deviceSubscriberCount > 0 {
-                    logger.info("Device unsubscribed from stream, others still watching", metadata: [
-                        "paneId": "\(paneId)",
-                        "remainingSubscribers": "\(context.deviceSubscriberCount)",
-                    ])
-                    return
-                }
+                return
+            }
+
+            switch context.ownership.unsubscribe(viewerId) {
+            case .notSubscribed:
+                logger.debug("Viewer was not subscribed to terminal stream", metadata: [
+                    "paneId": "\(paneId)",
+                    "viewerId": "\(viewerId)",
+                ])
+                return
+
+            case let .retained(remainingSubscribers):
+                logger.info("Viewer unsubscribed from stream, others still watching", metadata: [
+                    "paneId": "\(paneId)",
+                    "remainingSubscribers": "\(remainingSubscribers)",
+                ])
+                return
+
+            case .empty:
+                break
             }
         }
 
@@ -449,20 +478,18 @@ final public class TerminalStreamService {
 @MainActor
 final private class StreamContext {
     let paneId: String
+    var ownership: TerminalStreamOwnership
     var subscriptionId: UUID?
     private var pendingData = Data()
     var batchTask: Task<Void, Never>?
-
-    /// Number of viewers currently watching this pane's stream.
-    /// The stream is only truly stopped when this reaches 0 (or forced).
-    var deviceSubscriberCount = 1
 
     var pendingDataSize: Int {
         pendingData.count
     }
 
-    init(paneId: String) {
+    init(paneId: String, viewerId: String) {
         self.paneId = paneId
+        self.ownership = TerminalStreamOwnership(viewerId: viewerId)
     }
 
     func appendData(_ data: Data) {
