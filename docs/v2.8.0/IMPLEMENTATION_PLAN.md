@@ -318,9 +318,9 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 
 ### 目标
 
-让顶部 Agent 快捷输入成为可选体验。默认关闭时，进入 Agent pane 直接启用原生
-terminal 键盘，顶部不显示普通 prompt/reply composer；键盘显示/隐藏按钮始终作为
-导航栏直接操作，不再收进 Agent 命令菜单。
+让顶部 Agent 快捷输入成为可选体验。默认关闭时，进入 Agent pane 只显示 terminal，
+既不弹出键盘，也不显示普通 prompt/reply composer；键盘显示/隐藏按钮始终作为
+导航栏直接操作，不再收进 Agent 命令菜单，由用户明确决定何时输入。
 
 ### 实施范围
 
@@ -328,8 +328,8 @@ terminal 键盘，顶部不显示普通 prompt/reply composer；键盘显示/隐
    相同默认值，不做隐式迁移。
 2. 将普通 prompt/reply-after-stop 与 permission/question/plan 等阻塞表单分开处理：
    开关只控制前者，阻塞表单始终可见。
-3. 首次进入或切换到 Agent pane 时，根据开关选择默认输入模式：关闭时启用 terminal
-   键盘，开启时展示顶部快捷输入；用户随后手动显示或隐藏键盘时不被状态刷新覆盖。
+3. 首次进入或切换到 Agent pane 时不自动启用 terminal 键盘。开关关闭时保持只读
+   terminal；开启时展示顶部快捷输入，terminal 键盘仍只由导航栏按钮控制。
 4. 阻塞表单到达时退出 terminal 键盘输入模式，避免审批 UI 与 terminal first
    responder 争抢焦点；表单处理后不擅自重新弹出键盘。
 5. 将 Agent pane 的键盘按钮从 Commands 菜单移到导航栏；Yolo Mode 与 Session Info
@@ -339,11 +339,11 @@ terminal 键盘，顶部不显示普通 prompt/reply composer；键盘显示/隐
 ### 验收标准
 
 - 全新安装或未保存该设置时，`Agent Quick Input` 默认为关闭。
-- 默认设置下进入 Agent pane 会自动显示 terminal 键盘，且不显示顶部快捷输入框。
+- 默认设置下进入 Agent pane 不自动显示 terminal 键盘，也不显示顶部快捷输入框。
 - 开启设置后，进入 Agent pane 默认显示现有顶部快捷输入框；Send 的可靠提交和清空
   行为不回归。
 - permission、question、plan approval 等阻塞表单不受开关影响；到达时键盘收起且表单
   可操作。
 - Agent 与普通 terminal pane 的 Show/Hide Keyboard 图标都直接显示在导航栏。
-- 切换 pane 后的默认模式只初始化一次，用户手动隐藏键盘后不会被 agent 状态刷新重开。
+- terminal 键盘只响应用户直接操作；切换 pane 或 agent 状态刷新不会自动弹出。
 - 展示策略聚焦测试、Swift package 测试、iOS device 构建及 iPhone 真机验证通过。
