@@ -77,6 +77,33 @@ enum PaneSurfaceRetry {
     static let attempts = 20
     /// Delay between attempts.
     static let delay = Duration.milliseconds(150)
+
+    /// Waits until the local pane cache contains the window owning `paneId`.
+    /// A concurrent periodic refresh can make `refreshPanes()` return its old
+    /// snapshot, so creation callers must not assume one refresh is sufficient.
+    @MainActor
+    static func localWindow(
+        containing paneId: String,
+        attempts: Int = PaneSurfaceRetry.attempts,
+        delay: Duration = PaneSurfaceRetry.delay,
+        windows: @escaping @MainActor () -> [LocalTmuxWindow],
+        refresh: @escaping @MainActor () async -> Void
+    ) async -> LocalTmuxWindow? {
+        guard attempts > 0 else { return nil }
+
+        for attempt in 0..<attempts {
+            if let window = windows().first(where: { window in
+                window.panes.contains(where: { $0.paneId == paneId })
+            }) {
+                return window
+            }
+            guard attempt < attempts - 1 else { break }
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return nil }
+            await refresh()
+        }
+        return nil
+    }
 }
 
 /// Service for interacting with tmux via CLI

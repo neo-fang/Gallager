@@ -1088,8 +1088,15 @@ public struct MainView: View {
                                         sessionName: session.sessionName,
                                         workingDirectory: window.activePane?.currentPath
                                     )
-                                    if let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                    let newWindow = await PaneSurfaceRetry.localWindow(
+                                        containing: paneId,
+                                        windows: { tmuxService.windows },
+                                        refresh: { _ = await tmuxService.refreshPanes() }
+                                    )
+                                    if let newWindow {
                                         selectedWindow = newWindow
+                                    } else if !Task.isCancelled {
+                                        attachError = "Window created but didn't appear in time. Try selecting it from the tab bar."
                                     }
                                 } catch {
                                     attachError = "Failed to create window: \(error.localizedDescription)"
@@ -4463,18 +4470,12 @@ public struct MainView: View {
                 // check in sessionButton) whenever a remote session was the
                 // last thing the user interacted with, even after that remote
                 // session was closed.
-                var newWindow: LocalTmuxWindow?
-                for attempt in 0..<PaneSurfaceRetry.attempts {
-                    if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
-                        newWindow = found
-                        break
-                    }
-                    if attempt < PaneSurfaceRetry.attempts - 1 {
-                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
-                        guard !Task.isCancelled else { return }
-                        _ = await tmuxService.refreshPanes()
-                    }
-                }
+                let newWindow = await PaneSurfaceRetry.localWindow(
+                    containing: paneId,
+                    windows: { tmuxService.windows },
+                    refresh: { _ = await tmuxService.refreshPanes() }
+                )
+                guard !Task.isCancelled else { return }
                 if let newWindow {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil

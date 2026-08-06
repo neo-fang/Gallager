@@ -2,8 +2,8 @@
 
 ## 状态
 
-- **状态**：🟡 进行中
-- **进度**：2/7 stages
+- **状态**：✅ 已完成
+- **进度**：8/8 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -218,3 +218,34 @@
   更新，窗口尺寸变化仍触发原有布局和 resize。
 - 同一 211 × 59 Release 场景 CPU 相比约 100% 基线明显下降，且主线程绘制样本显著减少。
 - SwiftTerm 聚焦测试、Gallager Swift package 测试与 macOS Release 构建通过。
+
+## Stage 8：新建 Window 的 Terminal Stream 竞态修复
+
+### 目标
+
+修复 macOS 本地会话新建 window 后偶发无法及时选中，或键盘输入已经送入 tmux、
+Gallager 终端却不再回显的问题。window 数量和 agent 进程校准只能影响复现概率，
+不得作为容量限制或通过降低轮询频率掩盖竞态。
+
+### 实施范围
+
+1. `PaneStreamManager` 对每个 pane 的 reader 创建实行 single-flight；按需订阅、
+   control-client pane 发现和周期刷新必须等待同一创建任务，不能重复覆盖 FIFO 或
+   `tmux pipe-pane`。
+2. reader 创建失败后清除 in-flight 状态，允许下一次发现或订阅重试；shutdown 必须
+   取消并等待未完成创建，不遗留 FIFO 或 reader。
+3. macOS 本地 `New Window` 复用现有 `PaneSurfaceRetry`，等待 `refreshPanes()` 的缓存
+   真正包含新 pane 后再选择 window；超出重试预算时显示明确错误。
+4. 不修改 tmux 命令协议、relay、iOS terminal stream 和 10 秒 agent 进程校准逻辑。
+5. 增加 per-pane reader 并发创建、失败后重试和 stale refresh 后 window surface 的
+   聚焦回归测试。
+
+### 验收标准
+
+- 同一 pane 的多个并发 reader 请求只执行一次底层启动，并复用同一 reader。
+- reader 首次启动失败后，后续请求可以重新启动，不永久卡在 in-flight 状态。
+- 新建 window 与 5 秒 pane refresh、10 秒 pane discovery 同时发生时，最终仍选中新
+  window，并建立可持续接收输出的 pipe reader。
+- 输入字符在 tmux pane 和 Gallager 镜像中同步出现，不需要切换 tab 或等待下一轮刷新。
+- agent 类型校准频率和分类语义不变。
+- 聚焦测试、完整 Swift package 测试与 macOS Release 构建通过。
