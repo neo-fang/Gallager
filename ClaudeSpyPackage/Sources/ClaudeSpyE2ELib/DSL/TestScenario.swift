@@ -293,6 +293,8 @@ public enum TestStep: Sendable {
     case macCGClickElement(
         query: ElementQuery,
         pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        // Use 2 to exercise native double-click behavior.
+        clickCount: Int = 1,
         instance: Int = 0,
         // Seconds to wait for the matched element to appear in the AX tree before
         // clicking. Defaults to 5; bump it when the click lands while the app is

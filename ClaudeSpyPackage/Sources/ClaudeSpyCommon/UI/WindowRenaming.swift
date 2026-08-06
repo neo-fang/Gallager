@@ -27,11 +27,12 @@ public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
+            .simultaneousGesture(
+                TapGesture(count: 2)
+                    .onEnded { beginRenaming() }
+            )
             .contextMenu {
-                Button {
-                    editedName = currentName
-                    isEditingName = true
-                } label: {
+                Button(action: beginRenaming) {
                     Label("Rename Window", symbol: .pencil)
                 }
                 .disabled(isDisabled)
@@ -50,6 +51,12 @@ public struct WindowRenamingModifier<AdditionalMenu: View>: ViewModifier {
                     onRename(trimmed)
                 }
             ))
+    }
+
+    private func beginRenaming() {
+        guard !isDisabled else { return }
+        editedName = currentName
+        isEditingName = true
     }
 }
 
