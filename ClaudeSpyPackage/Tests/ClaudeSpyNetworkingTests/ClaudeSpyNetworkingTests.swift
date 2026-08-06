@@ -212,6 +212,30 @@ struct TmuxKeyCsiParsingTests {
         #expect(TmuxKey.from(bytes: end) == [.end])
     }
 
+    @Test("Parses SS3 navigation keys from application cursor mode")
+    func parsesSs3NavigationKeys() {
+        let data = Data([
+            0x1B, 0x4F, 0x44, // Left
+            0x1B, 0x4F, 0x43, // Right
+            0x1B, 0x4F, 0x41, // Up
+            0x1B, 0x4F, 0x42, // Down
+            0x1B, 0x4F, 0x48, // Home
+            0x1B, 0x4F, 0x46, // End
+        ])
+        #expect(TmuxKey.from(bytes: data) == [.left, .right, .up, .down, .home, .end])
+    }
+
+    @Test("Parses 8-bit SS3 navigation keys")
+    func parsesEightBitSs3NavigationKeys() {
+        let data = Data([
+            0x8F, 0x44, // Left
+            0x8F, 0x43, // Right
+            0x8F, 0x48, // Home
+            0x8F, 0x46, // End
+        ])
+        #expect(TmuxKey.from(bytes: data) == [.left, .right, .home, .end])
+    }
+
     @Test("Parses backtab")
     func parsesBacktab() {
         let backtab = Data([0x1B, 0x5B, 0x5A]) // ESC [ Z

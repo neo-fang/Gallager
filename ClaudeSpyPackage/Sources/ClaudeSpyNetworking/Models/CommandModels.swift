@@ -164,6 +164,21 @@ public extension TmuxKey {
                     continue
                 }
 
+                // SS3 sequence: ESC O <final>. Full-screen terminal apps use
+                // these for cursor/navigation keys after enabling DEC
+                // application-cursor mode (DECCKM, `CSI ? 1 h`). Without this
+                // branch, ESC O D was misread as Meta-O followed by literal D.
+                if
+                    nextByte == 0x4F,
+                    index + 2 < data.endIndex,
+                    let key = keyFromSs3Final(data[index + 2])
+                {
+                    flushText()
+                    result.append(key)
+                    index = data.index(index, offsetBy: 3)
+                    continue
+                }
+
                 // Alt/Meta key: ESC followed by printable character
                 if nextByte >= 0x20, nextByte < 0x7F {
                     flushText()
@@ -183,6 +198,15 @@ public extension TmuxKey {
             // Control characters
             // Note: Order matters! Specific cases must come before the range.
             switch byte {
+            case 0x8F where index + 1 < data.endIndex: // 8-bit SS3
+                if let key = keyFromSs3Final(data[index + 1]) {
+                    flushText()
+                    result.append(key)
+                    index = data.index(index, offsetBy: 2)
+                    continue
+                }
+                flushText()
+                textBuffer.append("\u{FFFD}")
             case 0x00: // Ctrl+@ or Ctrl+Space
                 flushText()
                 result.append(.ctrl("@"))
@@ -236,6 +260,19 @@ public extension TmuxKey {
 
         flushText()
         return result
+    }
+
+    /// Maps the SS3 final byte used by application-cursor mode.
+    private static func keyFromSs3Final(_ byte: UInt8) -> TmuxKey? {
+        switch byte {
+        case 0x41: .up // A
+        case 0x42: .down // B
+        case 0x43: .right // C
+        case 0x44: .left // D
+        case 0x48: .home // H
+        case 0x46: .end // F
+        default: nil
+        }
     }
 }
 

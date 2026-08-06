@@ -75,6 +75,24 @@
             #expect(input == [.home, .end])
         }
 
+        @Test("Application cursor mode preserves arrows and line boundaries")
+        func applicationCursorModeNavigation() {
+            let (_, view) = makeTerminalWindow()
+            var input: [TmuxKey] = []
+            view.onInput = { input.append(contentsOf: $0) }
+
+            // DECCKM: the mode enabled by Codex/Claude full-screen interfaces.
+            view.feed(byteArray: ArraySlice([0x1B, 0x5B, 0x3F, 0x31, 0x68]))
+            view.doCommand(by: #selector(NSResponder.moveLeft(_:)))
+            view.doCommand(by: #selector(NSResponder.moveRight(_:)))
+            view.doCommand(by: #selector(NSResponder.moveUp(_:)))
+            view.doCommand(by: #selector(NSResponder.moveDown(_:)))
+            view.doCommand(by: #selector(NSResponder.moveToBeginningOfLine(_:)))
+            view.doCommand(by: #selector(NSResponder.moveToEndOfLine(_:)))
+
+            #expect(input == [.left, .right, .up, .down, .home, .end])
+        }
+
         @Test("Persistent tmux input encodes text and named keys")
         func persistentTmuxInputEncoding() {
             let commands = PaneStreamManager.sendKeysCommands(
