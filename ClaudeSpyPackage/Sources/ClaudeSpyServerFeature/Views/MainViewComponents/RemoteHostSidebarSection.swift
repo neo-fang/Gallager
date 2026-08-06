@@ -120,10 +120,7 @@ struct RemoteHostSidebarSection: View {
         // merged button becomes `AXBusyIndicator` and swallows the bar's
         // separate accessibility element. Mirror the bar AX info on a sibling
         // outside the Button label so `valueContains` queries keep working.
-        let sessionProgress: TerminalProgressState? = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap(\.progress)
-            .first
+        let sessionProgress = session.windows.flatMap(\.panes).effectiveProgress
 
         Button {
             #if os(macOS)

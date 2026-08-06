@@ -689,16 +689,16 @@ public struct MainView: View {
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
-        // Compute progress here (and not just inside the row) so we can expose
+        // Compute effective progress here (and not just inside the row) so we can expose
         // a sibling AX element OUTSIDE the Button label below — when the row
         // shows a "Working" indicator, SwiftUI flips the merged button to
         // `AXBusyIndicator` and absorbs the inner `TerminalProgressBar`'s
         // separate accessibility element, dropping its `accessibilityValue`.
         // The outer mirror keeps `valueContains("60%")` queries working.
-        let sessionProgress: TerminalProgressState? = session.windows.lazy
+        let sessionProgress: TerminalProgressState? = session.windows
             .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.progress }
-            .first
+            .compactMap { windowManager.paneStates[$0.paneId] }
+            .effectiveProgress
 
         return Button {
             if NSApp.currentEvent?.clickCount == 2 {

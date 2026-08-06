@@ -24,16 +24,10 @@ struct RemoteSessionSidebarRow: View {
             .first
     }
 
-    /// Latest `OSC 9;4` progress from the host, picked from the first pane
-    /// in this session that has one. Same iteration shape as the host's
-    /// `SessionSidebarRow.sessionProgress` and the iOS session list, so when
-    /// multiple panes in one session emit progress all three platforms agree
-    /// on which pane wins.
+    /// Effective session progress from the host snapshot. Real terminal
+    /// progress wins across all panes; a working agent is the fallback.
     private var sessionProgress: TerminalProgressState? {
-        session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap(\.progress)
-            .first
+        session.windows.flatMap(\.panes).effectiveProgress
     }
 
     var body: some View {

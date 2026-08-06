@@ -177,9 +177,10 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - Progress
 
-    /// Latest `OSC 9;4` progress emitted by this pane, if any. Drives the
-    /// session-row progress bar on the host's local sidebar and on remote
-    /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
+    /// Latest `OSC 9;4` or CLI progress for this pane, if any. This real value
+    /// takes priority over the working-agent fallback derived by
+    /// `Collection<PaneState>.effectiveProgress`. `nil` means this pane has no
+    /// active terminal progress.
     public var progress: TerminalProgressState?
 
     // MARK: - OTEL Telemetry (issue #597)
