@@ -352,8 +352,9 @@
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
             let cliSessionState = session.cliSessionState
-            // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
-            let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
+            // Real terminal progress wins across the session; a working agent
+            // supplies an indeterminate fallback when no pane reports progress.
+            let sessionProgress = session.windows.flatMap(\.panes).effectiveProgress
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
                 VStack(spacing: 0) {

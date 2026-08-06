@@ -47,6 +47,22 @@ public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
 }
 
 extension Collection where Element == PaneState {
+    /// Progress displayed for a session's row. A real terminal progress value
+    /// from any pane always wins. Only when the whole session has no terminal
+    /// progress do we synthesize an indeterminate bar for a working agent.
+    ///
+    /// Keeping this derived avoids copying agent lifecycle state into
+    /// `PaneState.progress`, where hook updates could overwrite explicit
+    /// `OSC 9;4` or `gallager set-progress` values.
+    public var effectiveProgress: TerminalProgressState? {
+        if let terminalProgress = lazy.compactMap(\.progress).first {
+            return terminalProgress
+        }
+        return contains(where: { $0.agentSession?.isWorking == true })
+            ? .indeterminate
+            : nil
+    }
+
     /// Groups these panes into terminal-only sessions: one entry per session
     /// whose panes ALL lack an agent session, sorted by session name — a
     /// deterministic output order; callers that need a display order sort the

@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：✅ 已完成
-- **进度**：8/8 stages
+- **进度**：9/9 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -249,3 +249,34 @@ Gallager 终端却不再回显的问题。window 数量和 agent 进程校准只
 - 输入字符在 tmux pane 和 Gallager 镜像中同步出现，不需要切换 tab 或等待下一轮刷新。
 - agent 类型校准频率和分类语义不变。
 - 聚焦测试、完整 Swift package 测试与 macOS Release 构建通过。
+
+## Stage 9：Agent 工作进度兜底
+
+### 目标
+
+让不发送 `OSC 9;4` 的 Codex 等 agent 在工作时也显示蓝色 indeterminate
+进度条，同时保留终端程序报告的真实百分比、警告和错误进度的最高优先级。
+
+### 实施范围
+
+1. 在共享 `PaneState` collection 上派生 session 有效进度：先选择第一个真实
+   `progress`，仅在所有 pane 都没有真实进度时才以 working agent 兜底为
+   `.indeterminate`。
+2. macOS 本地 sidebar、Mac viewer、iOS session list 及对应 accessibility proxy
+   全部读取同一派生规则。
+3. 不解析 Codex terminal title spinner，不新增 relay 字段或可变 UI 状态。
+4. 增加无进度、working fallback、非 working 隐藏、多 pane 真实进度优先测试。
+
+### 运行时前置条件
+
+Codex 必须先安装 Gallager agent 插件，并在安装后新建会话，才能通过 hook
+产生 `.working` 状态。仅靠进程检测发现的 Codex 会话保持 `.idle`，不会触发
+fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
+
+### 验收标准
+
+- 已安装 Gallager agent 插件的 Codex 进入 `.working` 且没有 `OSC 9;4` 时显示
+  蓝色滚动条，完成或等待输入后隐藏。
+- 任意 pane 存在真实 terminal progress 时，真实值优先于其他 pane 的 agent fallback。
+- Claude Code 的 `OSC 9;4`、`gallager set-progress`、Mac viewer、iOS 和无障碍值不回归。
+- 共享聚焦测试以及 macOS/iOS 构建通过。
