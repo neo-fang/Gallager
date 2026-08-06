@@ -22,9 +22,7 @@ import GallagerPluginProtocol
 /// - askUserQuestion: arrow-key menu navigation.
 enum CodexKeystrokes {
     /// A single delivery step: either verbatim text or a key sequence. The actor
-    /// runs these through `host.sendText` / `host.sendKeys` in order. Prompt
-    /// submissions keep text and Enter in one key sequence so the host can hand
-    /// them to tmux as one ordered transaction.
+    /// runs these through `host.sendText` / `host.sendKeys` in order.
     enum Delivery: Equatable {
         case text(String)
         case keys([TmuxKey])
@@ -80,7 +78,9 @@ enum CodexKeystrokes {
         if trimmed.isEmpty {
             return allowEmptyInterrupt ? [.keys([.escape])] : []
         }
-        return [.keys([.text(trimmed), .enter])]
+        // TUI editors update their draft asynchronously. Sending Enter in the
+        // same burst can leave the text visible without submitting it.
+        return [.keys([.text(trimmed), .delay(200), .enter])]
     }
 
     // MARK: - Permission

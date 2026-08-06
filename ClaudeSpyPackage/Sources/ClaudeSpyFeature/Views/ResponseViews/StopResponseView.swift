@@ -26,26 +26,22 @@ struct StopResponseView: View {
     }
 
     var body: some View {
-        if let response = state.response {
-            responseFeedback(response)
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                if let message = request.summary {
-                    summarySection(message: message)
-                }
-                replyField
+        VStack(alignment: .leading, spacing: 8) {
+            if let message = request.summary {
+                summarySection(message: message)
             }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if state.isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Button("Send") {
-                            sendReply()
-                        }
-                        .disabled(!isConnected)
+            replyField
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if state.isSending {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("Send") {
+                        sendReply()
                     }
+                    .disabled(!isConnected)
                 }
             }
         }
@@ -122,29 +118,12 @@ struct StopResponseView: View {
         }
     }
 
-    private func responseFeedback(_ response: ResponseType) -> some View {
-        HStack {
-            (
-                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
-            )
-            .foregroundStyle(response.feedbackColor)
-            Text(response.feedbackMessage)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .font(.subheadline)
-        .padding(.vertical, 4)
-    }
-
     private func sendReply() {
         let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         state.isSending = true
         Task {
             await submit(.replyAfterStop(text: trimmed))
-            inputText = ""
             state.isSending = false
-            state.response = .promptSubmitted
         }
     }
 }

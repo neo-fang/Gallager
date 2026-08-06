@@ -111,26 +111,6 @@
             #expect(escape < bspace)
         }
 
-        @Test("sendKeystrokes submits mixed text and Enter through one tmux client")
-        func sendKeystrokesBatchesMixedModes() async throws {
-            let commands = LockIsolated<[[String]]>([])
-            try await withDependencies {
-                $0[ProcessRunner.self].run = { @Sendable _, arguments, _, _ in
-                    commands.withValue { $0.append(arguments) }
-                    return ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
-                }
-            } operation: {
-                let tmux = TmuxService(tmuxPath: "/usr/bin/tmux")
-                try await tmux.sendKeystrokes("%1", keys: [.text("keep going"), .enter])
-            }
-
-            let sendKeysCalls = commands.value.filter { $0.contains("send-keys") }
-            #expect(sendKeysCalls == [[
-                "send-keys", "-t", "%1", "-l", "keep going",
-                ";", "send-keys", "-t", "%1", "Enter",
-            ]])
-        }
-
         @Test("sendKeystrokes preserves delayed sequence boundaries")
         func sendKeystrokesPreservesDelays() async throws {
             let commands = LockIsolated<[[String]]>([])

@@ -1,27 +1,29 @@
-# Stage 10 TODO：Agent 快捷回复原子提交
+# Stage 10 TODO：Agent 快捷回复可靠提交
 
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 4/5 tasks
+- **Progress**: 5/6 tasks
 - **Dependencies**: Stage 4 ✅，Stage 9 ✅
 
 ## Tasks
 
 - [x] 定位 iOS Send 到 built-in plugin、host 和 tmux 的完整输入链路。
-- [x] 将 prompt/reply-after-stop 合并为单次 keystroke delivery。
-- [x] 让无 delay 的 mixed-mode keystrokes 使用单次 tmux client 调用。
-- [x] 增加并运行 Claude Code、Codex 与 TmuxService 聚焦测试。
+- [x] 移除 reply composer 的乐观成功反馈与旧反馈恢复。
+- [x] 让顶部回复走 host command/response，并在正文与 Enter 间保留 TUI settle。
+- [x] 让 built-in prompt/reply-after-stop 使用相同的延迟边界。
+- [x] 增加并运行 plugin、TmuxService 与 reply composer 聚焦测试。
 - [ ] 完成 macOS host 构建与 iPhone 真机回复验收。
 
 ## Decisions
 
 - 不在 iOS 端补发 Enter。viewer 无法可靠判断第一次 Enter 是丢失、延迟还是已经被
   agent 消费，重发会产生重复提交。
-- 不引入固定 sleep。问题来自正文和 Enter 被拆成两个独立 host/tmux 调用；延时只会
-  降低复现概率，不会消除半提交状态。
-- 仅合并不含 `.delay` 的 keystroke 序列。现有 question/menu 导航依赖真实时间间隔，
-  继续沿用逐段发送。
+- 真机证明单个 tmux client 的无间隔输入仍会丢失提交 Enter，因此撤销该方案。200ms
+  是 TUI 文本状态切换的明确输入边界，编码在 keystroke sequence 中并由 host command
+  response 覆盖，不是 UI 层盲目 sleep 或重试。
+- `Prompt submitted` 不能作为本地状态。reply composer 是否消失只由 agent 的真实
+  `working` 状态决定。
 
 ## Blockers
 
@@ -29,8 +31,7 @@
 
 ## Verification
 
-- `swift test --filter 'ClaudeCodeKeystrokes|CodexKeystrokes|LocalKeystrokeInput'`：
-  40/40 通过。
-- 独立 tmux socket 验证 mixed-mode command chain：正文与 Enter 均按序执行。
-- `ClaudeSpyServer` macOS Debug 构建、深度签名校验及本机覆盖启动：通过。
+- 上一版 mixed-mode 单 client 方案：自动化通过，但 iPhone 真机复测失败，已撤销。
+- 修正版聚焦测试：59 tests / 4 suites passed。
+- macOS host 与 iOS device 构建：Passed。
 - iPhone 顶部回复框连续发送验收：Pending。

@@ -100,6 +100,18 @@ struct SessionDetailServiceTests {
 
     // MARK: - Response State Tests
 
+    @Test("Reply composer trims text and settles before Enter")
+    func replyComposerBuildsSettledSubmission() {
+        #expect(SessionDetailService.replyAfterStopKeystrokes(for: "  keep going  ") == [
+            .text("keep going"), .delay(200), .enter,
+        ])
+    }
+
+    @Test("Empty reply composer input sends Escape")
+    func emptyReplyComposerInterrupts() {
+        #expect(SessionDetailService.replyAfterStopKeystrokes(for: " \n ") == [.escape])
+    }
+
     @Test("Response state is nil when no response form is open")
     func responseStateNilWhenNoOpenRequest() {
         let sessionStore = SessionStore()
@@ -523,6 +535,27 @@ struct SessionDetailServiceTests {
 
             // Response should be restored from the store
             #expect(service2.responseState?.response == .accepted)
+        }
+
+        @Test("Reply composer discards legacy optimistic feedback")
+        func replyComposerDiscardsLegacyFeedback() {
+            let sessionStore = SessionStore()
+            let relayClient = ViewerRelayClient()
+            let requestId = "test-pair:%1:reply-after-stop"
+
+            sessionStore.setResponse(.promptSubmitted, forRequestID: requestId)
+            pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+
+            let service = SessionDetailService(
+                paneId: "%1",
+                hostId: "test-pair",
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
+
+            #expect(service.responseState?.requestID == requestId)
+            #expect(service.responseState?.response == nil)
+            #expect(sessionStore.response(forRequestID: requestId) == nil)
         }
 
         @Test("Different response types are persisted correctly")

@@ -279,29 +279,31 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 - 无可复制文本时显示明确提示。
 - iOS 聚焦测试与 Simulator 构建通过；真机复制行为验证通过。
 
-## Stage 10：Agent 快捷回复原子提交
+## Stage 10：Agent 快捷回复可靠提交
 
 ### 目标
 
 修复 iOS 在 agent 停止后的顶部回复框点击 Send 时，偶发只把正文写入 TUI、却没有
-触发 Enter 提交的问题。正文和 Enter 必须作为同一次 host 输入事务交给 tmux，不能
-留下半提交状态，也不能通过 iOS 重发或盲目延时制造重复提交风险。
+触发 Enter 提交的问题；同时移除未确认实际发送结果就显示并持久化
+`Prompt submitted` 的虚假成功状态。
 
 ### 实施范围
 
-1. Claude Code 与 Codex 的 prompt/reply-after-stop 翻译统一输出单个
-   `[.text(...), .enter]` keystroke 序列，不再跨两个 `PluginHost` 调用发送。
-2. `TmuxService.sendKeystrokes` 对不含 delay 的混合 literal/named 序列生成一次 tmux
-   client 调用，用 tmux command separator 保持各段的 literal 模式和原始顺序。
-3. 含 delay 的菜单导航继续使用现有逐段执行逻辑；不改变 permission、question、
-   terminal 键盘和 sidecar 插件语义。
-4. 增加 built-in plugin 翻译与 tmux 命令组装聚焦测试，覆盖文本、Enter、空回复和
-   mixed-mode 顺序。
+1. 顶部 reply-after-stop composer 通过已有 command/response 通道直接发送
+   `[.text(...), .delay(200), .enter]`，等待 host 完成 tmux 操作，而不是只确认
+   WebSocket 写入。
+2. Claude Code 与 Codex 的 prompt/reply-after-stop 翻译采用同样的 TUI settle 边界，
+   避免正文与 Enter 在同一个输入 burst 中被 TUI 错误消费。
+3. reply composer 不再设置或恢复 `promptSubmitted`；只在真实 agent state 进入
+   `working` 后由 `SessionDetailService` 收起。旧版本留下的持久化反馈自动清除。
+4. 不重发 Enter，不修改 blocking form、terminal 键盘或 sidecar 插件协议。
+5. 增加 built-in plugin 翻译、延迟边界与 reply composer 状态聚焦测试。
 
 ### 验收标准
 
-- iOS 顶部回复框点击 Send 后，正文与 Enter 由一次 host/tmux 调用顺序提交。
-- tmux 命令中的正文仍使用 literal 模式，末尾 Enter 仍作为命名按键处理。
+- iOS 顶部回复框点击 Send 后，host 先写入 literal 正文，等待 200ms，再发送命名 Enter。
+- UI 不再显示 `Prompt submitted`；发送未让 agent 进入 working 时，composer 保持可用。
+- 导航离开再进入 idle/doneWorking session 时，顶部 composer 仍然出现。
 - 空 reply-after-stop 仍只发送 Escape；空 prompt 仍不发送任何内容。
-- 含 delay 的交互式菜单按键时序保持不变。
+- blocking form 与交互式菜单按键时序保持不变。
 - Claude Code、Codex、TmuxService 聚焦测试与 macOS/iOS 构建通过。

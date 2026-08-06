@@ -33,7 +33,7 @@ struct ClaudeCodeKeystrokesTests {
         let texts = await host.sentText
         let keys = await host.sentKeys
         #expect(texts.isEmpty)
-        #expect(keys.map(\.keys) == [[.text("hello world"), .enter]])
+        #expect(keys.map(\.keys) == [[.text("hello world"), .delay(200), .enter]])
     }
 
     @Test("empty prompt sends nothing")
@@ -53,7 +53,7 @@ struct ClaudeCodeKeystrokesTests {
         let texts = await host.sentText
         let keys = await host.sentKeys
         #expect(texts.isEmpty)
-        #expect(keys.map(\.keys) == [[.text("keep going"), .enter]])
+        #expect(keys.map(\.keys) == [[.text("keep going"), .delay(200), .enter]])
     }
 
     @Test("empty replyAfterStop just interrupts with Escape")
