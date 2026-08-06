@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：🟡 进行中
-- **进度**：2/5 stages
+- **进度**：2/6 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -156,3 +156,27 @@
 - hook 报告结束后，仍在退出中的旧进程不会把 agent 图标重新标回。
 - 同一 session 的左侧状态与每个 window 标签继续使用原有聚合层级。
 - 无分类变化时不推送重复 session state；聚焦单元测试与 macOS 构建通过。
+
+## Stage 6：Session 名称展示优先级
+
+### 目标
+
+让 rename session 后的真实 tmux `session_name` 在 Mac 和 iOS 的默认会话界面
+立即可见。Description 继续作为独立元数据，但不再遮住 session 身份。
+
+### 实施范围
+
+1. Mac 的 agent 和普通终端默认 Sidebar Fields 均将 `sessionName` 放在首位。
+2. 仅对完全等于旧默认数组的已保存配置执行一次性迁移；不改写用户自定义顺序。
+3. iOS agent/普通终端行以 `sessionName` 为主标题，Description 和项目/目录信息作为副标题。
+4. iOS 会话详情页标题固定使用 `sessionName`，window/terminal 标题继续在标签内展示。
+5. Mac 菜单栏的 agent 和 terminal-only 行使用真实 `sessionName`，不再以 Description 取代。
+6. 增加默认值、旧配置迁移和共享展示规则的聚焦测试，并验证 macOS/iOS 构建。
+
+### 验收标准
+
+- 存在 Description 时，Mac 和 iOS 默认会话行仍以新 `sessionName` 为主标题。
+- Description 仍可编辑、清空并显示为副信息，不与 rename 互相改写。
+- 旧默认 Mac 配置自动升级；非默认的自定义 Sidebar Fields 保持原样。
+- iOS 会话列表和详情页、Mac 本地/远程侧边栏及菜单栏均能看到改名结果。
+- 聚焦单元测试、Swift package 测试与 macOS/iOS 构建通过。
