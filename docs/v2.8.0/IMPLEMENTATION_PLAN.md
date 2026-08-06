@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：🟡 进行中
-- **进度**：1/5 stages
+- **进度**：2/5 stages
 
 ## Stage 1：Tmux Session 重命名
 
