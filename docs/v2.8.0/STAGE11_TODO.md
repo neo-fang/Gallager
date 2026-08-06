@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 7/8 tasks
+- **Status**: ✅ Completed
+- **Progress**: 8/8 tasks
 - **Dependencies**: Stage 9 ✅，Stage 10 ✅
 
 ## Tasks
@@ -15,7 +15,7 @@
 - [x] 阻塞表单到达时退出 terminal 键盘模式并保持表单可见。
 - [x] 将 Agent pane 的键盘按钮移出 Commands 菜单。
 - [x] 运行聚焦测试和受影响的 Swift package 测试。
-- [ ] 完成 iOS device 构建、真机安装与验收。
+- [x] 完成 iOS device 构建、真机安装与验收。
 
 ## Decisions
 
@@ -34,4 +34,4 @@
 - 手动键盘方案：`ClaudeSpyFeatureTests` 44 tests / 5 suites passed。
 - iOS device 无签名构建：Passed。
 - 使用本机 Apple Development 证书签名、校验并安装到 ZengJice iPhone：Passed。
-- 默认不弹键盘、设置切换、直接键盘按钮和阻塞表单真机交互：待用户验收。
+- 默认不弹键盘、设置切换和直接键盘按钮真机交互：Passed。
