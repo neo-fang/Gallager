@@ -542,6 +542,7 @@
                 isConnected: relayClient.isHostConnected,
                 hideNavigationBar: false,
                 showKeyboardButton: false,
+                showCopyButton: pane.paneId == activePaneId,
                 isActive: pane.paneId == activePaneId && isKeyboardActive,
                 settings: settings,
                 telemetry: pane.telemetry,

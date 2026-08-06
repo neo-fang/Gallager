@@ -151,6 +151,11 @@
             super.contentOffset = CGPoint(x: 0, y: maxY)
         }
 
+        /// Captures the active terminal buffer for stable, system-native text selection.
+        func makeTextSnapshot() -> TerminalTextSnapshot? {
+            TerminalTextSnapshot(terminal: getTerminal())
+        }
+
         // MARK: - Focus Management
 
         /// Call to enable input and show the keyboard

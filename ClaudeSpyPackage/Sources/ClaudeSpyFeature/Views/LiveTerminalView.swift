@@ -37,6 +37,10 @@
         /// Set to false when used in multi-pane layouts where the parent manages the keyboard.
         let showKeyboardButton: Bool
 
+        /// Whether this pane owns the terminal-copy toolbar action.
+        /// Multi-pane layouts enable it only for the selected pane.
+        let showCopyButton: Bool
+
         /// Whether this terminal pane is the active/selected one.
         /// When false, keyboard input is suppressed regardless of `isInteractive`.
         /// Used in multi-pane layouts where only the selected pane accepts input.
@@ -63,6 +67,12 @@
         /// `isConnected`, this gives the stream task a stable, explicit identity.
         @State private var streamRetryGeneration = 0
 
+        /// Immutable terminal text shown in the native iOS copy surface.
+        @State private var textSnapshot: TerminalTextSnapshot?
+
+        /// Whether the terminal had no meaningful text when a snapshot was requested.
+        @State private var showsEmptySnapshotAlert = false
+
         init(
             paneId: String,
             responseState: Binding<ResponseState?>,
@@ -72,6 +82,7 @@
             isYoloMode: Bool = false,
             hideNavigationBar: Bool = false,
             showKeyboardButton: Bool = true,
+            showCopyButton: Bool = true,
             isActive: Bool = true,
             settings: IOSSettings,
             telemetry: SessionTelemetry? = nil,
@@ -85,6 +96,7 @@
             self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
             self.showKeyboardButton = showKeyboardButton
+            self.showCopyButton = showCopyButton
             self.isActive = isActive
             self.telemetry = telemetry
             self.submitResponse = submitResponse
@@ -127,11 +139,22 @@
                 terminalContent
                     .overlay(alignment: .topTrailing) {
                         if hideNavigationBar {
-                            keyboardOverlayButton
+                            HStack(spacing: 8) {
+                                if showCopyButton {
+                                    copyOverlayButton
+                                }
+                                keyboardOverlayButton
+                            }
                         }
                     }
             }
             .toolbar {
+                if showCopyButton {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        copyButton
+                    }
+                }
+
                 if showKeyboardButton {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -145,6 +168,14 @@
                         .disabled(!isConnected || coordinator.streamState != .streaming)
                     }
                 }
+            }
+            .sheet(item: $textSnapshot) { snapshot in
+                TerminalTextCopyView(snapshot: snapshot)
+            }
+            .alert("No Terminal Text", isPresented: $showsEmptySnapshotAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("The terminal buffer does not contain any text to copy.")
             }
             .task(id: StreamTaskID(isConnected: isConnected, retryGeneration: streamRetryGeneration)) {
                 await synchronizeStreamingWithConnection()
@@ -211,6 +242,35 @@
             }
             .disabled(!isConnected || coordinator.streamState != .streaming)
             .padding(8)
+        }
+
+        private var copyButton: some View {
+            Button(action: presentTextSnapshot) {
+                Label("Copy Terminal Text", symbol: .docOnClipboard)
+            }
+            .disabled(coordinator.streamState != .streaming)
+        }
+
+        private var copyOverlayButton: some View {
+            Button(action: presentTextSnapshot) {
+                Symbols.docOnClipboard.image
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .accessibilityLabel("Copy Terminal Text")
+            .disabled(coordinator.streamState != .streaming)
+            .padding(8)
+        }
+
+        private func presentTextSnapshot() {
+            guard let snapshot = coordinator.terminalState?.makeTextSnapshot?() else {
+                showsEmptySnapshotAlert = true
+                return
+            }
+            textSnapshot = snapshot
         }
 
         @ViewBuilder
@@ -554,6 +614,9 @@
         /// Scrolls the terminal to the bottom. Set by UIKit side, callable from SwiftUI.
         var scrollToBottom: (() -> Void)?
 
+        /// Captures the local SwiftTerm buffer without a host or relay request.
+        var makeTextSnapshot: (() -> TerminalTextSnapshot?)?
+
         init(width: Int, height: Int, fontName: String, fontSize: CGFloat) {
             self.width = width
             self.height = height
@@ -710,6 +773,10 @@
             let coordinator = context.coordinator
             terminalState.onResize = { [weak coordinator] newWidth, newHeight in
                 coordinator?.handleResize(width: newWidth, height: newHeight)
+            }
+
+            terminalState.makeTextSnapshot = { [weak terminalView] in
+                terminalView?.makeTextSnapshot()
             }
 
             // Set initial keyboard state
