@@ -296,13 +296,16 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
    避免正文与 Enter 在同一个输入 burst 中被 TUI 错误消费。
 3. reply composer 不再设置或恢复 `promptSubmitted`；只在真实 agent state 进入
    `working` 后由 `SessionDetailService` 收起。旧版本留下的持久化反馈自动清除。
-4. 不重发 Enter，不修改 blocking form、terminal 键盘或 sidecar 插件协议。
-5. 增加 built-in plugin 翻译、延迟边界与 reply composer 状态聚焦测试。
+4. reply 草稿归属于当前 `ResponseState`：`doneWorking → idle` 的 handled 翻转继续
+   保留未发送内容，真正进入 `working` 后销毁旧状态；下一轮 composer 必须为空。
+5. 不重发 Enter，不修改 blocking form、terminal 键盘或 sidecar 插件协议。
+6. 增加 built-in plugin 翻译、延迟边界与 reply composer 状态聚焦测试。
 
 ### 验收标准
 
 - iOS 顶部回复框点击 Send 后，host 先写入 literal 正文，等待 200ms，再发送命名 Enter。
 - UI 不再显示 `Prompt submitted`；发送未让 agent 进入 working 时，composer 保持可用。
+- agent 进入 working 后旧草稿清空；下一轮结束重新出现 composer 时不得恢复上次内容。
 - 导航离开再进入 idle/doneWorking session 时，顶部 composer 仍然出现。
 - 空 reply-after-stop 仍只发送 Escape；空 prompt 仍不发送任何内容。
 - blocking form 与交互式菜单按键时序保持不变。

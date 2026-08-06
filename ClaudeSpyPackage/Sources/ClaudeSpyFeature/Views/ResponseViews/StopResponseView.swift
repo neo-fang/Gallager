@@ -11,7 +11,6 @@ struct StopResponseView: View {
     let submit: ResponseSender
     let state: ResponseState
 
-    @State private var inputText = ""
     @FocusState private var isTextFieldFocused: Bool
 
     /// Max height for the expanded, scrollable summary. Caps how much of the
@@ -48,7 +47,8 @@ struct StopResponseView: View {
     }
 
     private var replyField: some View {
-        TextField(placeholder, text: $inputText, axis: .vertical)
+        @Bindable var state = state
+        return TextField(placeholder, text: $state.replyDraft, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(3...6)
             .padding(12)
@@ -119,7 +119,7 @@ struct StopResponseView: View {
     }
 
     private func sendReply() {
-        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = state.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         state.isSending = true
         Task {
             await submit(.replyAfterStop(text: trimmed))

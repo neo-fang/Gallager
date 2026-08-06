@@ -49,6 +49,18 @@ struct SessionDetailServiceTests {
         store.session(for: sessionId, hostId: hostId)?.state.openForm
     }
 
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
+    }
+
     private func askUserQuestion() -> AskUserQuestionRequest {
         AskUserQuestionRequest(questions: [
             .init(
@@ -211,6 +223,34 @@ struct SessionDetailServiceTests {
         )
 
         #expect(service.responseState == nil)
+    }
+
+    @Test("A real working transition clears the prior reply draft")
+    func workingTransitionClearsReplyDraft() async {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: nil))
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+        let priorState = service.responseState
+        priorState?.replyDraft = "continue"
+        // Let the service's observation task register before mutating the store.
+        await Task.yield()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
+        #expect(await waitUntil { service.responseState == nil })
+        #expect(priorState?.replyDraft == "")
+        await Task.yield()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+        #expect(await waitUntil { service.responseState != nil })
+        #expect(service.responseState !== priorState)
+        #expect(service.responseState?.replyDraft == "")
     }
 
     // MARK: - Summary Persistence Tests (Issue #707)

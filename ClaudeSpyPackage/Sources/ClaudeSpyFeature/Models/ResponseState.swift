@@ -23,6 +23,11 @@ final public class ResponseState {
     /// Whether the stop hook summary section is expanded (used by StopResponseView).
     public var isSummaryExpanded = false
 
+    /// Unsubmitted text for the synthesized reply-after-stop composer. Keeping
+    /// this on the per-turn response state lets a handled flip preserve the
+    /// draft, while a real `working` transition discards it with the state.
+    public var replyDraft = ""
+
     /// Reference to the session store for persistence
     private weak var sessionStore: SessionStore?
 

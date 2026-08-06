@@ -213,6 +213,7 @@ final public class SessionDetailService {
     /// state.
     private func clearResponseState() {
         guard lastProcessedRequestID != nil else { return }
+        responseState?.replyDraft = ""
         #if os(iOS)
             sessionStore.setResponse(nil, forRequestID: replyAfterStopRequestID)
         #endif
