@@ -18,7 +18,9 @@ import GallagerPluginProtocol
 /// - `AskUserQuestionKeystrokes.build`: arrow-key menu navigation.
 enum ClaudeCodeKeystrokes {
     /// A single delivery step: either verbatim text or a key sequence. The actor
-    /// runs these through `host.sendText` / `host.sendKeys` in order.
+    /// runs these through `host.sendText` / `host.sendKeys` in order. Prompt
+    /// submissions keep text and Enter in one key sequence so the host can hand
+    /// them to tmux as one ordered transaction.
     enum Delivery: Equatable {
         case text(String)
         case keys([TmuxKey])
@@ -75,7 +77,7 @@ enum ClaudeCodeKeystrokes {
         if trimmed.isEmpty {
             return allowEmptyInterrupt ? [.keys([.escape])] : []
         }
-        return [.text(trimmed), .keys([.enter])]
+        return [.keys([.text(trimmed), .enter])]
     }
 
     // MARK: - Permission

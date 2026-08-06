@@ -1862,8 +1862,22 @@ final public class TmuxService {
     /// literal mode to minimize tmux subprocess spawns: literal text is
     /// concatenated into a single `send-keys -l`, runs of named keys go through
     /// `sendBatchKeys`, and a `.delay` flushes the current batch then sleeps.
+    /// Sequences without delays use one tmux client command even when they mix
+    /// literal text and named keys, preventing text + Enter from succeeding only
+    /// halfway when a second client process cannot be started.
     /// Shared by the keystroke-command path and the plugin `sendKeys` sink.
     public func sendKeystrokes(_ target: String, keys: [TmuxKey]) async throws {
+        guard !keys.isEmpty else { return }
+
+        let containsDelay = keys.contains { key in
+            if case .delay = key { return true }
+            return false
+        }
+        if !containsDelay {
+            try await sendImmediateKeystrokes(target, keys: keys)
+            return
+        }
+
         var batch: [TmuxKey] = []
         var batchIsLiteral = false
 
@@ -1884,6 +1898,41 @@ final public class TmuxService {
         }
 
         try await flushKeystrokeBatch(target, keys: &batch, literal: batchIsLiteral)
+    }
+
+    /// Submits each literal/named batch as a command on one tmux client
+    /// connection. The separator is an argv element understood by tmux itself;
+    /// no shell is involved.
+    private func sendImmediateKeystrokes(_ target: String, keys: [TmuxKey]) async throws {
+        var arguments: [String] = []
+        var batchStart = keys.startIndex
+
+        while batchStart < keys.endIndex {
+            let literal = keys[batchStart].requiresLiteralMode
+            var batchEnd = keys.index(after: batchStart)
+            while batchEnd < keys.endIndex, keys[batchEnd].requiresLiteralMode == literal {
+                batchEnd = keys.index(after: batchEnd)
+            }
+
+            if !arguments.isEmpty {
+                arguments.append(";")
+            }
+            arguments.append(contentsOf: ["send-keys", "-t", target])
+
+            let batch = keys[batchStart..<batchEnd]
+            if literal {
+                arguments.append("-l")
+                arguments.append(escapeTmuxSemicolon(batch.map(\.tmuxKeyName).joined()))
+            } else {
+                arguments.append(contentsOf: batch.map { escapeTmuxSemicolon($0.tmuxKeyName) })
+            }
+            batchStart = batchEnd
+        }
+
+        let result = try await runTmuxCommand(arguments)
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
     }
 
     private func flushKeystrokeBatch(_ target: String, keys: inout [TmuxKey], literal: Bool) async throws {
