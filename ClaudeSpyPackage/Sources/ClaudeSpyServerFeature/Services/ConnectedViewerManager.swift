@@ -35,8 +35,9 @@ final public class ConnectedViewerManager {
     // MARK: - Public Callbacks
 
     /// Called when a command is received from any viewer.
+    /// Parameters are the viewer pair ID and command.
     /// Returns nil if the command sends its own response.
-    public var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage?)?
+    public var onCommand: (@MainActor @Sendable (String, CommandMessage) async -> CommandResponseMessage?)?
 
     /// Called when session state is requested by any viewer
     public var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
@@ -360,7 +361,7 @@ final public class ConnectedViewerManager {
         let viewerId = connection.id
 
         connection.onCommand = { [weak self] command in
-            await self?.onCommand?(command)
+            await self?.onCommand?(viewerId, command)
         }
 
         connection.onSessionStateRequest = { [weak self] in

@@ -10,6 +10,20 @@
         private let sidebarFields: [SidebarField] = [.customDescription, .projectName, .sessionName]
         private let terminalFields: [SidebarField] = [.customDescription, .currentPath, .sessionName]
 
+        @Test("Default label priority exposes the renamed tmux session")
+        func defaultLabelPriority() {
+            let label = SessionSortData.primaryLabel(
+                fields: SidebarField.defaultFields,
+                customDescription: "Description",
+                projectName: "Project",
+                sessionName: "renamed-session",
+                terminalTitle: "Terminal",
+                command: "codex",
+                currentPath: "/tmp/project"
+            )
+            #expect(label == "renamed-session")
+        }
+
         private func makePane(
             _ paneId: String, session: String, window: Int = 0, pane: Int = 0
         ) -> PaneInfo {

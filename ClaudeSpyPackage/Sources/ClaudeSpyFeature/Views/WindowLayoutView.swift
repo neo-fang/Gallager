@@ -90,20 +90,10 @@
             return sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
         }
 
-        /// Navigation title: prefer custom description, then active pane's terminal title, then session name
+        /// The page represents a tmux session, so its renamed identity stays
+        /// visible regardless of description or terminal-title updates.
         private var navigationTitle: String {
-            if let desc = window?.customDescription { return desc }
-            // Use the locally-captured OSC title first (updates in real-time)
-            if let activeId = activePaneId, let title = terminalTitles[activeId] { return title }
-            // For single-pane windows, use that pane's title even if not "active" yet
-            if
-                let panes = window?.panes, panes.count == 1,
-                let pane = panes.first {
-                if let title = terminalTitles[pane.paneId] { return title }
-                // Fall back to the relay-provided terminal title
-                if let title = sessionStore.paneState(for: pane.paneId, hostId: hostId)?.terminalTitle { return title }
-            }
-            return sessionName
+            sessionName
         }
 
         /// Upper bound for the centered title in the navigation bar.

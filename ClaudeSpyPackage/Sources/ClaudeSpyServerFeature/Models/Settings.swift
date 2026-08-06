@@ -492,14 +492,18 @@ final public class AppSettings {
         }
 
         // Sidebar Layout
-        self.sidebarFields = Self.loadCodable(from: preferences, key: Keys.sidebarFields)
-        if sidebarFields.isEmpty {
-            self.sidebarFields = SidebarField.defaultFields
-        }
-        self.sidebarTerminalFields = Self.loadCodable(from: preferences, key: Keys.sidebarTerminalFields)
-        if sidebarTerminalFields.isEmpty {
-            self.sidebarTerminalFields = SidebarField.defaultTerminalFields
-        }
+        self.sidebarFields = Self.loadSidebarFields(
+            from: preferences,
+            key: .sidebarFields,
+            legacyDefault: [.customDescription, .projectName, .currentPath, .latestEvent],
+            currentDefault: SidebarField.defaultFields
+        )
+        self.sidebarTerminalFields = Self.loadSidebarFields(
+            from: preferences,
+            key: .sidebarTerminalFields,
+            legacyDefault: [.customDescription, .terminalTitle, .currentPath, .command],
+            currentDefault: SidebarField.defaultTerminalFields
+        )
         self.sidebarSortMode = SidebarSortMode(
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
         ) ?? .statusPriorityIdleFirst
@@ -642,6 +646,24 @@ final public class AppSettings {
             return []
         }
         return (try? JSONDecoder().decode([T].self, from: data)) ?? []
+    }
+
+    /// Upgrades only the exact pre-2.8 default preset. A user-created layout,
+    /// including one that intentionally omits the session name, is preserved.
+    private static func loadSidebarFields(
+        from preferences: PreferencesService,
+        key: Keys,
+        legacyDefault: [SidebarField],
+        currentDefault: [SidebarField]
+    ) -> [SidebarField] {
+        let stored: [SidebarField] = loadCodable(from: preferences, key: key)
+        guard !stored.isEmpty else { return currentDefault }
+        guard stored == legacyDefault else { return stored }
+
+        if let data = try? JSONEncoder().encode(currentDefault) {
+            preferences.setData(data, key.rawValue)
+        }
+        return currentDefault
     }
 
     private func savePairedViewers() {

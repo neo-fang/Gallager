@@ -18,18 +18,18 @@ struct TerminalOnlySessionTitleTests {
         )
     }
 
-    @Test("A session description wins, with no Terminal prefix")
-    func descriptionWins() {
+    @Test("The session name leads and description remains visible")
+    func sessionNameWithDescription() {
         let session = makeSession(description: "My scratch", path: "/Users/bob/Development")
-        #expect(session.displayTitle(homeDirectory: "/Users/bob") == "My scratch")
+        #expect(session.displayTitle(homeDirectory: "/Users/bob") == "scratch — My scratch")
     }
 
     @Test("Paths abbreviate against the given home directory: exact home and subfolders")
     func abbreviatesAgainstGivenHome() {
-        #expect(makeSession(path: "/Users/bob").displayTitle(homeDirectory: "/Users/bob") == "Terminal: ~")
+        #expect(makeSession(path: "/Users/bob").displayTitle(homeDirectory: "/Users/bob") == "scratch — ~")
         #expect(
             makeSession(path: "/Users/bob/Development").displayTitle(homeDirectory: "/Users/bob")
-                == "Terminal: ~/Development"
+                == "scratch — ~/Development"
         )
     }
 
@@ -37,7 +37,7 @@ struct TerminalOnlySessionTitleTests {
     func outsideHomeUnchanged() {
         #expect(
             makeSession(path: "/opt/homebrew").displayTitle(homeDirectory: "/Users/bob")
-                == "Terminal: /opt/homebrew"
+                == "scratch — /opt/homebrew"
         )
     }
 
@@ -46,7 +46,7 @@ struct TerminalOnlySessionTitleTests {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         #expect(
             makeSession(path: home + "/Development").displayTitle(homeDirectory: nil)
-                == "Terminal: ~/Development"
+                == "scratch — ~/Development"
         )
         // An empty description is "not set", and with no reported path the
         // row falls back to the tmux session name.

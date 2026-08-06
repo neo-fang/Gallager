@@ -2,18 +2,18 @@ import ClaudeSpyNetworking
 import Foundation
 
 public extension PaneState {
-    /// The menu-row title for an agent-owning pane: the user's session
-    /// description when one is set (a session-scoped tmux option, so every
-    /// sibling pane reports the same value), else the agent's project-derived
-    /// display name. `nil` for a plain terminal — terminal-only rows title
-    /// themselves via `TerminalOnlySession.displayTitle`. Lives here rather
-    /// than on the wire model: it's menu-presentation logic, layered like its
-    /// sibling `TerminalOnlySession+DisplayTitle`.
+    /// The menu-row title for an agent-owning pane. The tmux session name is
+    /// the stable identity and always leads; description/project information
+    /// is appended only as context. `nil` for a plain terminal.
     var agentRowTitle: String? {
         guard let agentSession else { return nil }
-        if let customDescription, !customDescription.isEmpty {
-            return customDescription
+        guard !sessionName.isEmpty else { return agentSession.displayName }
+
+        let detail = if let customDescription, !customDescription.isEmpty {
+            customDescription
+        } else {
+            agentSession.displayName
         }
-        return agentSession.displayName
+        return detail == sessionName ? sessionName : "\(sessionName) — \(detail)"
     }
 }
