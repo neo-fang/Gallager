@@ -2,8 +2,8 @@
 
 ## 状态
 
-- **状态**：✅ 已完成
-- **进度**：10/10 stages
+- **状态**：🟡 进行中
+- **进度**：10/11 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -313,3 +313,37 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 - 空 reply-after-stop 仍只发送 Escape；空 prompt 仍不发送任何内容。
 - blocking form 与交互式菜单按键时序保持不变。
 - Claude Code、Codex、TmuxService 聚焦测试与 macOS/iOS 构建通过。
+
+## Stage 11：iOS Agent 输入模式
+
+### 目标
+
+让顶部 Agent 快捷输入成为可选体验。默认关闭时，进入 Agent pane 直接启用原生
+terminal 键盘，顶部不显示普通 prompt/reply composer；键盘显示/隐藏按钮始终作为
+导航栏直接操作，不再收进 Agent 命令菜单。
+
+### 实施范围
+
+1. 在 iOS 设置中增加持久化的 `Agent Quick Input` 开关，默认关闭；升级用户也使用
+   相同默认值，不做隐式迁移。
+2. 将普通 prompt/reply-after-stop 与 permission/question/plan 等阻塞表单分开处理：
+   开关只控制前者，阻塞表单始终可见。
+3. 首次进入或切换到 Agent pane 时，根据开关选择默认输入模式：关闭时启用 terminal
+   键盘，开启时展示顶部快捷输入；用户随后手动显示或隐藏键盘时不被状态刷新覆盖。
+4. 阻塞表单到达时退出 terminal 键盘输入模式，避免审批 UI 与 terminal first
+   responder 争抢焦点；表单处理后不擅自重新弹出键盘。
+5. 将 Agent pane 的键盘按钮从 Commands 菜单移到导航栏；Yolo Mode 与 Session Info
+   继续留在 Commands 菜单，普通 terminal pane 的按钮行为不变。
+6. 不修改 relay、host、tmux 命令协议及 Stage 10 的可靠提交路径。
+
+### 验收标准
+
+- 全新安装或未保存该设置时，`Agent Quick Input` 默认为关闭。
+- 默认设置下进入 Agent pane 会自动显示 terminal 键盘，且不显示顶部快捷输入框。
+- 开启设置后，进入 Agent pane 默认显示现有顶部快捷输入框；Send 的可靠提交和清空
+  行为不回归。
+- permission、question、plan approval 等阻塞表单不受开关影响；到达时键盘收起且表单
+  可操作。
+- Agent 与普通 terminal pane 的 Show/Hide Keyboard 图标都直接显示在导航栏。
+- 切换 pane 后的默认模式只初始化一次，用户手动隐藏键盘后不会被 agent 状态刷新重开。
+- 展示策略聚焦测试、Swift package 测试、iOS device 构建及 iPhone 真机验证通过。
