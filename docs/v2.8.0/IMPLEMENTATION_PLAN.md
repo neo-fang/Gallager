@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：🟡 进行中
-- **进度**：8/9 stages
+- **进度**：9/10 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -278,3 +278,30 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 - 普通 buffer、alternate buffer、中文、宽字符和空白行生成可读文本。
 - 无可复制文本时显示明确提示。
 - iOS 聚焦测试与 Simulator 构建通过；真机复制行为验证通过。
+
+## Stage 10：Agent 快捷回复原子提交
+
+### 目标
+
+修复 iOS 在 agent 停止后的顶部回复框点击 Send 时，偶发只把正文写入 TUI、却没有
+触发 Enter 提交的问题。正文和 Enter 必须作为同一次 host 输入事务交给 tmux，不能
+留下半提交状态，也不能通过 iOS 重发或盲目延时制造重复提交风险。
+
+### 实施范围
+
+1. Claude Code 与 Codex 的 prompt/reply-after-stop 翻译统一输出单个
+   `[.text(...), .enter]` keystroke 序列，不再跨两个 `PluginHost` 调用发送。
+2. `TmuxService.sendKeystrokes` 对不含 delay 的混合 literal/named 序列生成一次 tmux
+   client 调用，用 tmux command separator 保持各段的 literal 模式和原始顺序。
+3. 含 delay 的菜单导航继续使用现有逐段执行逻辑；不改变 permission、question、
+   terminal 键盘和 sidecar 插件语义。
+4. 增加 built-in plugin 翻译与 tmux 命令组装聚焦测试，覆盖文本、Enter、空回复和
+   mixed-mode 顺序。
+
+### 验收标准
+
+- iOS 顶部回复框点击 Send 后，正文与 Enter 由一次 host/tmux 调用顺序提交。
+- tmux 命令中的正文仍使用 literal 模式，末尾 Enter 仍作为命名按键处理。
+- 空 reply-after-stop 仍只发送 Escape；空 prompt 仍不发送任何内容。
+- 含 delay 的交互式菜单按键时序保持不变。
+- Claude Code、Codex、TmuxService 聚焦测试与 macOS/iOS 构建通过。

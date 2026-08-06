@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 6/7 tasks
+- **Status**: ✅ Completed
+- **Progress**: 7/7 tasks
 - **Dependencies**: Stage 2 ✅，Stage 4 ✅
 
 ## Tasks
@@ -14,7 +14,7 @@
 - [x] 从 terminal 工具栏接入复制入口与空内容反馈。
 - [x] 增加快照格式与状态流转聚焦测试。
 - [x] 运行 iOS Simulator 构建与受影响测试。
-- [ ] 完成 iPhone 真机跨屏复制验收。
+- [x] 完成 iPhone 真机跨屏复制验收。
 
 ## Decisions
 
@@ -29,8 +29,7 @@
 
 ## Blockers
 
-- 第一阶段代码与自动化验证已完成；Stage 关闭前仍需 iPhone 真机验收跨屏拖选、
-  系统菜单复制和 Copy All。
+- None.
 
 ## Verification
 
@@ -39,3 +38,4 @@
   通过。
 - 完整 `swift test --skip-update`：1569/1569 通过。
 - `git diff --check`：通过。
+- iPhone 真机覆盖安装并验证跨屏文本复制：通过。
