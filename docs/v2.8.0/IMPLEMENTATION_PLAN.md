@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：✅ 已完成
-- **进度**：12/12 stages
+- **进度**：12/13 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -378,3 +378,29 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
 - 任意 pane 存在真实 terminal progress 时，真实值优先于其他 pane 的 agent fallback。
 - Claude Code 的 `OSC 9;4`、`gallager set-progress`、Mac viewer、iOS 和无障碍值不回归。
 - 共享聚焦测试以及 macOS/iOS 构建通过。
+
+## Stage 13：macOS Window 标签双击重命名
+
+### 目标
+
+让 macOS 本地 host 与 Mac viewer 的 terminal window 标签支持双击打开现有
+`Rename Window` 输入框，减少必须打开右键菜单的操作成本。
+
+### 实施范围
+
+1. 复用 `WindowRenamingModifier` 的同一份输入状态和保存逻辑，不创建第二套重命名 UI。
+2. 本地与远程 window 标签主按钮检测 macOS 双击；单击继续选择 window，双击打开
+   预填当前名称的输入框。
+3. 远程 host 断开时保持重命名禁用；本地及已连接远程会话继续调用现有 rename 闭包。
+4. 右键 `Rename Window`、关闭按钮、split 按钮、拖拽排序以及 file/browser/Git 标签行为不变。
+5. 更新 Window Rename E2E 场景，使 host 与 Mac viewer 都覆盖真实双击路径。
+6. 不修改 tmux、relay、共享命令协议或 iOS 行为。
+
+### 验收标准
+
+- 双击本地 terminal window 标签后出现预填当前名称的 `Rename Window` 输入框。
+- 双击 Mac viewer 的远程 terminal window 标签后出现相同输入框，保存后 host 与 viewer 同步。
+- 单击仍只选择 window；右键菜单仍可重命名。
+- 断开的远程 host 不允许发起重命名。
+- close/split/drag 及非 terminal 标签不误触发重命名。
+- Window Rename E2E 编译、受影响 Swift tests 与 macOS 构建通过。
