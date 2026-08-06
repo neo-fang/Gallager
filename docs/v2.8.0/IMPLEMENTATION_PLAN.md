@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：🟡 进行中
-- **进度**：1/4 stages
+- **进度**：1/5 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -126,3 +126,33 @@
   增量，Start 命令不因实时输出占满发送链而超时。
 - iOS 连接 loffice 后可打开并输入 terminal，高吞吐任务期间不再出现 `Stream Error`。
 - 聚焦测试、Swift package 测试与 macOS 构建通过。
+
+## Stage 5：Agent Pane 进程校准
+
+### 目标
+
+修复 tmux pane 的普通终端与 coding agent 图标偶尔分类不准的问题。插件 hook 继续
+提供实时、权威的 agent 生命周期；host 每 10 秒扫描一次 pane 进程树，只校准 hook
+缺失或进程异常退出造成的遗漏和残留。
+
+### 实施范围
+
+1. 保持现有显示语义：session 行在任意 window/pane 存在 agent 时显示 agent 状态，
+   window 标签只反映自身 panes。
+2. 在 `MirrorWindowManager` 单独维护进程扫描推断的 pane 所有权，不让扫描结果覆盖
+   或删除插件 hook 已确认的会话。
+3. 每 10 秒调用现有 `TmuxService.detectAgentPanes`；新增 agent 时补标，已退出的扫描
+   推断 agent 及时撤销。
+4. 插件报告 session end 后，在旧进程仍处于退出阶段时抑制扫描复活；进程消失后
+   自动解除抑制。
+5. 仅当分类实际变化时更新防休眠状态并向 viewer 推送 session state。
+6. 周期任务随 host 生命周期启动和取消，不改变现有 5 秒 pane/session 校验间隔。
+
+### 验收标准
+
+- 在已有普通 shell pane 中启动 Codex/Claude 后，最迟 10 秒出现正确 agent 图标。
+- 没有 hook 的 agent 进程退出后，最迟 10 秒恢复普通终端图标。
+- hook 已确认的 agent 不会因某次进程扫描漏报而被清除。
+- hook 报告结束后，仍在退出中的旧进程不会把 agent 图标重新标回。
+- 同一 session 的左侧状态与每个 window 标签继续使用原有聚合层级。
+- 无分类变化时不推送重复 session state；聚焦单元测试与 macOS 构建通过。
