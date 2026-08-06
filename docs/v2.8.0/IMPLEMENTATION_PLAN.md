@@ -2,8 +2,8 @@
 
 ## 状态
 
-- **状态**：✅ 已完成
-- **进度**：8/8 stages
+- **状态**：🟡 进行中
+- **进度**：8/9 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -249,3 +249,32 @@ Gallager 终端却不再回显的问题。window 数量和 agent 进程校准只
 - 输入字符在 tmux pane 和 Gallager 镜像中同步出现，不需要切换 tab 或等待下一轮刷新。
 - agent 类型校准频率和分类语义不变。
 - 聚焦测试、完整 Swift package 测试与 macOS Release 构建通过。
+
+## Stage 9：iOS Terminal 本地文本复制
+
+### 目标
+
+在不改变 host tmux window 尺寸的前提下，让 iOS 能稳定选择并复制当前屏幕之外的
+terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer，不增加 relay
+请求，不依赖 host 重新捕获画面。
+
+### 实施范围
+
+1. 保持现有“host 尺寸 terminal + 外层滚动视口”架构，不发送
+   `ResizeTmuxPane`，不在 iOS 单方面重排 terminal buffer。
+2. 从 `InteractiveTerminalView` 生成静态纯文本快照，覆盖当前可用 scrollback 与
+   viewport，并按 terminal 行去掉右侧填充空格。
+3. 快照只在用户打开复制界面时生成，不跟随每个 terminal 数据块重建。
+4. 增加只读原生文本选择界面，支持系统跨屏选区、复制和全选；关闭后回到实时
+   terminal，既有短文本原位选择保持不变。
+5. 快照为空时给出明确反馈，不展示无法操作的空白复制界面。
+6. 不修改 relay、host、tmux 命令协议和 macOS terminal 行为。
+
+### 验收标准
+
+- iOS 可从 terminal 工具栏打开复制界面，文本来自当前本地 terminal buffer。
+- 长内容能在复制界面跨越手机可见区域选择并复制。
+- 打开复制界面后 terminal 继续输出也不会移动当前选区；重新打开才生成新快照。
+- 普通 buffer、alternate buffer、中文、宽字符和空白行生成可读文本。
+- 无可复制文本时显示明确提示。
+- iOS 聚焦测试与 Simulator 构建通过；真机复制行为验证通过。
