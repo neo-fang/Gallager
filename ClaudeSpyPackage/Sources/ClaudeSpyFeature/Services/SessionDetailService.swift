@@ -245,14 +245,31 @@ final public class SessionDetailService {
             : [.text(trimmed), .delay(200), .enter]
     }
 
+    /// Clear only the draft whose command succeeded. A late response must not
+    /// erase a newer composer that replaced the submitted state meanwhile.
+    static func finishReplySubmission(
+        succeeded: Bool,
+        submittedState: ResponseState?,
+        currentState: ResponseState?
+    ) {
+        guard succeeded, let submittedState, currentState === submittedState else { return }
+        submittedState.replyDraft = ""
+    }
+
     /// Submit a response for the open request. The synthesized reply-after-stop
     /// composer is agent-agnostic, so it uses the command channel directly: the
     /// viewer then waits for the host's tmux result instead of treating a socket
     /// write as success. Blocking plugin forms still use structured delivery.
     public func submitResponse(_ response: AgentResponse, pluginID: String, requestID: String) async {
         if case let .replyAfterStop(text) = response {
+            let submittedState = responseState
             let keys = Self.replyAfterStopKeystrokes(for: text)
-            _ = await relayClient.send(.sendKeystroke(keys), paneId: paneId)
+            let succeeded = await relayClient.send(.sendKeystroke(keys), paneId: paneId)
+            Self.finishReplySubmission(
+                succeeded: succeeded,
+                submittedState: submittedState,
+                currentState: responseState
+            )
         } else {
             await relayClient.submitAgentResponse(
                 sessionId: paneId,

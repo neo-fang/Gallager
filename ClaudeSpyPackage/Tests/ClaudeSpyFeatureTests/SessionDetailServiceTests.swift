@@ -124,6 +124,35 @@ struct SessionDetailServiceTests {
         #expect(SessionDetailService.replyAfterStopKeystrokes(for: " \n ") == [.escape])
     }
 
+    @Test("Reply draft clears only after the current command succeeds")
+    func replyDraftFollowsCommandResult() {
+        let request = AgentResponseRequest.replyAfterStop(.init(title: "Reply"))
+        let submitted = ResponseState(request: request, pluginID: "codex", requestID: "reply")
+        let replacement = ResponseState(request: request, pluginID: "codex", requestID: "reply")
+
+        submitted.replyDraft = "retry me"
+        SessionDetailService.finishReplySubmission(
+            succeeded: false,
+            submittedState: submitted,
+            currentState: submitted
+        )
+        #expect(submitted.replyDraft == "retry me")
+
+        SessionDetailService.finishReplySubmission(
+            succeeded: true,
+            submittedState: submitted,
+            currentState: replacement
+        )
+        #expect(submitted.replyDraft == "retry me")
+
+        SessionDetailService.finishReplySubmission(
+            succeeded: true,
+            submittedState: submitted,
+            currentState: submitted
+        )
+        #expect(submitted.replyDraft.isEmpty)
+    }
+
     @Test("Response state is nil when no response form is open")
     func responseStateNilWhenNoOpenRequest() {
         let sessionStore = SessionStore()

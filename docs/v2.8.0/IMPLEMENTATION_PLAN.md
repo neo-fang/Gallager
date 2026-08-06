@@ -294,8 +294,9 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
    WebSocket 写入。
 2. Claude Code 与 Codex 的 prompt/reply-after-stop 翻译采用同样的 TUI settle 边界，
    避免正文与 Enter 在同一个输入 burst 中被 TUI 错误消费。
-3. reply composer 不再设置或恢复 `promptSubmitted`；只在真实 agent state 进入
-   `working` 后由 `SessionDetailService` 收起。旧版本留下的持久化反馈自动清除。
+3. reply composer 不再设置或恢复 `promptSubmitted`。host/tmux 对完整输入序列返回
+   command success 后清空草稿；连接失败、超时或 tmux 失败时保留。真实 agent state
+   进入 `working` 时仍收起 composer 并清理草稿，作为状态通道可用时的兜底。
 4. reply 草稿归属于当前 `ResponseState`：`doneWorking → idle` 的 handled 翻转继续
    保留未发送内容，真正进入 `working` 后销毁旧状态；下一轮 composer 使用新的
    lifecycle identity，禁止 SwiftUI/UITextField 复用上一轮的编辑缓存。
@@ -305,7 +306,8 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 ### 验收标准
 
 - iOS 顶部回复框点击 Send 后，host 先写入 literal 正文，等待 200ms，再发送命名 Enter。
-- UI 不再显示 `Prompt submitted`；发送未让 agent 进入 working 时，composer 保持可用。
+- UI 不再显示 `Prompt submitted`；command success 后输入框清空但 composer 保持可用，
+  command failure 时保留原文以便重试。
 - agent 进入 working 后旧草稿清空；下一轮结束重新出现 composer 时不得恢复上次内容。
 - 导航离开再进入 idle/doneWorking session 时，顶部 composer 仍然出现。
 - 空 reply-after-stop 仍只发送 Escape；空 prompt 仍不发送任何内容。

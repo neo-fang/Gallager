@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 7/8 tasks
+- **Progress**: 8/9 tasks
 - **Dependencies**: Stage 4 ✅，Stage 9 ✅
 
 ## Tasks
@@ -15,6 +15,7 @@
 - [x] 增加并运行 plugin、TmuxService 与 reply composer 聚焦测试。
 - [x] 将 reply 草稿收归 `ResponseState`，真实 working 后清空，失败时继续保留。
 - [x] 让每轮 reply composer 使用独立视图身份，阻止 UITextField 恢复旧编辑缓存。
+- [x] host command 成功回执后清空草稿；失败时保留，working 清理继续作为兜底。
 - [ ] 完成 macOS host 构建与 iPhone 真机回复验收。
 
 ## Decisions
@@ -30,6 +31,9 @@
   重新挂载会复活旧输入。草稿由每轮 `ResponseState` 持有。
 - 仅清空模型仍不够：固定的 `.id(requestID)` 会让 SwiftUI 复用原生 TextField。
   synthesized composer 的视图身份必须跟随 response lifecycle，而非固定 request id。
+- 真机日志确认进程扫描识别出的 agent 可以持续上报 `idle`，即使 TUI 已在工作；不能
+  把 `working` 当作清空草稿的唯一成功信号。当前协议可用的确定边界是 host/tmux
+  command response。
 
 ## Blockers
 
@@ -38,6 +42,6 @@
 ## Verification
 
 - 上一版 mixed-mode 单 client 方案：自动化通过，但 iPhone 真机复测失败，已撤销。
-- 修正版聚焦测试：60 tests / 4 suites passed。
+- 修正版聚焦测试：61 tests / 4 suites passed。
 - macOS host 与 iOS device 构建：Passed。
 - iPhone 顶部回复框连续发送验收：Pending。
