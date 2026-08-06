@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 8/9 tasks
+- **Status**: ✅ Completed
+- **Progress**: 9/9 tasks
 - **Dependencies**: Stage 4 ✅，Stage 9 ✅
 
 ## Tasks
@@ -16,7 +16,7 @@
 - [x] 将 reply 草稿收归 `ResponseState`，真实 working 后清空，失败时继续保留。
 - [x] 让每轮 reply composer 使用独立视图身份，阻止 UITextField 恢复旧编辑缓存。
 - [x] host command 成功回执后清空草稿；失败时保留，working 清理继续作为兜底。
-- [ ] 完成 macOS host 构建与 iPhone 真机回复验收。
+- [x] 完成 macOS host 构建与 iPhone 真机回复验收。
 
 ## Decisions
 
@@ -44,4 +44,4 @@
 - 上一版 mixed-mode 单 client 方案：自动化通过，但 iPhone 真机复测失败，已撤销。
 - 修正版聚焦测试：61 tests / 4 suites passed。
 - macOS host 与 iOS device 构建：Passed。
-- iPhone 顶部回复框连续发送验收：Pending。
+- iPhone 顶部回复框发送、Enter 提交与成功回执后清空：Passed。
