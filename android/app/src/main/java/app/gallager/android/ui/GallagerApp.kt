@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -601,6 +602,7 @@ private fun TerminalScreen(
     BackHandler(onBack = onBack)
     val scrollState = rememberScrollState()
     val horizontalScrollState = rememberScrollState()
+    var followTerminalTail by remember(pane.paneId) { mutableStateOf(true) }
     var input by remember(pane.paneId) { mutableStateOf("") }
     var actionMenuExpanded by remember { mutableStateOf(false) }
     var showNewWindowDialog by remember { mutableStateOf(false) }
@@ -650,8 +652,18 @@ private fun TerminalScreen(
             input = ""
         }
     }
-    LaunchedEffect(terminalContent.text.length) {
-        scrollState.scrollTo(scrollState.maxValue)
+    LaunchedEffect(scrollState, pane.paneId) {
+        scrollState.interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is DragInteraction.Start -> followTerminalTail = false
+                is DragInteraction.Stop,
+                is DragInteraction.Cancel ->
+                    followTerminalTail = scrollState.value >= scrollState.maxValue - 48
+            }
+        }
+    }
+    LaunchedEffect(pane.paneId, terminalContent.text.length) {
+        if (followTerminalTail) scrollState.scrollTo(scrollState.maxValue)
     }
 
     Scaffold(

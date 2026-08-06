@@ -33,7 +33,9 @@ data class TerminalRender(
  * and Codex rely on alternate buffers, DEC origin/wrap modes, scroll regions,
  * character sets, and partial-line erases. Termux's maintained emulator owns
  * that state machine; this class only converts its visible cell buffer into the
- * lightweight styled model consumed by Compose.
+ * lightweight styled model consumed by Compose. The rendered model includes
+ * both the active scrollback buffer and the visible screen so a viewer can
+ * inspect history without moving the host terminal first.
  */
 class TerminalTranscript(
     initialColumns: Int = DEFAULT_COLUMNS,
@@ -67,7 +69,8 @@ class TerminalTranscript(
 
     fun render(): TerminalRender {
         val screen = emulator.screen
-        val renderedRows = (0 until rows).map { rowIndex ->
+        val firstRow = -screen.activeTranscriptRows
+        val renderedRows = (firstRow until rows).map { rowIndex ->
             val internalRow = screen.externalToInternalRow(rowIndex)
             val row = screen.allocateFullLineIfNecessary(internalRow)
             val glyphs = mutableListOf<StyledGlyph>()
@@ -203,7 +206,7 @@ class TerminalTranscript(
         private const val MIN_ROWS = 2
         private const val MAX_COLUMNS = 500
         private const val MAX_ROWS = 200
-        private const val TRANSCRIPT_ROWS = 2_000
+        private const val TRANSCRIPT_ROWS = 10_000
         private const val CELL_WIDTH_PIXELS = 8
         private const val CELL_HEIGHT_PIXELS = 16
         private const val SPACE = 0x20

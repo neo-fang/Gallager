@@ -149,4 +149,12 @@ class TerminalTranscriptTest {
 
         assertEquals("hello\n\nbottom", transcript.value())
     }
+
+    @Test
+    fun renderIncludesScrollbackAboveTheVisibleScreen() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 3)
+        transcript.feed("one\r\ntwo\r\nthree\r\nfour".toByteArray())
+
+        assertEquals("one\ntwo\nthree\nfour", transcript.value())
+    }
 }
