@@ -17,6 +17,11 @@ final public class ResponseState {
     /// Stable request id correlating the submission to the request.
     public let requestID: String
 
+    /// SwiftUI identity for the rendered form. Blocking forms retain their
+    /// request identity, while each synthesized reply lifecycle gets a fresh
+    /// identity so UIKit cannot restore a previous turn's TextField buffer.
+    public let viewIdentity: String
+
     /// Whether a response is currently being submitted.
     public var isSending = false
 
@@ -54,6 +59,11 @@ final public class ResponseState {
         self.request = request
         self.pluginID = pluginID
         self.requestID = requestID
+        if case .replyAfterStop = request {
+            self.viewIdentity = "\(requestID):\(UUID().uuidString)"
+        } else {
+            self.viewIdentity = requestID
+        }
         self.sessionStore = sessionStore
         // Restore any existing response from the store.
         // isInitialized is false, so didSet won't trigger @Observable mutations.

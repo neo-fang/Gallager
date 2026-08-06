@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 6/7 tasks
+- **Progress**: 7/8 tasks
 - **Dependencies**: Stage 4 ✅，Stage 9 ✅
 
 ## Tasks
@@ -14,6 +14,7 @@
 - [x] 让 built-in prompt/reply-after-stop 使用相同的延迟边界。
 - [x] 增加并运行 plugin、TmuxService 与 reply composer 聚焦测试。
 - [x] 将 reply 草稿收归 `ResponseState`，真实 working 后清空，失败时继续保留。
+- [x] 让每轮 reply composer 使用独立视图身份，阻止 UITextField 恢复旧编辑缓存。
 - [ ] 完成 macOS host 构建与 iPhone 真机回复验收。
 
 ## Decisions
@@ -27,6 +28,8 @@
   `working` 状态决定。
 - 草稿不能留在固定 `.id` 的 SwiftUI 本地状态；否则 working 后同一 composer id
   重新挂载会复活旧输入。草稿由每轮 `ResponseState` 持有。
+- 仅清空模型仍不够：固定的 `.id(requestID)` 会让 SwiftUI 复用原生 TextField。
+  synthesized composer 的视图身份必须跟随 response lifecycle，而非固定 request id。
 
 ## Blockers
 

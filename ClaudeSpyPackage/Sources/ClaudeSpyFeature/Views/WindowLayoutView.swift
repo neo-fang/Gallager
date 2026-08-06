@@ -413,10 +413,9 @@
                     )
                     .padding()
                     .background(Color(.systemGroupedBackground))
-                    // Force a fresh view identity per request so per-request
-                    // @State (e.g. AskUserQuestion's collected answers) is
-                    // discarded when a new request replaces the prior one.
-                    .id(responseState.requestID)
+                    // Preserve blocking forms for their request lifetime, but
+                    // give each synthesized reply turn a fresh TextField.
+                    .id(responseState.viewIdentity)
 
                     Divider()
                 }

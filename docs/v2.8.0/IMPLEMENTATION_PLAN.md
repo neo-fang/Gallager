@@ -297,7 +297,8 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 3. reply composer 不再设置或恢复 `promptSubmitted`；只在真实 agent state 进入
    `working` 后由 `SessionDetailService` 收起。旧版本留下的持久化反馈自动清除。
 4. reply 草稿归属于当前 `ResponseState`：`doneWorking → idle` 的 handled 翻转继续
-   保留未发送内容，真正进入 `working` 后销毁旧状态；下一轮 composer 必须为空。
+   保留未发送内容，真正进入 `working` 后销毁旧状态；下一轮 composer 使用新的
+   lifecycle identity，禁止 SwiftUI/UITextField 复用上一轮的编辑缓存。
 5. 不重发 Enter，不修改 blocking form、terminal 键盘或 sidecar 插件协议。
 6. 增加 built-in plugin 翻译、延迟边界与 reply composer 状态聚焦测试。
 

@@ -238,6 +238,7 @@ struct SessionDetailServiceTests {
             relayClient: relayClient
         )
         let priorState = service.responseState
+        let priorViewIdentity = priorState?.viewIdentity
         priorState?.replyDraft = "continue"
         // Let the service's observation task register before mutating the store.
         await Task.yield()
@@ -250,6 +251,7 @@ struct SessionDetailServiceTests {
         pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
         #expect(await waitUntil { service.responseState != nil })
         #expect(service.responseState !== priorState)
+        #expect(service.responseState?.viewIdentity != priorViewIdentity)
         #expect(service.responseState?.replyDraft == "")
     }
 
