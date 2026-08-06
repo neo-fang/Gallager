@@ -50,17 +50,22 @@
             #expect(input == [.left, .right, .up, .down])
         }
 
-        @Test("Function-key events stay on SwiftTerm's native path")
-        func functionKeyEventsUseNativePath() throws {
+        @Test("Hardware navigation events bypass function-key ambiguity")
+        func hardwareNavigationEventsAreNormalized() throws {
             let (_, view) = makeTerminalWindow()
             var input: [TmuxKey] = []
             view.onInput = { input.append(contentsOf: $0) }
 
             view.keyDown(with: try functionKeyEvent(NSLeftArrowFunctionKey, keyCode: 123))
+            view.keyDown(with: try functionKeyEvent(NSRightArrowFunctionKey, keyCode: 124))
+            view.keyDown(with: try functionKeyEvent(NSDownArrowFunctionKey, keyCode: 125))
+            view.keyDown(with: try functionKeyEvent(NSUpArrowFunctionKey, keyCode: 126))
             view.keyDown(with: try functionKeyEvent(NSHomeFunctionKey, keyCode: 115))
             view.keyDown(with: try functionKeyEvent(NSEndFunctionKey, keyCode: 119))
+            view.keyDown(with: try functionKeyEvent(NSPageUpFunctionKey, keyCode: 116))
+            view.keyDown(with: try functionKeyEvent(NSPageDownFunctionKey, keyCode: 121))
 
-            #expect(input == [.left, .home, .end])
+            #expect(input == [.left, .right, .down, .up, .home, .end, .pageUp, .pageDown])
         }
 
         @Test("Fn arrow commands map to line boundaries")

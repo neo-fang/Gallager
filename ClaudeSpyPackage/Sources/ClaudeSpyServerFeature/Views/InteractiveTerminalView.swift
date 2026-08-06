@@ -1113,6 +1113,21 @@
         override func keyDown(with event: NSEvent) {
             guard !isEditorActive else { return }
 
+            // AppKit marks the hardware arrow cluster with `.function` (and on
+            // some keyboards `.numericPad`) even when Fn is not being held.
+            // Passing those events through SwiftTerm's function-key branch can
+            // make ordinary arrows disappear or turn Fn+Right into another
+            // command. Navigation does not need text-input interpretation, so
+            // normalize the unmodified function character here and send the
+            // logical key directly. tmux will encode it for the pane's current
+            // normal/application cursor mode.
+            let commandModifiers = event.modifierFlags
+                .intersection([.shift, .control, .option, .command])
+            if commandModifiers.isEmpty, let navigationKey = navigationKey(for: event) {
+                onInput?([navigationKey])
+                return
+            }
+
             // Preserve Shift+Enter before AppKit's text input manager collapses
             // it to a plain newline.
             let returnChars: Set = ["\r", "\u{3}"]
@@ -1140,6 +1155,25 @@
                 interpretKeyEvents([event])
             } else {
                 terminalView.keyDown(with: event)
+            }
+        }
+
+        private func navigationKey(for event: NSEvent) -> TmuxKey? {
+            guard
+                let characters = event.charactersIgnoringModifiers,
+                let scalar = characters.unicodeScalars.first
+            else { return nil }
+
+            switch Int(scalar.value) {
+            case NSUpArrowFunctionKey: return .up
+            case NSDownArrowFunctionKey: return .down
+            case NSLeftArrowFunctionKey: return .left
+            case NSRightArrowFunctionKey: return .right
+            case NSHomeFunctionKey: return .home
+            case NSEndFunctionKey: return .end
+            case NSPageUpFunctionKey: return .pageUp
+            case NSPageDownFunctionKey: return .pageDown
+            default: return nil
             }
         }
 
