@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 7/8 tasks
+- **Status**: ✅ Completed
+- **Progress**: 8/8 tasks
 - **Dependencies**: Stage 4 ✅，Stage 5 ✅
 
 ## Tasks
@@ -15,7 +15,7 @@
 - [x] 本地 New Window 等待新 pane 出现在缓存后再选中。
 - [x] 运行聚焦测试和完整 Swift package 测试。
 - [x] 运行 macOS arm64 Release 构建与签名结构校验。
-- [ ] 安装本机验证版并完成真实 New Window 输入回归。
+- [x] 安装本机验证版并完成真实 New Window 输入回归。
 
 ## Evidence
 
@@ -30,6 +30,7 @@
   `2944bf55392500e165be43ed5481b7066b58f3cc`。
 - 本机验证版已安装并保持运行；Computer Use native pipe 不可用，真实 New Window
   输入回归留给用户验收，不将“已安装”等同于“交互通过”。
+- 用户已在真实 Gallager 界面完成 New Window 输入回归，未再发现卡住或回显丢失。
 
 ## Decisions
 
