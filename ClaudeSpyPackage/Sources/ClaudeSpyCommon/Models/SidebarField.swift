@@ -76,6 +76,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
 
     /// Default field order for Claude sessions
     public static let defaultFields: [SidebarField] = [
+        .sessionName,
         .customDescription,
         .projectName,
         .currentPath,
@@ -84,6 +85,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
 
     /// Default field order for plain terminal sessions
     public static let defaultTerminalFields: [SidebarField] = [
+        .sessionName,
         .customDescription,
         .terminalTitle,
         .currentPath,

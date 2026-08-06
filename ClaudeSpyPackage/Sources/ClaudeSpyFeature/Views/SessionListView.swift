@@ -360,6 +360,7 @@
                     if let claudePane = claudePaneInSession, let claudeSession = claudePane.agentSession {
                         SessionRowView(
                             paneId: claudePane.paneId,
+                            sessionName: session.sessionName,
                             session: claudeSession,
                             cliSessionState: cliSessionState,
                             isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
@@ -587,6 +588,7 @@
 
     struct SessionRowView: View {
         let paneId: String
+        let sessionName: String
         let session: AgentSession
         var cliSessionState: CLISessionState?
         let isActive: Bool
@@ -595,6 +597,15 @@
         var windowCount = 1
         var telemetry: SessionTelemetry?
         var permissionMode: String?
+
+        private var detail: String? {
+            let description = customDescription.flatMap { $0.isEmpty ? nil : $0 }
+            let projectName = session.displayName
+            if let description, projectName != sessionName {
+                return "\(description) · \(projectName)"
+            }
+            return description ?? (projectName == sessionName ? nil : projectName)
+        }
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
@@ -616,38 +627,24 @@
                 .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Custom description shown prominently if set
-                    if let customDescription {
-                        HStack {
-                            Text(customDescription)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
+                    HStack {
+                        Text(sessionName)
+                            .font(.headline)
+                        if windowCount > 1 {
+                            Text("\(windowCount) windows")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.fill.tertiary, in: Capsule())
                         }
+                    }
 
-                        Text(session.displayName)
+                    if let detail {
+                        Text(detail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            // Project folder name (or pane ID as fallback)
-                            Text(session.displayName)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
-                        }
+                            .lineLimit(1)
                     }
 
                     // Status label (the plugin model dropped the per-event buffer,
@@ -687,6 +684,14 @@
             pane.target.isEmpty ? pane.paneId : pane.target
         }
 
+        private var detail: String? {
+            let description = pane.customDescription.flatMap { $0.isEmpty ? nil : $0 }
+            if let description, displayName != pane.sessionName {
+                return "\(description) · \(displayName)"
+            }
+            return description ?? (displayName == pane.sessionName ? nil : displayName)
+        }
+
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(spacing: 8) {
@@ -709,38 +714,24 @@
                 .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Custom description shown prominently if set
-                    if let customDescription = pane.customDescription {
-                        HStack {
-                            Text(customDescription)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
+                    HStack {
+                        Text(pane.sessionName)
+                            .font(.headline)
+                        if windowCount > 1 {
+                            Text("\(windowCount) windows")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.fill.tertiary, in: Capsule())
                         }
+                    }
 
-                        Text(displayName)
+                    if let detail {
+                        Text(detail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            // Display name (folder name or pane ID)
-                            Text(displayName)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
-                        }
+                            .lineLimit(1)
                     }
 
                     // Command and path info
