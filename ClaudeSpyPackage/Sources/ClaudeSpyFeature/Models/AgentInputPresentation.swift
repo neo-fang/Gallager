@@ -6,8 +6,4 @@ enum AgentInputPresentation {
     ) -> Bool {
         isBlocking || (quickInputEnabled && !keyboardActive)
     }
-
-    static func startsWithKeyboard(isAgentPane: Bool, quickInputEnabled: Bool) -> Bool {
-        isAgentPane && !quickInputEnabled
-    }
 }

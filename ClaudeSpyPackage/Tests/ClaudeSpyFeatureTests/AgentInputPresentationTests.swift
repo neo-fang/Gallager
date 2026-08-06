@@ -35,20 +35,4 @@ struct AgentInputPresentationTests {
             keyboardActive: false
         ))
     }
-
-    @Test("Agent panes default to the terminal keyboard when quick input is disabled")
-    func initialKeyboardMode() {
-        #expect(AgentInputPresentation.startsWithKeyboard(
-            isAgentPane: true,
-            quickInputEnabled: false
-        ))
-        #expect(!AgentInputPresentation.startsWithKeyboard(
-            isAgentPane: true,
-            quickInputEnabled: true
-        ))
-        #expect(!AgentInputPresentation.startsWithKeyboard(
-            isAgentPane: false,
-            quickInputEnabled: false
-        ))
-    }
 }

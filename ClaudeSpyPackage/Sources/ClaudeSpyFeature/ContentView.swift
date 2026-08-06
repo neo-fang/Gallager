@@ -555,7 +555,7 @@
                 } header: {
                     Text("Agent Input")
                 } footer: {
-                    Text("Shows a reply field above agent terminals. When off, agent terminals open with the terminal keyboard instead.")
+                    Text("Shows a reply field above agent terminals. When off, use the keyboard button when you want to type.")
                 }
 
                 // New Session Section

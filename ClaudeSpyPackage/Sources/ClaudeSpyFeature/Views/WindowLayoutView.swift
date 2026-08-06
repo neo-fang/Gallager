@@ -336,7 +336,6 @@
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
                 }
                 updateActiveService()
-                initializeDefaultInputMode()
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
@@ -360,7 +359,6 @@
             }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
-                initializeDefaultInputMode()
                 // Mark session as handled when switching to a pane with attention
                 Task { await activeService?.markHandledIfNeeded() }
                 // Sync pane selection to the tmux session on the host.
@@ -621,15 +619,6 @@
 
         private var activeSessionHasBlockingForm: Bool {
             activeService?.session?.state.openForm?.request.isBlocking == true
-        }
-
-        private func initializeDefaultInputMode() {
-            isKeyboardActive = activeSessionHasBlockingForm
-                ? false
-                : AgentInputPresentation.startsWithKeyboard(
-                    isAgentPane: activeService?.session != nil,
-                    quickInputEnabled: settings.agentQuickInputEnabled
-                )
         }
 
         /// Creates or clears the SessionDetailService when the active pane changes

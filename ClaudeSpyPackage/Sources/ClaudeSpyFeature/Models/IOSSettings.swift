@@ -122,7 +122,7 @@
         }
 
         /// Whether agent panes use the optional response field above the terminal.
-        /// When disabled, entering an agent pane starts in terminal keyboard mode.
+        /// When disabled, the keyboard remains a separate, explicit user action.
         public var agentQuickInputEnabled = false {
             didSet { preferences.setBool(agentQuickInputEnabled, Keys.agentQuickInputEnabled) }
         }
