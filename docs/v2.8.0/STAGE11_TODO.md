@@ -31,6 +31,7 @@
 
 ## Verification
 
-- 上一版自动键盘方案：45 tests / 5 suites、iOS device 构建与安装通过，已按用户反馈
-  调整为手动键盘方案。
-- 手动键盘方案的测试、iOS device 构建、安装及真机交互：Pending。
+- 手动键盘方案：`ClaudeSpyFeatureTests` 44 tests / 5 suites passed。
+- iOS device 无签名构建：Passed。
+- 使用本机 Apple Development 证书签名、校验并安装到 ZengJice iPhone：Passed。
+- 默认不弹键盘、设置切换、直接键盘按钮和阻塞表单真机交互：待用户验收。
