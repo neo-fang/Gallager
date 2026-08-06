@@ -215,6 +215,34 @@ Called on:
 
 ## Key Constraints and Limitations
 
+### Text Selection Across the Outer Viewport
+
+SwiftTerm owns its selection gesture and only auto-scrolls when the drag leaves the
+`TerminalView` bounds. Gallager's `TerminalView` bounds cover the complete host-sized
+terminal, while the iPhone shows only a smaller rectangle through the outer scroll view.
+Reaching the phone edge therefore does not leave the terminal bounds, so SwiftTerm never
+scrolls and the selection cannot extend into content outside the outer viewport. The same
+ownership mismatch affects horizontal selection.
+
+Resizing is not an appropriate copy workaround:
+
+- Sending `ResizeTmuxPane` ultimately runs `tmux resize-window`, changing the shared tmux
+  window for the Mac and every viewer.
+- Resizing only the local SwiftTerm buffer makes it disagree with control sequences emitted
+  for the host dimensions and reintroduces the buffer corruption described above.
+- Multiple viewers would compete for the shared window size and require fragile restoration
+  when a viewer disconnects.
+
+The first-stage copy solution therefore keeps the terminal dimensions unchanged and creates
+a static text snapshot from the local SwiftTerm buffer only when requested. A native read-only
+text view owns selection in that snapshot, so iOS provides normal cross-screen selection,
+copy, and Select All without a relay request. The live terminal remains the source of truth;
+closing and reopening the copy view refreshes the snapshot.
+
+A later enhancement may teach the SwiftTerm fork about the outer visible rectangle and make
+selection-handle drags scroll the outer view. That is a direct-manipulation improvement, not a
+reason to change tmux sizing.
+
 ### SwiftTerm Limitations
 
 | Limitation | Impact | Workaround |
