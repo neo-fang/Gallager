@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 10/12 tasks
+- **Progress**: 11/12 tasks
 - **Dependencies**: Stage 3 ✅，Stage 6 🟡
 
 ## Tasks
@@ -20,7 +20,7 @@
 - [x] 运行 Gallager 完整 Swift package 测试及 macOS Release 构建。
 - [x] 用同一 Codex pane 完成 Release CPU 与主线程采样 A/B。
 - [ ] 人工验证输入、滚动、选择、链接、主题和窗口 resize 无回归。
-- [ ] 将 SwiftTerm 补丁发布到可复现的 fork/revision，并替换本机临时 package path。
+- [x] 将 SwiftTerm 补丁发布到可复现的 fork/revision，并替换本机临时 package path。
 
 ## Baseline
 
@@ -38,6 +38,9 @@
 - AppKit dirty-region 跟踪实验没有稳定收益，已删除；没有进入发布代码。
 - Gallager 完整 Swift package 测试通过；聚焦 URL cache 测试 5/5 通过；SwiftTerm
   CoreGraphics cache 聚焦测试 8/8 通过；macOS Release 构建和签名校验通过。
+- SwiftTerm 补丁已发布到 `jarviszeng-zjc/SwiftTerm` 的
+  `2944bf55392500e165be43ed5481b7066b58f3cc`；三份 `Package.resolved` 和隔离 Xcode
+  checkout 均锁定该 revision，不依赖本机绝对路径。
 
 ## Decisions
 
@@ -48,4 +51,4 @@
 
 ## Blockers
 
-- SwiftTerm 是外部 Swift package；完成可复现集成前需要一个承载补丁的 Git fork/revision。
+- 无。剩余人工交互回归由本机安装版验收。
