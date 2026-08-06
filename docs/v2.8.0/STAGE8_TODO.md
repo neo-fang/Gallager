@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 6/8 tasks
+- **Progress**: 7/8 tasks
 - **Dependencies**: Stage 4 ✅，Stage 5 ✅
 
 ## Tasks
@@ -14,7 +14,7 @@
 - [x] 覆盖 reader 创建失败后的清理与重试。
 - [x] 本地 New Window 等待新 pane 出现在缓存后再选中。
 - [x] 运行聚焦测试和完整 Swift package 测试。
-- [ ] 运行 macOS arm64 Release 构建与签名结构校验。
+- [x] 运行 macOS arm64 Release 构建与签名结构校验。
 - [ ] 安装本机验证版并完成真实 New Window 输入回归。
 
 ## Evidence
@@ -26,6 +26,10 @@
 - 本地 New Window 创建后只查一次 `tmuxService.windows`；并行 refresh 会返回旧缓存，
   该路径未复用其他创建流程已有的 `PaneSurfaceRetry`。
 - `PaneLifecycleRaceTests` 5/5 通过；完整 Swift package 回归 1564/1564 通过。
+- macOS arm64 Release 构建通过，产物深层签名校验通过；SwiftTerm 固定为 fork 提交
+  `2944bf55392500e165be43ed5481b7066b58f3cc`。
+- 本机验证版已安装并保持运行；Computer Use native pipe 不可用，真实 New Window
+  输入回归留给用户验收，不将“已安装”等同于“交互通过”。
 
 ## Decisions
 
