@@ -2,8 +2,8 @@
 
 ## 状态
 
-- **状态**：🟡 进行中
-- **进度**：8/9 stages
+- **状态**：✅ 已完成
+- **进度**：11/11 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -278,3 +278,72 @@ terminal 内容。复制数据直接来自已经渲染的本地 SwiftTerm buffer
 - 普通 buffer、alternate buffer、中文、宽字符和空白行生成可读文本。
 - 无可复制文本时显示明确提示。
 - iOS 聚焦测试与 Simulator 构建通过；真机复制行为验证通过。
+
+## Stage 10：Agent 快捷回复可靠提交
+
+### 目标
+
+修复 iOS 在 agent 停止后的顶部回复框点击 Send 时，偶发只把正文写入 TUI、却没有
+触发 Enter 提交的问题；同时移除未确认实际发送结果就显示并持久化
+`Prompt submitted` 的虚假成功状态。
+
+### 实施范围
+
+1. 顶部 reply-after-stop composer 通过已有 command/response 通道直接发送
+   `[.text(...), .delay(200), .enter]`，等待 host 完成 tmux 操作，而不是只确认
+   WebSocket 写入。
+2. Claude Code 与 Codex 的 prompt/reply-after-stop 翻译采用同样的 TUI settle 边界，
+   避免正文与 Enter 在同一个输入 burst 中被 TUI 错误消费。
+3. reply composer 不再设置或恢复 `promptSubmitted`。host/tmux 对完整输入序列返回
+   command success 后清空草稿；连接失败、超时或 tmux 失败时保留。真实 agent state
+   进入 `working` 时仍收起 composer 并清理草稿，作为状态通道可用时的兜底。
+4. reply 草稿归属于当前 `ResponseState`：`doneWorking → idle` 的 handled 翻转继续
+   保留未发送内容，真正进入 `working` 后销毁旧状态；下一轮 composer 使用新的
+   lifecycle identity，禁止 SwiftUI/UITextField 复用上一轮的编辑缓存。
+5. 不重发 Enter，不修改 blocking form、terminal 键盘或 sidecar 插件协议。
+6. 增加 built-in plugin 翻译、延迟边界与 reply composer 状态聚焦测试。
+
+### 验收标准
+
+- iOS 顶部回复框点击 Send 后，host 先写入 literal 正文，等待 200ms，再发送命名 Enter。
+- UI 不再显示 `Prompt submitted`；command success 后输入框清空但 composer 保持可用，
+  command failure 时保留原文以便重试。
+- agent 进入 working 后旧草稿清空；下一轮结束重新出现 composer 时不得恢复上次内容。
+- 导航离开再进入 idle/doneWorking session 时，顶部 composer 仍然出现。
+- 空 reply-after-stop 仍只发送 Escape；空 prompt 仍不发送任何内容。
+- blocking form 与交互式菜单按键时序保持不变。
+- Claude Code、Codex、TmuxService 聚焦测试与 macOS/iOS 构建通过。
+
+## Stage 11：iOS Agent 输入模式
+
+### 目标
+
+让顶部 Agent 快捷输入成为可选体验。默认关闭时，进入 Agent pane 只显示 terminal，
+既不弹出键盘，也不显示普通 prompt/reply composer；键盘显示/隐藏按钮始终作为
+导航栏直接操作，不再收进 Agent 命令菜单，由用户明确决定何时输入。
+
+### 实施范围
+
+1. 在 iOS 设置中增加持久化的 `Agent Quick Input` 开关，默认关闭；升级用户也使用
+   相同默认值，不做隐式迁移。
+2. 将普通 prompt/reply-after-stop 与 permission/question/plan 等阻塞表单分开处理：
+   开关只控制前者，阻塞表单始终可见。
+3. 首次进入或切换到 Agent pane 时不自动启用 terminal 键盘。开关关闭时保持只读
+   terminal；开启时展示顶部快捷输入，terminal 键盘仍只由导航栏按钮控制。
+4. 阻塞表单到达时退出 terminal 键盘输入模式，避免审批 UI 与 terminal first
+   responder 争抢焦点；表单处理后不擅自重新弹出键盘。
+5. 将 Agent pane 的键盘按钮从 Commands 菜单移到导航栏；Yolo Mode 与 Session Info
+   继续留在 Commands 菜单，普通 terminal pane 的按钮行为不变。
+6. 不修改 relay、host、tmux 命令协议及 Stage 10 的可靠提交路径。
+
+### 验收标准
+
+- 全新安装或未保存该设置时，`Agent Quick Input` 默认为关闭。
+- 默认设置下进入 Agent pane 不自动显示 terminal 键盘，也不显示顶部快捷输入框。
+- 开启设置后，进入 Agent pane 默认显示现有顶部快捷输入框；Send 的可靠提交和清空
+  行为不回归。
+- permission、question、plan approval 等阻塞表单不受开关影响；到达时键盘收起且表单
+  可操作。
+- Agent 与普通 terminal pane 的 Show/Hide Keyboard 图标都直接显示在导航栏。
+- terminal 键盘只响应用户直接操作；切换 pane 或 agent 状态刷新不会自动弹出。
+- 展示策略聚焦测试、Swift package 测试、iOS device 构建及 iPhone 真机验证通过。

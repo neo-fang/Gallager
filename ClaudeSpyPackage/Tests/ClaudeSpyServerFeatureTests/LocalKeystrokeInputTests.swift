@@ -110,5 +110,25 @@
             let bspace = try #require(args.firstIndex(of: "BSpace"))
             #expect(escape < bspace)
         }
+
+        @Test("sendKeystrokes preserves delayed sequence boundaries")
+        func sendKeystrokesPreservesDelays() async throws {
+            let commands = LockIsolated<[[String]]>([])
+            try await withDependencies {
+                $0[ProcessRunner.self].run = { @Sendable _, arguments, _, _ in
+                    commands.withValue { $0.append(arguments) }
+                    return ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
+                }
+            } operation: {
+                let tmux = TmuxService(tmuxPath: "/usr/bin/tmux")
+                try await tmux.sendKeystrokes("%1", keys: [.text("choice"), .delay(1), .enter])
+            }
+
+            let sendKeysCalls = commands.value.filter { $0.contains("send-keys") }
+            #expect(sendKeysCalls == [
+                ["send-keys", "-t", "%1", "-l", "choice"],
+                ["send-keys", "-t", "%1", "Enter"],
+            ])
+        }
     }
 #endif

@@ -218,20 +218,21 @@
                         .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isKeyboardActive.toggle()
+                    } label: {
+                        Label(
+                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                        )
+                    }
+                    .disabled(!relayClient.isHostConnected)
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button {
-                                isKeyboardActive.toggle()
-                            } label: {
-                                Label(
-                                    keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                    symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                                )
-                            }
-                            .disabled(!relayClient.isHostConnected)
-                            .tint(nil)
-
                             Button {
                                 let newValue = !activeService.isYoloModeEnabled
                                 Task {
@@ -257,18 +258,6 @@
                         .popover(isPresented: $showSessionInfo) {
                             sessionInfoPopover
                         }
-                    }
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isKeyboardActive.toggle()
-                        } label: {
-                            Label(
-                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                            )
-                        }
-                        .disabled(!relayClient.isHostConnected)
                     }
                 }
             }
@@ -350,7 +339,10 @@
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
-            .onChange(of: activeService?.session?.needsAttention) {
+            .onChange(of: activeService?.session?.state) {
+                if activeSessionHasBlockingForm {
+                    isKeyboardActive = false
+                }
                 if activeService?.session?.needsAttention == true {
                     Task { await activeService?.markHandledIfNeeded() }
                 }
@@ -397,9 +389,13 @@
             VStack(spacing: 0) {
                 // Response view for active pane's Claude session (full width, above layout)
                 if
-                    !isKeyboardActive,
                     let activeService,
-                    let responseState = activeService.responseState {
+                    let responseState = activeService.responseState,
+                    AgentInputPresentation.showsResponseForm(
+                        isBlocking: responseState.request.isBlocking,
+                        quickInputEnabled: settings.agentQuickInputEnabled,
+                        keyboardActive: isKeyboardActive
+                    ) {
                     responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
                         submit: { response in
@@ -413,10 +409,9 @@
                     )
                     .padding()
                     .background(Color(.systemGroupedBackground))
-                    // Force a fresh view identity per request so per-request
-                    // @State (e.g. AskUserQuestion's collected answers) is
-                    // discarded when a new request replaces the prior one.
-                    .id(responseState.requestID)
+                    // Preserve blocking forms for their request lifetime, but
+                    // give each synthesized reply turn a fresh TextField.
+                    .id(responseState.viewIdentity)
 
                     Divider()
                 }
@@ -621,6 +616,10 @@
         }
 
         // MARK: - Active Pane Service
+
+        private var activeSessionHasBlockingForm: Bool {
+            activeService?.session?.state.openForm?.request.isBlocking == true
+        }
 
         /// Creates or clears the SessionDetailService when the active pane changes
         private func updateActiveService() {

@@ -78,7 +78,9 @@ enum CodexKeystrokes {
         if trimmed.isEmpty {
             return allowEmptyInterrupt ? [.keys([.escape])] : []
         }
-        return [.text(trimmed), .keys([.enter])]
+        // TUI editors update their draft asynchronously. Sending Enter in the
+        // same burst can leave the text visible without submitting it.
+        return [.keys([.text(trimmed), .delay(200), .enter])]
     }
 
     // MARK: - Permission
