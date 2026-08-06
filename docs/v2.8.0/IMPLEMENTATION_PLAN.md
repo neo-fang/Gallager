@@ -96,13 +96,13 @@
 - OSC 8 链接点击、普通 URL 检测和终端显示不回归。
 - 聚焦单元测试、macOS 构建通过；同一高频刷新 pane 的空闲观察 CPU 明显下降。
 
-## Stage 4：Host Terminal Stream 订阅所有权
+## Stage 4：Host Terminal Stream 生命周期
 
 ### 目标
 
-修复 Mac host 在 iOS/Mac viewer 重连或重试后泄漏 terminal stream 订阅的问题。
-同一 viewer 对同一 pane 的重复 Start 必须幂等，失效的 tmux subscription 必须能被
-清理并重新创建，不能长期停留在 `Stream Error`。
+修复 Mac host 在高吞吐输出及 iOS/Mac viewer 重连或重试时出现的 terminal stream
+初始化失败和订阅泄漏。同一 viewer 对同一 pane 的重复 Start 必须幂等，首个实时
+增量不得早于完整 initial state，失效的 tmux subscription 必须能被清理并重新创建。
 
 ### 实施范围
 
@@ -111,8 +111,10 @@
    其他 viewer 的所有权。
 3. 复用已有 stream 时若无法读取当前 pane 内容，立即清理失效 subscription，允许
    viewer 的下一次有限重试创建新 stream。
-4. 不修改 relay 协议，不增加轮询或无限重试。
-5. 增加订阅所有权聚焦测试，并验证 macOS host 构建及 loffice 真机链路。
+4. 在订阅前建立有序增量缓冲，但只在 initial state 发送完成后启动消费，确保高吞吐
+   输出不会抢占初始化消息或拖延 Start command response。
+5. 不修改 relay 协议，不增加轮询或无限重试。
+6. 增加订阅所有权聚焦测试，并验证 macOS host 构建及 loffice 真机链路。
 
 ### 验收标准
 
@@ -120,5 +122,7 @@
 - 一个 viewer Stop 不会终止其他 viewer 正在使用的 stream。
 - 最后一个 viewer Stop 后释放 `PaneStreamManager` subscription 并发送 streamEnd。
 - 旧 stream 无法捕获 pane 内容时会被清理，后续 Start 可重新订阅。
-- iOS 连接 loffice 后可打开并输入 terminal，不再持续显示 `Stream Error`。
+- pane 在持续高吞吐输出时，iOS 仍先收到 initial state，再按序收到订阅期间缓存的
+  增量，Start 命令不因实时输出占满发送链而超时。
+- iOS 连接 loffice 后可打开并输入 terminal，高吞吐任务期间不再出现 `Stream Error`。
 - 聚焦测试、Swift package 测试与 macOS 构建通过。
