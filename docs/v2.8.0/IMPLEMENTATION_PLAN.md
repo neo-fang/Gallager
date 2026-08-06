@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：🟡 进行中
-- **进度**：2/6 stages
+- **进度**：2/7 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -180,3 +180,35 @@
 - 旧默认 Mac 配置自动升级；非默认的自定义 Sidebar Fields 保持原样。
 - iOS 会话列表和详情页、Mac 本地/远程侧边栏及菜单栏均能看到改名结果。
 - 聚焦单元测试、Swift package 测试与 macOS/iOS 构建通过。
+
+## Stage 7：macOS Terminal 行级渲染缓存
+
+### 目标
+
+降低本地和远程 Mac terminal 在 Codex spinner、进度条等小范围高频刷新时的主线程
+占用。只重建发生内容或视觉状态变化的可见行，不再为单行变化重复创建整屏的
+`NSAttributedString` 和 `CTLine`。
+
+### 实施范围
+
+1. 以同一 211 × 59 Codex spinner pane 的 Release CPU、绘制行数和主线程采样作为
+   固定基线；临时测量代码不得进入发布路径。
+2. 在 SwiftTerm CoreGraphics renderer 中缓存每行的 `ViewLineInfo`、`CTLine` 和
+   glyph runs；缓存键使用 `BufferLine` identity、generation、绝对 row 和列数。
+3. selection、hover link、Command-link highlighting 等不由 `BufferLine.generation`
+   表达的交互状态直接绕过缓存；字体、主题、ANSI palette 和渲染选项变化时清空缓存。
+4. 缓存只保留有限数量的可见/近期行，避免 scrollback 增长导致内存无界增长。
+5. 不修改 terminal feed、relay、tmux stream 和 iOS 渲染逻辑；不重新引入 Stage 3
+   已验证无稳定收益的降帧、数据合并或默认 Metal renderer。
+6. 增加缓存命中、内容变更、行替换、交互状态绕过和全局失效的聚焦测试，并以相同
+   Release 场景比较 CPU、主线程热点和输入响应。
+
+### 验收标准
+
+- 只有 Codex spinner 一行变化时，未变化可见行不再调用 `buildAttributedString` 或
+  `CTLineCreateWithAttributedString`。
+- 普通输出、滚屏、alternate buffer、窗口 resize、字体/主题切换、链接和文本选择
+  显示正确，无陈旧行或残影。
+- 缓存容量与可见行数绑定，scrollback 持续增长时缓存不无限增长。
+- 同一 211 × 59 Release 场景 CPU 相比约 100% 基线明显下降，且主线程绘制样本显著减少。
+- SwiftTerm 聚焦测试、Gallager Swift package 测试与 macOS Release 构建通过。
