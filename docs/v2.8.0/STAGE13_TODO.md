@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 1 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 保持单击、断线禁用、close/split/drag 行为不变。
 - [x] 更新 Window Rename E2E 场景覆盖 host 与 viewer 双击。
 - [x] 运行受影响测试与 macOS 构建验证。
-- [ ] 完成本机真实双击交互验收。
+- [x] 完成本机真实双击交互验收。
 
 ## Decisions
 
@@ -24,7 +24,7 @@
 
 ## Blockers
 
-- 本机 Computer Use 桥无法启动，自动 UI 交互验收不可用；等待人工双击验证。
+- None.
 
 ## Verification
 
@@ -32,4 +32,4 @@
 - `xcodebuild` `ClaudeSpyServer` Debug arm64：通过（Apple Development 签名）。
 - `codesign --verify --deep --strict /Applications/Gallager.app`：通过。
 - `/Applications/Gallager.app` 覆盖安装并正常启动。
-- Window Rename E2E 真实运行：待人工交互确认后执行或记录。
+- 本机真实交互：双击 window 标签弹出预填名称的重命名输入框，验证通过。
