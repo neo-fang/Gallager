@@ -218,20 +218,21 @@
                         .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        isKeyboardActive.toggle()
+                    } label: {
+                        Label(
+                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                        )
+                    }
+                    .disabled(!relayClient.isHostConnected)
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button {
-                                isKeyboardActive.toggle()
-                            } label: {
-                                Label(
-                                    keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                    symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                                )
-                            }
-                            .disabled(!relayClient.isHostConnected)
-                            .tint(nil)
-
                             Button {
                                 let newValue = !activeService.isYoloModeEnabled
                                 Task {
@@ -257,18 +258,6 @@
                         .popover(isPresented: $showSessionInfo) {
                             sessionInfoPopover
                         }
-                    }
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isKeyboardActive.toggle()
-                        } label: {
-                            Label(
-                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                            )
-                        }
-                        .disabled(!relayClient.isHostConnected)
                     }
                 }
             }
@@ -347,10 +336,14 @@
                     activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
                 }
                 updateActiveService()
+                initializeDefaultInputMode()
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
-            .onChange(of: activeService?.session?.needsAttention) {
+            .onChange(of: activeService?.session?.state) {
+                if activeSessionHasBlockingForm {
+                    isKeyboardActive = false
+                }
                 if activeService?.session?.needsAttention == true {
                     Task { await activeService?.markHandledIfNeeded() }
                 }
@@ -367,6 +360,7 @@
             }
             .onChange(of: activePaneId) { oldValue, newValue in
                 updateActiveService()
+                initializeDefaultInputMode()
                 // Mark session as handled when switching to a pane with attention
                 Task { await activeService?.markHandledIfNeeded() }
                 // Sync pane selection to the tmux session on the host.
@@ -397,9 +391,13 @@
             VStack(spacing: 0) {
                 // Response view for active pane's Claude session (full width, above layout)
                 if
-                    !isKeyboardActive,
                     let activeService,
-                    let responseState = activeService.responseState {
+                    let responseState = activeService.responseState,
+                    AgentInputPresentation.showsResponseForm(
+                        isBlocking: responseState.request.isBlocking,
+                        quickInputEnabled: settings.agentQuickInputEnabled,
+                        keyboardActive: isKeyboardActive
+                    ) {
                     responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
                         submit: { response in
@@ -620,6 +618,19 @@
         }
 
         // MARK: - Active Pane Service
+
+        private var activeSessionHasBlockingForm: Bool {
+            activeService?.session?.state.openForm?.request.isBlocking == true
+        }
+
+        private func initializeDefaultInputMode() {
+            isKeyboardActive = activeSessionHasBlockingForm
+                ? false
+                : AgentInputPresentation.startsWithKeyboard(
+                    isAgentPane: activeService?.session != nil,
+                    quickInputEnabled: settings.agentQuickInputEnabled
+                )
+        }
 
         /// Creates or clears the SessionDetailService when the active pane changes
         private func updateActiveService() {

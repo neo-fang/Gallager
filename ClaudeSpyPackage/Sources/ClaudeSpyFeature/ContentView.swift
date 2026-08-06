@@ -548,6 +548,16 @@
                     Text("Customize the font used in terminal snapshots.")
                 }
 
+                Section {
+                    @Bindable var settings = settings
+
+                    Toggle("Agent Quick Input", isOn: $settings.agentQuickInputEnabled)
+                } header: {
+                    Text("Agent Input")
+                } footer: {
+                    Text("Shows a reply field above agent terminals. When off, agent terminals open with the terminal keyboard instead.")
+                }
+
                 // New Session Section
                 Section {
                     @Bindable var settings = settings

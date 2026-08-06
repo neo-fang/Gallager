@@ -1,0 +1,54 @@
+import Testing
+@testable import ClaudeSpyFeature
+
+@Suite("Agent input presentation")
+struct AgentInputPresentationTests {
+    @Test("Quick input follows its setting and keyboard mode")
+    func quickInputVisibility() {
+        #expect(!AgentInputPresentation.showsResponseForm(
+            isBlocking: false,
+            quickInputEnabled: false,
+            keyboardActive: false
+        ))
+        #expect(AgentInputPresentation.showsResponseForm(
+            isBlocking: false,
+            quickInputEnabled: true,
+            keyboardActive: false
+        ))
+        #expect(!AgentInputPresentation.showsResponseForm(
+            isBlocking: false,
+            quickInputEnabled: true,
+            keyboardActive: true
+        ))
+    }
+
+    @Test("Blocking forms remain visible in every input mode")
+    func blockingFormVisibility() {
+        #expect(AgentInputPresentation.showsResponseForm(
+            isBlocking: true,
+            quickInputEnabled: false,
+            keyboardActive: true
+        ))
+        #expect(AgentInputPresentation.showsResponseForm(
+            isBlocking: true,
+            quickInputEnabled: true,
+            keyboardActive: false
+        ))
+    }
+
+    @Test("Agent panes default to the terminal keyboard when quick input is disabled")
+    func initialKeyboardMode() {
+        #expect(AgentInputPresentation.startsWithKeyboard(
+            isAgentPane: true,
+            quickInputEnabled: false
+        ))
+        #expect(!AgentInputPresentation.startsWithKeyboard(
+            isAgentPane: true,
+            quickInputEnabled: true
+        ))
+        #expect(!AgentInputPresentation.startsWithKeyboard(
+            isAgentPane: false,
+            quickInputEnabled: false
+        ))
+    }
+}
