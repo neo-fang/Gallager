@@ -190,6 +190,7 @@ ClaudeSpy extends SwiftTerm's `TerminalView` with `InteractiveTerminalView`:
 | `onData` | Feed data to terminal |
 | `onResize` | Handle dimension changes |
 | `scrollToBottom` | Scroll terminal to bottom (callable from SwiftUI) |
+| `makeTextSnapshot` | Capture retained local terminal text for the copy surface |
 | `onInitialContentLoaded` | Called once after initial content is fed |
 
 ### Scroll-to-Bottom Implementation
@@ -238,6 +239,17 @@ a static text snapshot from the local SwiftTerm buffer only when requested. A na
 text view owns selection in that snapshot, so iOS provides normal cross-screen selection,
 copy, and Select All without a relay request. The live terminal remains the source of truth;
 closing and reopening the copy view refreshes the snapshot.
+
+The snapshot walks SwiftTerm's active scroll-invariant lines, including retained scrollback,
+and removes only terminal cell padding on the right. It explicitly skips the null cells that
+follow wide characters; SwiftTerm's generic buffer export does not do that and would put an
+invisible NUL after Chinese or other double-width glyphs. Alternate-screen applications are
+read from the active alternate buffer rather than stale normal-buffer history.
+
+Only the selected pane contributes the toolbar action in a multi-pane layout. This avoids
+duplicated toolbar items and makes the copied buffer unambiguous. The sheet receives an
+immutable value: new terminal output continues normally but cannot move or invalidate the
+user's current selection.
 
 A later enhancement may teach the SwiftTerm fork about the outer visible rectangle and make
 selection-handle drags scroll the outer view. That is a direct-manipulation improvement, not a
