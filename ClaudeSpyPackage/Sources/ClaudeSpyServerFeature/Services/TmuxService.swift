@@ -553,6 +553,15 @@ final public class TmuxService {
     public func detectAgentPanes(
         processNamesByPlugin: [String: [String]]
     ) async -> [String: DetectedAgentPane] {
+        await detectAgentPanesIfAvailable(processNamesByPlugin: processNamesByPlugin) ?? [:]
+    }
+
+    /// Reliable variant used by periodic reconciliation. `nil` means tmux or
+    /// `ps` could not produce a trustworthy snapshot, which must not be treated
+    /// as proof that every previously detected agent exited.
+    func detectAgentPanesIfAvailable(
+        processNamesByPlugin: [String: [String]]
+    ) async -> [String: DetectedAgentPane]? {
         guard !processNamesByPlugin.isEmpty else { return [:] }
 
         // Invert to processName → pluginID for O(1) lookup while walking the tree.
@@ -574,7 +583,7 @@ final public class TmuxService {
             let result = try await runTmuxCommand([
                 "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
             ])
-            guard result.isSuccess else { return [:] }
+            guard result.isSuccess else { return nil }
 
             // Build paneId -> (panePid, currentPath) mapping
             var paneInfo: [String: (pid: String, path: String)] = [:]
@@ -587,7 +596,7 @@ final public class TmuxService {
             guard !paneInfo.isEmpty else { return [:] }
 
             let tree = try await processTree()
-            guard let tree else { return [:] }
+            guard let tree else { return nil }
 
             // Walk the subtree of each pane shell, collecting every descendant
             // whose process name a plugin claims. A pane can match more than one
@@ -615,7 +624,7 @@ final public class TmuxService {
             return detected
         } catch {
             logger.warning("detectAgentPanes failed: \(error)")
-            return [:]
+            return nil
         }
     }
 

@@ -14,8 +14,8 @@ public struct AgentSession: Codable, Sendable, Equatable {
     /// Id of the plugin that owns this session (e.g. "claude-code", "codex").
     public var pluginID: String
 
-    /// Project path detected via process scanning at startup, or stamped from the
-    /// ingress context before any project refresh tick.
+    /// Project path detected via periodic process reconciliation, or stamped
+    /// from the ingress context before any project refresh tick.
     public var detectedProjectPath: String?
 
     /// The session's current state — the single source of truth (spec §3). The

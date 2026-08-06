@@ -422,8 +422,13 @@
                 break
             }
 
-            // Start periodic validation to clean up stale sessions
+            // Keep tmux metadata fresh and independently reconcile agent
+            // processes at a lower cadence. The provider is read each pass so
+            // plugin enable/disable changes take effect without restarting.
             windowManager.startPeriodicSessionValidation()
+            windowManager.startPeriodicAgentReconciliation { [weak self] in
+                self?.pluginRegistry?.processNamesByPlugin ?? [:]
+            }
 
             // Initial sleep prevention update (in case there are already sessions)
             updateSleepPrevention()
@@ -455,6 +460,8 @@
         /// how this is invoked.
         public func shutdown() async {
             logger.info("App shutdown: disconnecting pane streams and control clients")
+            windowManager.stopPeriodicSessionValidation()
+            windowManager.stopPeriodicAgentReconciliation()
             await paneStreamManager.disconnectAll()
             await controlClientManager.disconnectAll()
 
@@ -1912,8 +1919,9 @@
                 // glyph to a plain terminal (the legacy `claudeSession = nil` on
                 // SessionEnd). The status path set working=false earlier in this
                 // same envelope; dispatch fans status out before app actions, so
-                // this clear is the last write and wins. Process detection re-adds
-                // sessions only at startup, so it won't resurrect this one.
+                // this clear is the last write and wins. Process reconciliation
+                // suppresses this pane until the exiting process disappears, so
+                // it cannot resurrect the ended session on the next scan.
                 if windowManager.endAgentSession(forPane: sessionID) {
                     sessionStateChanged = true
                 }
@@ -2995,11 +3003,11 @@
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
             // Detect coding-agent instances already running in tmux panes, using
-            // each enabled plugin's manifest `process_names` (spec §6).
+            // each enabled plugin's manifest `process_names` (spec §6). The same
+            // reconciliation runs every ten seconds after setup completes.
             let processNames = pluginRegistry?.processNamesByPlugin ?? [:]
             let agentPanes = await tmuxService.detectAgentPanes(processNamesByPlugin: processNames)
-            if !agentPanes.isEmpty {
-                windowManager.markDetectedAgentSessions(agentPanes)
+            if windowManager.reconcileDetectedAgentSessions(agentPanes) {
                 logger.info("Detected running agents in panes: \(agentPanes.keys.sorted())")
             }
 
@@ -3392,6 +3400,16 @@
             // badge down with it. Decrease-only and deduplicated by the
             // shared high-water mark, so quiet refreshes are free.
             windowManager.onPaneStatesPruned = { [weak self] in
+                await self?.broadcastBadgeDecreaseIfNeeded()
+            }
+
+            // Process reconciliation is intentionally quiet when nothing
+            // changed. A real classification change affects sleep prevention,
+            // the full viewer snapshot, and potentially the iOS badge.
+            windowManager.onAgentProcessReconciliationChanged = {
+                [weak self, weak connectionManager] in
+                self?.updateSleepPrevention()
+                await connectionManager?.pushSessionStateToAll()
                 await self?.broadcastBadgeDecreaseIfNeeded()
             }
         }
