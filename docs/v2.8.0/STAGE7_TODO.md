@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 11/12 tasks
+- **Status**: ✅ Completed
+- **Progress**: 12/12 tasks
 - **Dependencies**: Stage 3 ✅，Stage 6 🟡
 
 ## Tasks
@@ -19,7 +19,7 @@
 - [x] 增加 SwiftTerm 与 Gallager 聚焦测试。
 - [x] 运行 Gallager 完整 Swift package 测试及 macOS Release 构建。
 - [x] 用同一 Codex pane 完成 Release CPU 与主线程采样 A/B。
-- [ ] 人工验证输入、滚动、选择、链接、主题和窗口 resize 无回归。
+- [x] 人工验证输入、滚动、选择、链接、主题和窗口 resize 无回归。
 - [x] 将 SwiftTerm 补丁发布到可复现的 fork/revision，并替换本机临时 package path。
 
 ## Baseline
@@ -41,6 +41,7 @@
 - SwiftTerm 补丁已发布到 `jarviszeng-zjc/SwiftTerm` 的
   `2944bf55392500e165be43ed5481b7066b58f3cc`；三份 `Package.resolved` 和隔离 Xcode
   checkout 均锁定该 revision，不依赖本机绝对路径。
+- 本机覆盖安装后的真实终端交互回归由用户验收通过。
 
 ## Decisions
 
@@ -51,4 +52,4 @@
 
 ## Blockers
 
-- 无。剩余人工交互回归由本机安装版验收。
+- 无。
