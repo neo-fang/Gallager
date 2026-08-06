@@ -103,6 +103,35 @@ class TerminalTranscriptTest {
     }
 
     @Test
+    fun decSpecialGraphicsRenderAsUnicodeBoxDrawing() {
+        val transcript = TerminalTranscript(initialColumns = 20, initialRows = 2)
+        transcript.feed("\u001B(0lqqk\u001B(B".toByteArray())
+
+        assertEquals("┌──┐", transcript.value())
+    }
+
+    @Test
+    fun alternateScreenRestoresMainConversationWithoutArtifacts() {
+        val transcript = TerminalTranscript(initialColumns = 20, initialRows = 3)
+        transcript.feed("Main conversation".toByteArray())
+        transcript.feed("\u001B[?1049h\u001B[2J\u001B[HTemporary TUI".toByteArray())
+        assertEquals("Temporary TUI", transcript.value())
+
+        transcript.feed("\u001B[?1049l".toByteArray())
+        assertEquals("Main conversation", transcript.value())
+    }
+
+    @Test
+    fun erasedUnderlineDoesNotLeakIntoLaterRows() {
+        val transcript = TerminalTranscript(initialColumns = 20, initialRows = 3)
+        transcript.feed("\u001B[4m────────\u001B[24m\r\u001B[2KClean\r\nNext".toByteArray())
+
+        val rendered = transcript.render()
+        assertEquals("Clean\nNext", rendered.text)
+        assertFalse(rendered.spans.any { it.style.underline })
+    }
+
+    @Test
     fun scrollRegionAndLineInsertionMatchFullScreenTuiUpdates() {
         val transcript = TerminalTranscript(initialColumns = 8, initialRows = 4)
         transcript.feed("one\r\ntwo\r\nthree\r\nfour".toByteArray())

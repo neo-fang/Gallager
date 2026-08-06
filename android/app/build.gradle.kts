@@ -12,8 +12,8 @@ android {
         applicationId = "app.gallager.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "2.1.2"
+        versionCode = 8
+        versionName = "2.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -70,6 +70,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+    implementation("com.github.termux.termux-app:terminal-emulator:0.118.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
