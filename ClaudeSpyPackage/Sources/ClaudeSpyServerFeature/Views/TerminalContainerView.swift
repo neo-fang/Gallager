@@ -181,6 +181,14 @@ struct TerminalContainerView: NSViewRepresentable {
             }
         }
 
+        /// Limits SwiftTerm parsing/drawing to one bounded chunk per MainActor
+        /// turn while preserving the exact terminal byte order.
+        private lazy var feedCoalescer = TerminalFeedCoalescer(
+            id: "local:\(paneState?.paneId ?? "unknown")"
+        ) { [weak self] data in
+            self?.feedDataNow(data)
+        }
+
         // MARK: Initialization
 
         init() {
@@ -346,6 +354,7 @@ struct TerminalContainerView: NSViewRepresentable {
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
             keyCoalescer.reset()
+            feedCoalescer.discardPending()
             rowsLockedToTmux = false
             terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
@@ -394,6 +403,9 @@ struct TerminalContainerView: NSViewRepresentable {
                     },
                     onDimensionChange: { [weak self] newWidth, newHeight in
                         self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
+                    },
+                    onResync: { [weak self] result in
+                        self?.handleResync(result)
                     }
                 )
 
@@ -436,6 +448,10 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Data Handling
 
         private func handleData(_ data: Data) {
+            feedCoalescer.enqueue(data)
+        }
+
+        private func feedDataNow(_ data: Data) {
             let bytes = [UInt8](data)[...]
 
             if !hasScrolledInitial {
@@ -449,6 +465,29 @@ struct TerminalContainerView: NSViewRepresentable {
             } else {
                 // Subsequent data - preserve user's scroll position
                 terminalView.feedPreservingScroll(bytes)
+            }
+        }
+
+        private func handleResync(_ result: Result<PaneStreamManager.SubscriptionResult, Error>) {
+            switch result {
+            case let .success(snapshot):
+                updateTerminalDimensions(cols: snapshot.width, rows: snapshot.height)
+                feedCoalescer.replace(with: snapshot.initialContent) { [weak self] in
+                    guard let self else { return }
+                    hasScrolledInitial = false
+                    terminalView.getTerminal().resetToInitialState()
+                    terminalView.preserveUserScroll = false
+                }
+                terminalView.preserveUserScroll = true
+
+                if let paneState, let tmuxService {
+                    Task { [weak self] in
+                        await self?.syncMouseMode(target: paneState.target, tmuxService: tmuxService)
+                    }
+                }
+
+            case let .failure(error):
+                updateState(.error("Terminal resync failed: \(error.localizedDescription)"))
             }
         }
 
