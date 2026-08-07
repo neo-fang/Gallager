@@ -225,19 +225,19 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 - **iOS reply-after-stop summary persistence (issue #707)** — the agent's last-message summary shown in the iOS reply box (`StopResponseView`) rides the transient `AgentState.doneWorking(summary:)`, which viewing the session flips to `.idle` (`markHandled`), so navigating away and back used to lose it. `SessionStore.lastTurnSummaryByPane` caches it per pane with the **same lifecycle as `PaneState.recap`** (set on `doneWorking`, cleared on `working`/session-end) so it survives the handled-flip and re-entry; `SessionDetailService.replyForm` falls back to that cache, then to `recap.summary` for a fresh reconnect where the cache is empty. Telemetry-independent, so it works even when no recap was stamped. (The expanded summary also scrolls within a capped height so a long message isn't cropped.)
 - **Cost/usage overview** — `UsageAggregationStore` (`ClaudeSpyServerFeature/Telemetry/UsageAggregationStore.swift`) is an `actor` persisting per-`(project, day)` totals as JSON under `~/.gallager/state/usage-aggregates.json` (so they survive session end **and** app restart). It folds each telemetry snapshot into the bucket as a *delta* against a persisted per-session baseline — cumulative OTEL counters are attributed to the day they occur, with no double-counting across a restart. `overview(asOf:)` builds the wire `UsageOverview` (today totals, a top-N per-project ranking, a per-day trend). It rides the existing `SessionStateMessage` as an optional field (`usageOverview`, `decodeIfPresent`-friendly like `agentProjects`), is shown atop the iOS session list and Mac sidebar as a collapsed one-line "Today" cell (`UsageOverviewView` in `ClaudeSpyCommon` — a disclosure chevron expands it in place to the Projects/Recent-days details, transient state, always starts collapsed), and powers the Mac menu-bar "today" total.
 
-### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
+### ConnectedViewerManager (`ClaudeSpyServerFeature/Services/ConnectedViewerManager.swift`)
 
-`@Observable @MainActor` managing connections to all paired iOS devices.
+`@Observable @MainActor` managing connections to all paired Viewer devices.
 
 **Features:**
-- Wraps multiple `DeviceConnection` instances (one per paired device)
-- Broadcasts events to all connected devices
+- Wraps multiple `ConnectedViewer` instances (one per paired Viewer)
+- Broadcasts shared state, while terminal payloads are routed to pane subscribers
 - Combined state for UI display (`combinedState`)
 - Auto-reconnect on system wake
 
 **Broadcasting Methods:**
 - `sendHookEventToAll()` - forward hook events
-- `sendTerminalStreamToAll()` - forward terminal data
+- `sendTerminalStream(_:to:)` - forward terminal data to an explicit Viewer-ID set
 - `pushSessionStateToAll()` - sync session state
 
 **Callbacks (set by AppCoordinator):**
@@ -245,7 +245,7 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 - `onSessionStateRequest` - provide current session state
 - `onPartnerKeyReceived` - persist E2EE partner keys
 
-### DeviceConnection (`ClaudeSpyServerFeature/Services/DeviceConnection.swift`)
+### ConnectedViewer (`ClaudeSpyServerFeature/Services/ConnectedViewer.swift`)
 
 `@Observable @MainActor` WebSocket connection to a single paired iOS device.
 
@@ -271,15 +271,16 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 
 ### TerminalStreamService (`ClaudeSpyServerFeature/Services/TerminalStreamService.swift`)
 
-`@Observable @MainActor` streaming terminal data to iOS devices.
+`@Observable @MainActor` streaming terminal data to subscribed Viewer devices.
 
-**Batching:** 50ms minimum interval, 8KB max batch size (20 updates/sec max)
+**Batching:** 16ms fixed cadence, 8KB max batch size
 
 **Multi-Device Support:**
-- Reference-counted streams (`deviceSubscriberCount` per pane)
-- `startStreaming()` reuses existing stream if one exists (increments count, sends current content)
-- `stopStreaming()` decrements count; only fully stops when count reaches 0
-- `stopStreaming(force: true)` bypasses count for system-level cleanup
+- Idempotent Viewer-ID ownership set per pane
+- `startStreaming()` reuses an existing stream and stages a private bootstrap for the requester
+- Bootstrap success waits for initial state and all pre-barrier bytes to enter the encrypted send chain
+- `stopStreaming()` removes one owner; the stream stops when no owners remain
+- `stopStreaming(force: true)` bypasses ownership for system-level cleanup
 - `stopAllStreams()` / `stopStreamsForClosedPanes()` always use `force: true`
 
 **Message Types:** `initialState`, `dataChunk`, `dimensionChange`, `streamEnd`
@@ -288,7 +289,7 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 
 Actor executing commands from iOS devices.
 
-- Receives `CommandMessage` from `DeviceConnectionManager`
+- Receives `CommandMessage` from `ConnectedViewerManager`
 - Dispatches to `TmuxService` (sendKeys, sendInterrupt, etc.)
 - Returns `CommandResponseMessage` (success/failure)
 
