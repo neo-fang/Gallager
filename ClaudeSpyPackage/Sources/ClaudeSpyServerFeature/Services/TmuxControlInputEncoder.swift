@@ -17,7 +17,7 @@
         }
 
         static func commands(paneId: String, keys: [TmuxKey]) -> [String]? {
-            guard isPaneId(paneId) else { return nil }
+            guard isPaneId(paneId), keys.count <= maximumHexBytes else { return nil }
 
             var segments: [Segment] = []
             var hexadecimalByteCount = 0
@@ -28,13 +28,15 @@
                     return nil
 
                 case let .text(text):
-                    let bytes = Array(text.utf8)
-                    guard hexadecimalByteCount + bytes.count <= maximumHexBytes else { return nil }
+                    let utf8 = text.utf8
+                    guard utf8.count <= maximumHexBytes - hexadecimalByteCount else { return nil }
+                    let bytes = Array(utf8)
                     hexadecimalByteCount += bytes.count
                     appendHexadecimal(bytes, to: &segments)
 
                 case let .ctrl(character):
                     guard let byte = controlByte(for: character) else { return nil }
+                    guard hexadecimalByteCount < maximumHexBytes else { return nil }
                     hexadecimalByteCount += 1
                     appendHexadecimal([byte], to: &segments)
 

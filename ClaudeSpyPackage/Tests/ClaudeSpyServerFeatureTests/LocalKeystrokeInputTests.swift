@@ -57,9 +57,73 @@
             #expect(
                 TmuxControlInputEncoder.commands(
                     paneId: "%7",
+                    keys: Array(repeating: .ctrl("a"), count: TmuxControlInputEncoder.maximumHexBytes + 1)
+                ) == nil
+            )
+            #expect(
+                TmuxControlInputEncoder.commands(
+                    paneId: "%7",
                     keys: [.text(String(repeating: "a", count: TmuxControlInputEncoder.maximumHexBytes + 1))]
                 ) == nil
             )
+        }
+
+        @Test("Control manager declines input without creating a connection")
+        func controlManagerDeclinesWithoutConnection() async throws {
+            let manager = TmuxControlClientManager(tmuxPath: "/path/that/must/not/run")
+
+            let sent = try await manager.sendKeystrokesIfConnected(
+                paneId: "%7",
+                sessionName: "missing",
+                keys: [.text("a")]
+            )
+
+            #expect(!sent)
+        }
+
+        @Test("Control manager sends input through an existing tmux connection")
+        func controlManagerUsesExistingConnection() async throws {
+            let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
+            let suffix = UUID().uuidString.lowercased()
+            let socketPath = "/tmp/gallager-input-\(suffix.prefix(8)).sock"
+            let sessionName = "gallager-input-\(suffix)"
+            defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+
+            try await withDependencies {
+                $0[ProcessRunner.self] = .liveValue
+            } operation: {
+                let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                let created = try await tmux.createSession(
+                    baseName: sessionName,
+                    width: 80,
+                    height: 24
+                )
+                let manager = TmuxControlClientManager(tmuxPath: tmuxPath, socketPath: socketPath)
+                try await manager.registerPaneDimensions(
+                    paneId: created.paneId,
+                    sessionName: created.sessionName,
+                    dimensions: (80, 24)
+                )
+
+                let sent = try await manager.sendKeystrokesIfConnected(
+                    paneId: created.paneId,
+                    sessionName: created.sessionName,
+                    keys: [.text("printf '\\nGALLAGER_%s_OK\\n' STAGE18"), .enter]
+                )
+
+                #expect(sent)
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var content = ""
+                repeat {
+                    content = try await tmux.capturePaneText(created.paneId, scrollback: true)
+                    if content.contains("GALLAGER_STAGE18_OK") { break }
+                    await Task.yield()
+                } while ContinuousClock.now < deadline
+                #expect(content.contains("GALLAGER_STAGE18_OK"))
+
+                await manager.disconnectAll()
+                try await tmux.killSession(created.sessionName)
+            }
         }
 
         @Test("Keys enqueued in the same runloop turn coalesce into one batch")
@@ -176,6 +240,16 @@
                 ["send-keys", "-t", "%1", "-l", "choice"],
                 ["send-keys", "-t", "%1", "Enter"],
             ])
+        }
+
+        private func killTmuxServer(tmuxPath: String, socketPath: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: tmuxPath)
+            process.arguments = ["-S", socketPath, "kill-server"]
+            process.environment = [:]
+            process.standardError = Pipe()
+            process.standardOutput = Pipe()
+            try? process.run()
         }
     }
 #endif

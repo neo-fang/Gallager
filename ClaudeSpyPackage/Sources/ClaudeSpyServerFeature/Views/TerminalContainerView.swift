@@ -169,11 +169,15 @@ struct TerminalContainerView: NSViewRepresentable {
         /// Meta/Option sequence (ESC + key) into one batch, sent as a single
         /// `send-keys` so the app sees one Meta keypress. See `KeystrokeCoalescer`.
         private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
-            guard let self, let target = self.paneState?.target else { return }
+            guard let self, let paneState = self.paneState else { return }
             let previous = self.pendingKeyTask
             self.pendingKeyTask = Task {
                 _ = await previous?.value
-                await self.sendKeysToTmux(batch, target: target)
+                await self.sendKeysToTmux(
+                    batch,
+                    paneId: paneState.paneId,
+                    target: paneState.target
+                )
             }
         }
 
@@ -262,18 +266,19 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: - Input Handling
 
-        private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
+        private func sendKeysToTmux(_ keys: [TmuxKey], paneId: String, target: String) async {
             guard let tmuxService else { return }
 
             do {
-                // Batched send: a contiguous run of same-mode keys becomes a
-                // single `send-keys` invocation (sendKeystrokes still splits
-                // across `.delay` boundaries and literal/non-literal transitions).
-                // This is what keeps a split Meta sequence (e.g. `[.escape,
-                // .backspace]` for Option-Backspace) intact — the two land in one
-                // `send-keys`, whereas sent one-by-one tmux delivers a bare Escape
-                // then Backspace and the app only deletes a character, not a word.
-                try await tmuxService.sendKeystrokes(target, keys: keys)
+                let sentThroughControlMode = if let paneStreamManager {
+                    try await paneStreamManager.sendKeystrokesIfConnected(paneId: paneId, keys: keys)
+                } else {
+                    false
+                }
+
+                if !sentThroughControlMode {
+                    try await tmuxService.sendKeystrokes(target, keys: keys)
+                }
                 consecutiveKeyFailures = 0
             } catch {
                 consecutiveKeyFailures += 1

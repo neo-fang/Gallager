@@ -164,6 +164,18 @@
             readers[paneId]?.terminalTitle
         }
 
+        /// Sends local interactive input through the pane's existing control client.
+        /// Returns `false` when the reader or connection is not ready so the caller
+        /// can safely use the process-based tmux fallback.
+        func sendKeystrokesIfConnected(paneId: String, keys: [TmuxKey]) async throws -> Bool {
+            guard let context = readers[paneId] else { return false }
+            return try await controlClientManager.sendKeystrokesIfConnected(
+                paneId: paneId,
+                sessionName: context.sessionName,
+                keys: keys
+            )
+        }
+
         /// Known default pane titles to filter out when seeding from tmux state.
         /// Tmux initializes `pane_title` to the system hostname, which may appear
         /// in various forms depending on the system configuration.
