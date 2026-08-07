@@ -3,17 +3,18 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 0/6 tasks
+- **Progress**: 6/7 tasks
 - **Dependencies**: Stage 4 ✅, Stage 7 ✅
 
 ## Tasks
 
-- [ ] 建立连续输入、连续输出和顺序保持的聚焦回归测试。
-- [ ] 将 viewer keystroke 批处理改为 10ms 有界窗口。
-- [ ] 将 host terminal stream 改为 16ms 固定节拍 flush。
-- [ ] 构建 Release 并在相同高频输出 pane 重新采样。
-- [ ] 依据 Release 热点最小化 pipe-pane/MainActor 数据路径开销。
-- [ ] 完成全量测试、Release DMG、覆盖安装和真实远程输入验收。
+- [x] 建立连续输入、连续输出和顺序保持的聚焦回归测试。
+- [x] 将 viewer keystroke 批处理改为 10ms 有界窗口。
+- [x] 将 host terminal stream 改为 16ms 固定节拍 flush。
+- [x] 构建 Release 并在相同高频输出 pane 重新采样。
+- [x] 依据 Release 热点最小化 pipe-pane/MainActor 数据路径开销。
+- [x] 完成全量测试、Release DMG 和覆盖安装。
+- [ ] 由用户在异机 Mac viewer 与 iOS viewer 完成真实远程输入手感验收。
 
 ## Decisions
 
@@ -38,4 +39,20 @@
 
 ## Verification
 
-- Pending.
+- 10ms viewer 有界批处理与 16ms host 固定节拍测试通过；连续事件不会重置首个
+  事件的发送截止时间，raw input 与普通按键继续走同一 FIFO 发送队列。
+- pipe-pane 聚焦测试覆盖 plain-data 快路径、buffer/live 顺序和跨 chunk OSC 恢复；
+  Viewer WebSocket JSON 解码移到独立 actor，消息处理仍由单一 receive loop 保序。
+- 聚焦测试：20 项批处理/pipe-pane 测试通过；OSC、pipe-pane 与 Viewer 活性相关
+  52 项测试通过。
+- 完整 Swift package：1,585 tests / 219 suites 通过。
+- macOS `Release` 与 iOS Simulator `Debug` 均编译通过；macOS Release 深度签名校验通过。
+- 同一 211 × 59、50Hz 单行刷新 pane 的 Release CPU：基线 19 个有效样本平均
+  66.0%、峰值 101.6%；候选两轮平均分别为 38.1% 和 46.1%，合并平均约 42.1%，
+  相对基线下降约 36%。残余热点主要仍是 SwiftTerm/SwiftUI 绘制，不继续扩大改动范围。
+- `Gallager-2.7-zengjice.dmg` 已实际挂载验证：版本 2.7 (40)，无 Debug/Preview
+  dylib，内置 CLI 可启动；SHA-256 为
+  `72e7f2da191fa71ba149352a75371ed4c6142942e192867c0306cf0720d5297c`。
+- 已从该 DMG 覆盖安装 `/Applications/Gallager.app`；`wait-ready` 与 `ping` 分别返回
+  `ready`、`pong`。
+- 待用户从另一台 Mac 和 iOS 真机连接本机 host，确认主观输入回显改善后关闭 Stage 14。
