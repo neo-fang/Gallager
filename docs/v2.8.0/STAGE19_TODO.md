@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 18 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 阻止远端 file URL 回退到本机系统打开器。
 - [x] 修复 SwiftTerm fork 的底层链接误触和状态复位。
 - [x] 增加并通过聚焦回归测试。
-- [ ] 完成完整测试、macOS Release 构建和本机验收安装。
+- [x] 完成完整测试、macOS Release 构建和本机验收安装。
 
 ## Decisions
 
@@ -38,4 +38,6 @@
 - macOS Release：`ClaudeSpyServer` arm64 构建通过，产物为 `Gallager.app` 2.7 (40)；
   Apple Development 深度重签及 `codesign --verify --deep --strict` 通过。
 - Release 候选版已覆盖安装到 `/Applications/Gallager.app`；`wait-ready` 返回 `ready`，
-  `ping` 返回 `pong`，并能读取现有 `coding` session。交互验收与最终 DMG 待用户确认。
+  `ping` 返回 `pong`，并能读取现有 `coding` session。
+- 本机交互验收通过：拖选、双击和三击选择均不再误触链接或弹出“应用程序无法打开”，
+  单击链接与自动复制继续按预期工作。
