@@ -144,6 +144,54 @@ struct KeystrokeDebouncerTests {
         }
     }
 
+    @Test("Immediate batches bypass the timer and preserve pending-key order")
+    func immediateBatchBypassesTimer() async {
+        await withMainSerialExecutor {
+            let clock = TestClock()
+            let sentOps = LockIsolated<[KeystrokeDebouncer.SendOp]>([])
+            await withDependencies {
+                $0.continuousClock = clock
+            } operation: { @MainActor in
+                let debouncer = KeystrokeDebouncer(
+                    paneId: "%0",
+                    debounceInterval: .seconds(1)
+                ) { op in
+                    sentOps.withValue { $0.append(op) }
+                }
+
+                debouncer.enqueue([.text("pending")])
+                debouncer.enqueueImmediately([.text("now")])
+                await Task.megaYield()
+
+                #expect(sentOps.value == [
+                    .keys([.text("pending")]),
+                    .keys([.text("now")]),
+                ])
+
+                // The cancelled timer must not emit a duplicate batch later.
+                await clock.advance(by: .seconds(2))
+                await Task.megaYield()
+                #expect(sentOps.value.count == 2)
+            }
+        }
+    }
+
+    @Test("A cancelled sender restarts for the next immediate batch")
+    func restartsAfterCancellation() async {
+        await withMainSerialExecutor {
+            let sentOps = LockIsolated<[KeystrokeDebouncer.SendOp]>([])
+            let debouncer = KeystrokeDebouncer(paneId: "%0") { op in
+                sentOps.withValue { $0.append(op) }
+            }
+
+            debouncer.cancelAll()
+            debouncer.enqueueImmediately([.text("current")])
+            await Task.megaYield()
+
+            #expect(sentOps.value == [.keys([.text("current")])])
+        }
+    }
+
     @Test("cancelAll drops pending keys without sending")
     func cancelAllDropsPending() async {
         await withMainSerialExecutor {

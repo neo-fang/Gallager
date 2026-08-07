@@ -525,3 +525,40 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
   window 数量线性增长。
 - 聚焦测试、完整 Swift package 测试和 macOS Release 构建通过；相同远程切换场景
   完成真机/双 Mac 验收。
+
+## Stage 17：Mac Viewer 交互延迟与主线程公平性
+
+### 目标
+
+修复相同网络、Host 和远程 pane 下，Mac Viewer 输入回显明显慢于 iOS Viewer 的问题。
+Mac 同时运行本地 sessions 时仍须优先保证交互响应；允许为此使用更多但有界的计算资源，
+不得使用会与真实 PTY 状态分叉的本地预回显。
+
+### 实施范围
+
+1. 固定同一远程 pane 的逐字输入场景，分别记录 Viewer 按键回调、按键批次进入发送、
+   Host 命令执行、回显 stream 到达和 SwiftTerm feed 边界；区分网络 RTT、Host 执行和
+   Viewer 主线程等待，不以主观感受替代定位证据。
+2. 对比 macOS 与 iOS 的共享 `KeystrokeDebouncer`、`ViewerRelayClient` 和 stream 路径，
+   只修改能够解释平台差异的部分；不增加 relay 消息、不绕过 E2EE。
+3. 审计 Mac 本地 pane 的 pipe reader、session 刷新及 SwiftTerm 渲染是否占用 MainActor，
+   对比本地 sessions 空闲、持续输出和完全关闭三种状态，确认输入发送或回显绘制是否
+   被无界工作饥饿。
+4. 若按键发送被 MainActor 延迟，以一个有序、可取消且有界的交互发送路径替代定时器
+   竞争；必须保持文本、Meta/Option、raw mouse input 的 FIFO 语义。
+5. 若回显渲染被输出工作延迟，在不丢 terminal 字节的前提下合并每个显示周期的 feed，
+   并让每批处理后归还执行权；不得让后台 local window 数量线性增加活跃 View 或任务。
+6. 增加确定性测试覆盖单键延迟上界、连续输入、公平调度、取消/重连及字节顺序；性能
+   结论使用 Release-like 构建和实际采样，不以 Debug 构建耗时作为验收依据。
+7. 生成新的 macOS Release 与固定名称 DMG，在同一远程 pane 上完成 Mac/iOS 对照和
+   本地 sessions 负载下的双 Mac 真机验收。
+
+### 验收标准
+
+- 同一网络与远程 pane 下，Mac Viewer 不再出现平台自身造成的可感知按键停顿；网络和
+  Host 时间相同时，按键发送与回显 feed 不被本地 session 工作长期阻塞。
+- 持续输入不会等到停止输入才发送；持续输出期间交互工作不会被输出队列饥饿。
+- 文本、Meta/Option、控制键、raw mouse input 和 terminal 字节顺序保持不变。
+- 不使用本地预回显、固定静默等待、无界 Task 或为每个字符长期创建独立后台任务。
+- 聚焦测试、完整 Swift package 测试、macOS Release 构建、签名与 DMG 校验通过。
+- 相同远程场景完成 Mac/iOS Viewer 对照，且 Mac 同时存在本地 sessions 时体验符合预期。

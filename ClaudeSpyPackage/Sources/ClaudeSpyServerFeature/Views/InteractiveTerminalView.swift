@@ -368,6 +368,7 @@
 
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
+        private var lastReportedTitle: String?
 
         /// Callback invoked when the user clicks a URL in the terminal. The
         /// callback should return `true` if it handled the URL (and the
@@ -1714,7 +1715,10 @@
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
-            onTitleChange?(title)
+            let stableTitle = TerminalTitleStabilizer.stabilize(title)
+            guard stableTitle != lastReportedTitle else { return }
+            lastReportedTitle = stableTitle
+            onTitleChange?(stableTitle)
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {

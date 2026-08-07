@@ -697,6 +697,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var onTitleChange: (@MainActor (String) -> Void)?
 
         private var keystrokeDebouncer: KeystrokeDebouncer?
+        private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] keys in
+            self?.enqueueKeySend(keys: keys)
+        }
 
         init() {
             self.terminalView = InteractiveTerminalView(
@@ -735,7 +738,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                     let connection,
                     connection.isHostConnected
                 else { return }
-                enqueueKeySend(keys: keys, connection: connection)
+                keyCoalescer.enqueue(keys)
             }
 
             // Wire raw input (mouse escape sequences) forwarding via relay
@@ -746,6 +749,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                     let connection,
                     connection.isHostConnected
                 else { return }
+                keyCoalescer.flushPending()
                 enqueueRawInput(data: data, connection: connection)
             }
 
@@ -785,6 +789,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil
+            keyCoalescer.reset()
 
             streamTask?.cancel()
             streamTask = nil
@@ -893,6 +898,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         private func beginStreamAttempt() -> UUID {
             keystrokeDebouncer?.cancelAll()
+            keyCoalescer.reset()
             bootstrapPolicy.beginAttempt()
             bootstrapBuffer.reset()
             terminalView.preserveUserScroll = false
@@ -914,18 +920,26 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             terminalView.preserveUserScroll = false
             terminalView.isHidden = true
             keystrokeDebouncer?.cancelAll()
+            keyCoalescer.reset()
             updateState(.connecting)
         }
 
         // MARK: - Key Sends
 
-        /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
-        private func enqueueKeySend(keys: [TmuxKey], connection: ViewerConnection) {
-            guard let paneId else { return }
+        /// SwiftTerm's synchronous Meta/Option callbacks have already been
+        /// coalesced for this runloop turn. Queue the complete batch immediately
+        /// instead of competing with terminal rendering on a 10 ms timer.
+        private func enqueueKeySend(keys: [TmuxKey]) {
+            guard
+                streamState == .streaming,
+                let paneId,
+                let connection,
+                connection.isHostConnected
+            else { return }
             if keystrokeDebouncer == nil {
                 keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: connection.relayClient)
             }
-            keystrokeDebouncer?.enqueue(keys)
+            keystrokeDebouncer?.enqueueImmediately(keys)
         }
 
         /// Forwards raw bytes (mouse escape sequences) to the host via the relay.

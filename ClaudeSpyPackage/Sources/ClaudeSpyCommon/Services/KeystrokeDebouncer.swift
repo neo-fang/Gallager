@@ -79,7 +79,7 @@ final public class KeystrokeDebouncer {
         guard flushTask == nil else { return }
 
         let interval = debounceInterval
-        flushTask = Task { [weak self] in
+        flushTask = Task(priority: .userInitiated) { [weak self] in
             do {
                 try await self?.clock.sleep(for: interval)
             } catch {
@@ -88,6 +88,20 @@ final public class KeystrokeDebouncer {
             self?.flushTask = nil
             self?.flushBuffer()
         }
+    }
+
+    /// Sends a complete key batch without the time-based batching window.
+    ///
+    /// macOS first coalesces SwiftTerm's synchronous Meta/Option callbacks on
+    /// the current runloop turn, so waiting another 10 ms here adds latency but
+    /// cannot improve the batch. Pending timed keys are flushed ahead of this
+    /// batch to preserve FIFO ordering.
+    public func enqueueImmediately(_ keys: [TmuxKey]) {
+        guard !keys.isEmpty else { return }
+        flushTask?.cancel()
+        flushTask = nil
+        flushBuffer()
+        enqueueSendOp(.keys(keys))
     }
 
     /// Immediately flush any buffered keystrokes, then send raw bytes
@@ -130,6 +144,10 @@ final public class KeystrokeDebouncer {
     /// Append an operation and wake the send loop.
     private func enqueueSendOp(_ op: SendOp) {
         sendQueue.append(op)
+        if sendTask == nil {
+            startSendLoop()
+            return
+        }
         if let cont = sendContinuation {
             sendContinuation = nil
             cont.resume()
@@ -138,7 +156,8 @@ final public class KeystrokeDebouncer {
 
     /// Long-running task that drains the send queue in FIFO order.
     private func startSendLoop() {
-        sendTask = Task { [weak self] in
+        guard sendTask == nil else { return }
+        sendTask = Task(priority: .userInitiated) { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
 
