@@ -1,7 +1,32 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Testing
     @testable import ClaudeSpyServerFeature
+
+    @MainActor
+    final private class CapturingTerminalStreamSender: TerminalStreamSending {
+        struct Delivery {
+            let message: TerminalStreamMessage
+            let recipients: Set<String>
+        }
+
+        private(set) var deliveries: [Delivery] = []
+
+        func sendTerminalStream(
+            _ streamMessage: TerminalStreamMessage,
+            to viewerIds: Set<String>
+        ) async {
+            deliveries.append(Delivery(message: streamMessage, recipients: viewerIds))
+        }
+
+        var dataDeliveries: [(data: Data, recipients: Set<String>)] {
+            deliveries.compactMap { delivery in
+                guard case let .dataChunk(chunk) = delivery.message.updateType else { return nil }
+                return (Data(base64Encoded: chunk.dataBase64) ?? Data(), delivery.recipients)
+            }
+        }
+    }
 
     @Suite("Terminal stream ownership")
     struct TerminalStreamOwnershipTests {
@@ -106,6 +131,49 @@
 
             context.completeBootstrapBarrier(barrierId)
             await context.waitForBootstrapBarrier(barrierId)
+        }
+
+        @Test("Bootstrap sends established and joining viewers exactly once")
+        func bootstrapRoutesWithoutCrossViewerRefresh() async {
+            let sender = CapturingTerminalStreamSender()
+            let service = TerminalStreamService(streamSender: sender)
+            let context = StreamContext(paneId: "%1", viewerId: "viewer-a")
+            context.finishBootstrap(for: "viewer-a")
+            context.beginBootstrap(for: "viewer-b")
+            context.appendIncomingData(Data("abc".utf8))
+
+            await service.completeBootstrap(
+                for: "viewer-b",
+                barrierId: UUID(),
+                context: context,
+                paneId: "%1"
+            )
+
+            #expect(sender.dataDeliveries.count == 2)
+            #expect(sender.dataDeliveries[0].data == Data("abc".utf8))
+            #expect(sender.dataDeliveries[0].recipients == ["viewer-a"])
+            #expect(sender.dataDeliveries[1].data == Data("abc".utf8))
+            #expect(sender.dataDeliveries[1].recipients == ["viewer-b"])
+            #expect(context.readyViewers == ["viewer-a", "viewer-b"])
+        }
+
+        @Test("Bootstrap output is split into bounded relay messages")
+        func bootstrapUsesBoundedChunks() async {
+            let sender = CapturingTerminalStreamSender()
+            let service = TerminalStreamService(streamSender: sender)
+            let context = StreamContext(paneId: "%1", viewerId: "viewer-a")
+            context.appendIncomingData(Data(repeating: 0x61, count: 20_000))
+
+            await service.completeBootstrap(
+                for: "viewer-a",
+                barrierId: UUID(),
+                context: context,
+                paneId: "%1"
+            )
+
+            #expect(sender.dataDeliveries.map(\.data.count) == [8_192, 8_192, 3_616])
+            #expect(sender.dataDeliveries.allSatisfy { $0.recipients == ["viewer-a"] })
+            #expect(context.isReady("viewer-a"))
         }
 
     }

@@ -7,6 +7,16 @@ private enum TerminalStreamInput: Sendable {
     case finishBootstrap(viewerId: String, barrierId: UUID)
 }
 
+@MainActor
+protocol TerminalStreamSending: AnyObject {
+    func sendTerminalStream(
+        _ streamMessage: TerminalStreamMessage,
+        to viewerIds: Set<String>
+    ) async
+}
+
+extension ConnectedViewerManager: TerminalStreamSending { }
+
 // MARK: - Terminal Stream Service
 
 /// Manages live terminal streaming to connected viewers.
@@ -26,8 +36,9 @@ final public class TerminalStreamService {
 
     private let logger = Logger(label: "com.claudespy.terminalstream")
 
-    /// Reference to the device connection manager for sending messages
-    private weak var connectionManager: ConnectedViewerManager?
+    /// Encrypted terminal-message sender. Production uses ConnectedViewerManager;
+    /// tests inject an in-memory sender without opening relay connections.
+    private weak var streamSender: (any TerminalStreamSending)?
 
     /// Reference to the pane stream manager
     private weak var paneStreamManager: PaneStreamManager?
@@ -53,6 +64,10 @@ final public class TerminalStreamService {
 
     public init() { }
 
+    init(streamSender: any TerminalStreamSending) {
+        self.streamSender = streamSender
+    }
+
     /// Configure the service with required dependencies for multi-device support.
     ///
     /// Must be called before starting any streams.
@@ -64,7 +79,7 @@ final public class TerminalStreamService {
         connectionManager: ConnectedViewerManager,
         paneStreamManager: PaneStreamManager
     ) {
-        self.connectionManager = connectionManager
+        self.streamSender = connectionManager
         self.paneStreamManager = paneStreamManager
     }
 
@@ -94,7 +109,7 @@ final public class TerminalStreamService {
         target: String,
         viewerId: String
     ) async throws {
-        guard let connectionManager else {
+        guard let streamSender else {
             logger.error("Connection manager not configured, cannot start streaming")
             throw StreamError.notConfigured
         }
@@ -134,12 +149,12 @@ final public class TerminalStreamService {
                 content: current.content,
                 paneStreamManager: paneStreamManager
             )
-            await connectionManager.sendTerminalStream(initialMessage, to: [viewerId])
+            await streamSender.sendTerminalStream(initialMessage, to: [viewerId])
 
             // Send current terminal title so the new viewer gets it immediately
             if let title = paneStreamManager.terminalTitle(for: paneId) {
                 let titleMessage = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
-                await connectionManager.sendTerminalStream(titleMessage, to: [viewerId])
+                await streamSender.sendTerminalStream(titleMessage, to: [viewerId])
             }
 
             try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
@@ -232,7 +247,7 @@ final public class TerminalStreamService {
             content: result.initialContent,
             paneStreamManager: paneStreamManager
         )
-        await connectionManager.sendTerminalStream(initialMessage, to: [viewerId])
+        await streamSender.sendTerminalStream(initialMessage, to: [viewerId])
 
         guard let activeContext = activeStreams[paneId], activeContext === context else {
             dataContinuation.finish()
@@ -300,7 +315,7 @@ final public class TerminalStreamService {
         }
     }
 
-    private func completeBootstrap(
+    func completeBootstrap(
         for viewerId: String,
         barrierId: UUID,
         context: StreamContext,
@@ -314,7 +329,7 @@ final public class TerminalStreamService {
         // bytes both here and from the shared live batch.
         await flushPendingData(for: context, paneId: paneId)
 
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
         let bootstrapData = context.takeBootstrapData(for: viewerId)
         var offset = bootstrapData.startIndex
         while offset < bootstrapData.endIndex {
@@ -324,7 +339,7 @@ final public class TerminalStreamService {
                 paneId: paneId,
                 data: Data(bootstrapData[offset..<end])
             )
-            await connectionManager.sendTerminalStream(message, to: [viewerId])
+            await streamSender.sendTerminalStream(message, to: [viewerId])
             offset = end
         }
 
@@ -426,9 +441,9 @@ final public class TerminalStreamService {
         await flushPendingData(for: context, paneId: paneId)
 
         // Send stream end only to viewers that owned this pane.
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
         let endMessage = TerminalStreamMessage.streamEnd(paneId: paneId)
-        await connectionManager.sendTerminalStream(endMessage, to: endRecipients)
+        await streamSender.sendTerminalStream(endMessage, to: endRecipients)
     }
 
     /// Stop all active streams.
@@ -481,9 +496,9 @@ final public class TerminalStreamService {
         let pendingBatch = context.flushPendingData()
         guard !pendingBatch.data.isEmpty, !pendingBatch.recipients.isEmpty else { return }
 
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
         let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: pendingBatch.data)
-        await connectionManager.sendTerminalStream(message, to: pendingBatch.recipients)
+        await streamSender.sendTerminalStream(message, to: pendingBatch.recipients)
     }
 
     /// Handle incoming data from PaneStreamManager
@@ -501,7 +516,7 @@ final public class TerminalStreamService {
     /// Handle dimension change from PaneStreamManager
     private func handleDimensionChange(paneId: String, width: Int, height: Int) async {
         guard let context = activeStreams[paneId] else { return }
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
 
         logger.info("Sending dimension change", metadata: [
             "paneId": "\(paneId)",
@@ -509,13 +524,13 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
-        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Handle title change reported by a subscriber's SwiftTerm instance
     private func handleTitleChange(paneId: String, title: String) async {
         guard let context = activeStreams[paneId] else { return }
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
 
         logger.info("Sending title change", metadata: [
             "paneId": "\(paneId)",
@@ -523,7 +538,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
-        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Handle terminal notification (OSC 9/777) — forward to connected iOS viewers
@@ -532,14 +547,14 @@ final public class TerminalStreamService {
         notification: TerminalStreamMessage.TerminalNotification
     ) async {
         guard let context = activeStreams[paneId] else { return }
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
 
         let message = TerminalStreamMessage.notification(
             paneId: paneId,
             title: notification.title,
             body: notification.body
         )
-        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Maximum clipboard content size (1 MB) to forward to viewers.
@@ -549,7 +564,7 @@ final public class TerminalStreamService {
     /// Handle clipboard content (OSC 52) — forward to connected viewers
     private func handleClipboard(paneId: String, content: String) async {
         guard let context = activeStreams[paneId] else { return }
-        guard let connectionManager else { return }
+        guard let streamSender else { return }
 
         guard content.utf8.count <= Self.maxClipboardSize else {
             logger.warning("Dropping oversized clipboard update", metadata: [
@@ -565,7 +580,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.clipboardUpdate(paneId: paneId, content: content)
-        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 }
 
