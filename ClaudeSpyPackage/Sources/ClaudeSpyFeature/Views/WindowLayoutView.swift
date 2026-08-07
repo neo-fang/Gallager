@@ -27,7 +27,7 @@
         /// Whether keyboard input is active on the selected pane
         @State private var isKeyboardActive = false
 
-        /// Tracks keyboard visibility for toolbar icon state
+        /// Tracks keyboard visibility for the bottom input control
         @State private var keyboardVisible = false
 
         /// Service for the active pane's Claude session (nil if no session)
@@ -131,6 +131,15 @@
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
                 barWidth = newWidth
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if window != nil {
+                    TerminalKeyboardBar(
+                        keyboardVisible: keyboardVisible,
+                        isEnabled: relayClient.isHostConnected && activePaneId != nil,
+                        action: { isKeyboardActive.toggle() }
+                    )
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // Window switcher as title menu (placement: .principal replaces the title)
@@ -218,18 +227,6 @@
                         .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isKeyboardActive.toggle()
-                    } label: {
-                        Label(
-                            keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                            symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                        )
-                    }
-                    .disabled(!relayClient.isHostConnected)
-                }
-
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {

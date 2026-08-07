@@ -30,10 +30,10 @@
         /// Whether yolo mode is enabled for this pane
         let isYoloMode: Bool
 
-        /// Whether the navigation bar is hidden (show overlay keyboard button)
+        /// Whether the navigation bar is hidden (show an overlay copy button)
         let hideNavigationBar: Bool
 
-        /// Whether to show the keyboard toggle button in the toolbar.
+        /// Whether to show the keyboard toggle in the bottom safe area.
         /// Set to false when used in multi-pane layouts where the parent manages the keyboard.
         let showKeyboardButton: Bool
 
@@ -60,7 +60,7 @@
         /// Whether the terminal is in interactive mode (keyboard is showing)
         @State private var isInteractive = false
 
-        /// Tracks keyboard visibility to sync toolbar icon and trigger layout updates
+        /// Tracks keyboard visibility to label the bottom input control and trigger layout updates
         @State private var keyboardVisible = false
 
         /// Changes when the user manually retries a failed stream. Combined with
@@ -138,37 +138,27 @@
                     mirrorMeterStrip(telemetry)
                 }
 
-                // Terminal content with overlay keyboard button when nav bar is hidden
+                // Keep the copy action reachable when the navigation bar is hidden.
                 terminalContent
                     .overlay(alignment: .topTrailing) {
-                        if hideNavigationBar {
-                            HStack(spacing: 8) {
-                                if showCopyButton {
-                                    copyOverlayButton
-                                }
-                                keyboardOverlayButton
-                            }
+                        if hideNavigationBar, showCopyButton {
+                            copyOverlayButton
                         }
                     }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showKeyboardButton {
+                    TerminalKeyboardBar(
+                        keyboardVisible: keyboardVisible,
+                        isEnabled: isConnected && coordinator.streamState == .streaming,
+                        action: { isInteractive.toggle() }
+                    )
+                }
             }
             .toolbar {
                 if showCopyButton {
                     ToolbarItem(placement: .topBarTrailing) {
                         copyButton
-                    }
-                }
-
-                if showKeyboardButton {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isInteractive.toggle()
-                        } label: {
-                            Label(
-                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                            )
-                        }
-                        .disabled(!isConnected || coordinator.streamState != .streaming)
                     }
                 }
             }
@@ -229,22 +219,6 @@
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
             .background(.bar)
-        }
-
-        /// Overlay button for keyboard toggle when navigation bar is hidden
-        private var keyboardOverlayButton: some View {
-            Button {
-                isInteractive.toggle()
-            } label: {
-                (keyboardVisible ? Symbols.keyboardChevronCompactDown.image : Symbols.keyboard.image)
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white)
-                    .padding(8)
-                    .background(.black.opacity(0.5))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-            }
-            .disabled(!isConnected || coordinator.streamState != .streaming)
-            .padding(8)
         }
 
         private var copyButton: some View {

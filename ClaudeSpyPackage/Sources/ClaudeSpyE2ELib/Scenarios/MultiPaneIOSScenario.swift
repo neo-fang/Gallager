@@ -69,10 +69,10 @@ public enum MultiPaneIOSScenario {
         TestStep.iosTap(.labelContains("MultiPaneProject"))
 
         // 6. Verify all panes connected. Wait for an element that only exists
-        //    after the layout has loaded (Show Keyboard) so the screenshot
+        //    after the layout has loaded (Input) so the screenshot
         //    captures the connected state — `waitForElementToDisappear` alone
         //    can return immediately if "Connecting" hasn't appeared yet.
-        TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 15)
+        TestStep.iosWaitForElement(.label("Input"), timeout: 15)
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 5)
         // Settle wait for the split-pane layout to finish drawing.
         TestStep.wait(seconds: 2)
@@ -81,7 +81,7 @@ public enum MultiPaneIOSScenario {
         // 7. The default active pane is pane 1 (tmux-active after split).
         //    Pane 1 is a plain terminal — Claude UI should NOT be visible initially.
         TestStep.log("Verify plain terminal pane is initially selected (no Claude UI)")
-        TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 5)
+        TestStep.iosWaitForElement(.label("Input"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-initial-plain-pane-selected")
 
         // 8. Tap on the Claude pane (pane 0, left side) to select it
@@ -116,7 +116,7 @@ public enum MultiPaneIOSScenario {
         TestStep.iosWaitForElementToDisappear(.labelContains("Commands"), timeout: 5)
 
         // The keyboard button should still be visible (always present)
-        TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 5)
+        TestStep.iosWaitForElement(.label("Input"), timeout: 5)
         TestStep.iosScreenshot(label: "ios-plain-pane-selected")
 
         // 12. Tap back on the Claude pane to confirm UI restores
