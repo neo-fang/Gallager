@@ -480,3 +480,43 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
 - 终端滚动、双击、长按、粘贴/复制及 tmux mouse mode 行为不回归。
 - 复制 sheet 依旧不弹出键盘，关闭后输入状态恢复正确。
 - 聚焦测试、Swift package 测试、iOS device 构建和 iPhone 真机验证通过。
+
+## Stage 16：远程终端首屏原子揭示
+
+### 目标
+
+修复 Mac viewer 打开或重连远程 pane 时可见的历史内容回刷，并减少多 Viewer
+场景下发送给未订阅设备的终端流量。继续只维护正在查看的 pane，不让后台 window
+常驻 SwiftTerm 或实时流。
+
+### 实施范围
+
+1. `PipePaneReader` 的 buffer flush 增加真实完成屏障：返回时此前缓存的 delegate
+   事件必须已经按顺序投递，不再把 fire-and-forget 当作完成。
+2. `TerminalStreamService` 在 initial state 之后排空 bootstrap 数据并立即发送未满的
+   16ms batch；只有该内部屏障通过后，`StartTerminalStream` 才返回成功。
+3. initial state、title 和增量 terminal 消息只发送给实际订阅该 pane 的 Viewer；
+   push notification 和 session state 的广播语义不变。
+4. Mac viewer 在连接阶段保持 terminal 隐藏，以主题背景承接首屏装载；同时收到有效
+   initial state 和 start command success 后才一次揭示、恢复滚动与焦点。
+5. 保留现有约三屏 scrollback、8KiB/16ms 实时批处理和当前 pane 按需订阅；不使用
+   固定等待、ANSI 启发式去重、后台 window 常驻或本地伪回显。
+6. 保持现有网络消息格式，复用 `StartTerminalStream` command response 作为 ready
+   信号；旧 Host 仍可连接，新 Host 提供更严格的 bootstrap 完成语义。
+7. 增加 flush 屏障、initial/data/ready 顺序、多 Viewer 路由、重试及持续输出期间
+   首屏揭示的聚焦测试，并以 Release-like 构建验证切换和高频输出行为。
+
+### 验收标准
+
+- Mac viewer 打开、切换或重连远程 pane 时不显示历史内容逐段回刷；首屏准备完成后
+  一次出现，且当前终端内容正确。
+- `flushBuffer()` 完成前的所有数据先于 bootstrap ready；未满 8KiB 的末尾 batch
+  不等待常规 16ms 定时器。
+- 新 Viewer 的 initial state 不再刷新无关 Viewer；增量数据不发送给未订阅该 pane
+  的已连接设备。
+- 持续输出期间 `StartTerminalStream` 不饥饿、不依赖输出静默，也不因固定延时增加
+  首屏等待。
+- 切换 window 后只有可见 pane 保持 Viewer 端渲染；CPU、内存和网络不会随后台
+  window 数量线性增长。
+- 聚焦测试、完整 Swift package 测试和 macOS Release 构建通过；相同远程切换场景
+  完成真机/双 Mac 验收。
