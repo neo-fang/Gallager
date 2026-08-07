@@ -41,3 +41,7 @@
   `ping` 返回 `pong`，并能读取现有 `coding` session。
 - 本机交互验收通过：拖选、双击和三击选择均不再误触链接或弹出“应用程序无法打开”，
   单击链接与自动复制继续按预期工作。
+- 固定名称 `dist/Gallager-2.7-zengjice.dmg` 已更新；映像 CRC、只读挂载、Applications
+  链接、包内 App 深度签名、2.7 (40) 版本、arm64 主程序/CLI，以及源产物可执行文件
+  哈希一致性均校验通过。DMG SHA-256 为
+  `e0eb63e326b32b7d01105e7f24e069fb1df139ba04e66b59e4e2bbce66946444`。
