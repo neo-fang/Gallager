@@ -3,16 +3,16 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 1/6 tasks
+- **Progress**: 5/6 tasks
 - **Dependencies**: Stage 18 ✅
 
 ## Tasks
 
 - [x] 记录误触根因、修复边界和验收标准。
-- [ ] 为 Gallager 鼠标手势增加单击/拖动/多击判定。
-- [ ] 阻止远端 file URL 回退到本机系统打开器。
-- [ ] 修复 SwiftTerm fork 的底层链接误触和状态复位。
-- [ ] 增加并通过聚焦回归测试。
+- [x] 为 Gallager 鼠标手势增加单击/拖动/多击判定。
+- [x] 阻止远端 file URL 回退到本机系统打开器。
+- [x] 修复 SwiftTerm fork 的底层链接误触和状态复位。
+- [x] 增加并通过聚焦回归测试。
 - [ ] 完成完整测试、macOS Release 构建和本机验收安装。
 
 ## Decisions
@@ -28,4 +28,14 @@
 
 ## Verification
 
-- 待完成。
+- Gallager 与 SwiftTerm 的手势状态测试各 3 项通过；远端 URL 策略测试覆盖
+  http/https/ftp、file URL、无 scheme 路径和自定义 scheme。
+- `Terminal File Link Opens In New Tab` E2E 场景已增加拖选、双击、三击不激活链接，
+  单击仍打开链接的回归步骤；E2E target 在完整 package 构建中编译通过。
+- 完整 Swift package：1621 tests / 227 suites passed。
+- SwiftTerm fork 修订 `99f2287e17f640beafdbc2b935ef1aac97f0fa7c` 已推送并同时锁定在
+  package manifest、package lockfile 与 Xcode workspace lockfile。
+- macOS Release：`ClaudeSpyServer` arm64 构建通过，产物为 `Gallager.app` 2.7 (40)；
+  Apple Development 深度重签及 `codesign --verify --deep --strict` 通过。
+- Release 候选版已覆盖安装到 `/Applications/Gallager.app`；`wait-ready` 返回 `ready`，
+  `ping` 返回 `pong`，并能读取现有 `coding` session。交互验收与最终 DMG 待用户确认。
