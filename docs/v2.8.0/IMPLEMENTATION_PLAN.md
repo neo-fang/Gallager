@@ -562,3 +562,37 @@ Mac 同时运行本地 sessions 时仍须优先保证交互响应；允许为此
 - 不使用本地预回显、固定静默等待、无界 Task 或为每个字符长期创建独立后台任务。
 - 聚焦测试、完整 Swift package 测试、macOS Release 构建、签名与 DMG 校验通过。
 - 相同远程场景完成 Mac/iOS Viewer 对照，且 Mac 同时存在本地 sessions 时体验符合预期。
+
+## Stage 18：macOS 本地终端输入延迟
+
+### 目标
+
+缩小 Gallager 本地 terminal 与直接 `tmux attach` 的输入响应差距。复用本地 pane
+已经建立的 tmux control-mode 持久连接发送交互按键，避免为每个按键批次启动新的
+`tmux send-keys` 进程，同时保持按键顺序、Meta/Option 组合和失败回退语义。
+
+### 实施范围
+
+1. 以本地 terminal 逐字输入为固定场景，记录现有进程式 tmux 命令开销；当前基线为
+   200 次 tmux 客户端调用约 0.79 秒，平均约 3.95ms/次，不把该数据误当作完整回显延迟。
+2. 在现有 `TmuxControlClientManager` 上增加窄接口，仅为已经订阅且持有 control-mode
+   连接的本地 pane 发送交互按键；不得把任意未转义文本拼接为 tmux 命令。
+3. 本地 `InteractiveTerminalView` 输入优先走持久连接；连接不存在、已失效或命令失败时，
+   回退到现有 `TmuxService.sendKeystrokes` 进程路径，避免输入静默丢失。
+4. 持久路径和回退路径共用一个有序发送边界，保证普通文本、命名键、Meta/Option 组合
+   以及连续输入的 FIFO 顺序；不添加本地预回显。
+5. 增加命令编码、持久连接命中、故障回退和输入顺序测试；先验证第一阶段收益，只有仍有
+   可测量延迟时才考虑让普通按键绕过 `KeystrokeCoalescer` 的 runloop 合批。
+6. 不修改 remote viewer、relay、host 命令协议、pipe-pane 输出、SwiftTerm 渲染或插件
+   使用的通用 `TmuxService` 命令路径。
+
+### 验收标准
+
+- 已建立本地 pane stream 时，连续交互输入不再为每个批次启动新的 tmux 客户端进程。
+- control-mode 尚未就绪或执行失败时，输入按原顺序通过进程路径重试一次，不静默丢失，
+  不因重试造成正常路径重复输入。
+- literal 文本、空格、Enter、方向键、Escape、Unicode 和 Meta/Option 组合行为不回归。
+- 不使用本地预回显、固定等待、无界 Task 或新的长期后台轮询。
+- 聚焦测试、完整 Swift package 测试和 macOS Release 构建通过。
+- 使用 Release 产物在同一 local session 对比直接 `tmux attach`，确认主观输入停顿改善；
+  若仍存在差距，再以测量证据决定是否进入第二阶段按键合并优化。
