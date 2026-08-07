@@ -1,10 +1,18 @@
+import ClaudeSpyCommon
 import ClaudeSpyNetworking
 import Foundation
 import Logging
 
-private enum TerminalStreamInput: Sendable {
+enum TerminalStreamInput {
     case data(Data)
     case finishBootstrap(viewerId: String, barrierId: UUID)
+    case reset(PaneStreamManager.SubscriptionResult)
+    case resyncFailed(Error)
+
+    var byteCount: Int {
+        if case let .data(data) = self { return data.count }
+        return 0
+    }
 }
 
 @MainActor
@@ -49,7 +57,7 @@ final public class TerminalStreamService {
     /// Ordered data stream for each pane — ensures strictly sequential processing
     /// of incoming terminal data, preventing interleaved flushes from reordering
     /// WebSocket messages.
-    private var dataStreams: [String: AsyncStream<TerminalStreamInput>.Continuation] = [:]
+    private var inputBuffers: [String: TerminalStreamInputBuffer] = [:]
     private var dataConsumerTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - Batching Configuration
@@ -59,6 +67,13 @@ final public class TerminalStreamService {
 
     /// Maximum batch size before forced send
     private let maxBatchSize = 8_192 // 8KB
+
+    /// Backlog beyond this point is already stale for an interactive terminal.
+    /// Replace it with an authoritative snapshot instead of growing latency.
+    private let streamHighWaterBytes = 512 * 1_024
+
+    private let maximumEventsPerTurn = 32
+    private let maximumBytesPerTurn = 256 * 1_024
 
     // MARK: - Initialization
 
@@ -176,10 +191,13 @@ final public class TerminalStreamService {
         // Start the ordered consumer before capture. While the first viewer is
         // bootstrapping, data is retained in its private buffer and cannot enter
         // the WebSocket send chain ahead of initialState.
-        let (dataStream, dataContinuation) = AsyncStream.makeStream(of: TerminalStreamInput.self)
-        dataStreams[paneId] = dataContinuation
+        let inputBuffer = TerminalStreamInputBuffer(
+            paneId: paneId,
+            highWaterBytes: streamHighWaterBytes
+        )
+        inputBuffers[paneId] = inputBuffer
         dataConsumerTasks[paneId] = makeDataConsumer(
-            stream: dataStream,
+            inputBuffer: inputBuffer,
             context: context,
             paneId: paneId
         )
@@ -194,7 +212,9 @@ final public class TerminalStreamService {
                 onData: { [weak self] (data: Data) in
                     guard let self else { return }
                     guard self.activeStreams[paneId] != nil else { return }
-                    self.dataStreams[paneId]?.yield(.data(data))
+                    if self.inputBuffers[paneId]?.enqueueData(data) == .resyncRequired {
+                        self.requestResync(for: context, paneId: paneId)
+                    }
                 },
                 onDimensionChange: { [weak self] (newWidth: Int, newHeight: Int) in
                     guard let self else { return }
@@ -219,19 +239,31 @@ final public class TerminalStreamService {
                     Task {
                         await self.handleClipboard(paneId: paneId, content: content)
                     }
+                },
+                onResync: { [weak self] result in
+                    guard let self, let inputBuffer = self.inputBuffers[paneId] else { return }
+                    switch result {
+                    case let .success(snapshot):
+                        inputBuffer.enqueueReset(snapshot)
+                    case let .failure(error):
+                        inputBuffer.enqueueResyncFailure(error)
+                    }
                 }
             )
         } catch {
             // Clean up on failure
             dataConsumerTasks[paneId]?.cancel()
             dataConsumerTasks.removeValue(forKey: paneId)
-            dataContinuation.finish()
-            dataStreams.removeValue(forKey: paneId)
+            inputBuffer.finish()
+            inputBuffers.removeValue(forKey: paneId)
             activeStreams.removeValue(forKey: paneId)
             throw error
         }
 
         context.subscriptionId = result.subscriptionId
+        if inputBuffer.isAwaitingSnapshot {
+            requestResync(for: context, paneId: paneId)
+        }
 
         logger.info("Stream subscribed", metadata: [
             "paneId": "\(paneId)",
@@ -251,8 +283,8 @@ final public class TerminalStreamService {
         await streamSender.sendTerminalStream(initialMessage, to: [viewerId])
 
         guard let activeContext = activeStreams[paneId], activeContext === context else {
-            dataContinuation.finish()
-            dataStreams.removeValue(forKey: paneId)
+            inputBuffer.finish()
+            inputBuffers.removeValue(forKey: paneId)
             throw StreamError.paneNotAvailable
         }
 
@@ -268,33 +300,58 @@ final public class TerminalStreamService {
     }
 
     private func makeDataConsumer(
-        stream: AsyncStream<TerminalStreamInput>,
+        inputBuffer: TerminalStreamInputBuffer,
         context: StreamContext,
         paneId: String
     ) -> Task<Void, Never> {
         Task { [weak self] in
-            for await input in stream {
-                guard
-                    let self,
-                    let activeContext = self.activeStreams[paneId],
-                    activeContext === context
-                else {
-                    context.cancelBootstrapBarriers()
-                    break
+            for await _ in inputBuffer.wakeStream {
+                guard let self else { break }
+                var eventCount = 0
+                var byteCount = 0
+
+                while
+                    eventCount < self.maximumEventsPerTurn,
+                    byteCount < self.maximumBytesPerTurn,
+                    let input = inputBuffer.dequeue()
+                {
+                    guard
+                        let activeContext = self.activeStreams[paneId],
+                        activeContext === context
+                    else {
+                        context.cancelBootstrapBarriers()
+                        return
+                    }
+
+                    eventCount += 1
+                    byteCount += input.byteCount
+                    switch input {
+                    case let .data(data):
+                        await self.handleIncomingData(context: context, paneId: paneId, data: data)
+
+                    case let .finishBootstrap(viewerId, barrierId):
+                        await self.completeBootstrap(
+                            for: viewerId,
+                            barrierId: barrierId,
+                            context: context,
+                            paneId: paneId
+                        )
+
+                    case let .reset(snapshot):
+                        await self.applyReset(snapshot, context: context, paneId: paneId)
+
+                    case let .resyncFailed(error):
+                        self.logger.error("Terminal stream resync failed", metadata: [
+                            "paneId": "\(paneId)",
+                            "error": "\(error)",
+                        ])
+                        await self.stopStreaming(paneId: paneId, force: true)
+                        return
+                    }
                 }
 
-                switch input {
-                case let .data(data):
-                    await self.handleIncomingData(context: context, paneId: paneId, data: data)
-
-                case let .finishBootstrap(viewerId, barrierId):
-                    await self.completeBootstrap(
-                        for: viewerId,
-                        barrierId: barrierId,
-                        context: context,
-                        paneId: paneId
-                    )
-                }
+                inputBuffer.scheduleRemainingWork()
+                await Task.yield()
             }
         }
     }
@@ -304,12 +361,12 @@ final public class TerminalStreamService {
         context: StreamContext,
         paneId: String
     ) async throws {
-        guard let continuation = dataStreams[paneId] else {
+        guard let inputBuffer = inputBuffers[paneId] else {
             throw StreamError.paneNotAvailable
         }
 
         let barrierId = UUID()
-        continuation.yield(.finishBootstrap(viewerId: viewerId, barrierId: barrierId))
+        inputBuffer.enqueueControl(.finishBootstrap(viewerId: viewerId, barrierId: barrierId))
         await context.waitForBootstrapBarrier(barrierId)
 
         guard
@@ -345,6 +402,7 @@ final public class TerminalStreamService {
                 paneId: paneId,
                 data: Data(bootstrapData[offset..<end])
             )
+            TerminalTransportMetrics.shared.recordBatch(bytes: end - offset)
             await streamSender.sendTerminalStream(message, to: [viewerId])
             offset = end
         }
@@ -430,9 +488,10 @@ final public class TerminalStreamService {
         // Stop the ordered data consumer and stream
         dataConsumerTasks[paneId]?.cancel()
         dataConsumerTasks.removeValue(forKey: paneId)
-        dataStreams[paneId]?.finish()
-        dataStreams.removeValue(forKey: paneId)
+        inputBuffers[paneId]?.finish()
+        inputBuffers.removeValue(forKey: paneId)
         context.cancelBootstrapBarriers()
+        context.finishMetrics()
 
         // Cancel any pending batch send. The drain below sends its bytes once.
         context.batchTask?.cancel()
@@ -499,17 +558,30 @@ final public class TerminalStreamService {
     private func flushPendingData(for context: StreamContext, paneId: String) async {
         context.batchTask?.cancel()
         context.batchTask = nil
-        let pendingBatch = context.flushPendingData()
-        guard !pendingBatch.data.isEmpty, !pendingBatch.recipients.isEmpty else { return }
-
         guard let streamSender else { return }
-        let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: pendingBatch.data)
-        await streamSender.sendTerminalStream(message, to: pendingBatch.recipients)
+        while context.pendingDataSize > 0 {
+            let pendingBatch = context.takePendingData(maxBytes: maxBatchSize)
+            guard !pendingBatch.data.isEmpty, !pendingBatch.recipients.isEmpty else { return }
+            let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: pendingBatch.data)
+            TerminalTransportMetrics.shared.recordBatch(bytes: pendingBatch.data.count)
+            await streamSender.sendTerminalStream(message, to: pendingBatch.recipients)
+        }
     }
 
     /// Handle incoming data from PaneStreamManager
-    private func handleIncomingData(context: StreamContext, paneId: String, data: Data) async {
+    func handleIncomingData(context: StreamContext, paneId: String, data: Data) async {
         context.appendIncomingData(data)
+
+        // Bootstrap buffers live downstream of the ingress queue. Include them
+        // in backpressure or a slow initialState send can move an unbounded
+        // backlog out of the bounded queue without actually reducing latency.
+        if context.maximumBufferedDataSize > streamHighWaterBytes {
+            context.clearPendingDataForReset()
+            if inputBuffers[paneId]?.requireResync() == .resyncRequired {
+                requestResync(for: context, paneId: paneId)
+            }
+            return
+        }
 
         // Check if we should send immediately (batch full) or schedule
         if context.pendingDataSize >= maxBatchSize {
@@ -517,6 +589,36 @@ final public class TerminalStreamService {
         } else if context.pendingDataSize > 0 {
             scheduleBatchSend(for: context, paneId: paneId)
         }
+    }
+
+    private func requestResync(for context: StreamContext, paneId: String) {
+        guard let subscriptionId = context.subscriptionId else { return }
+        paneStreamManager?.requestResync(subscriptionId: subscriptionId)
+        logger.warning("Terminal stream crossed high-water mark; requesting snapshot", metadata: [
+            "paneId": "\(paneId)",
+            "limitBytes": "\(streamHighWaterBytes)",
+        ])
+    }
+
+    func applyReset(
+        _ snapshot: PaneStreamManager.SubscriptionResult,
+        context: StreamContext,
+        paneId: String
+    ) async {
+        context.batchTask?.cancel()
+        context.batchTask = nil
+        context.clearPendingDataForReset()
+
+        guard let streamSender else { return }
+        var content = snapshot.initialContent
+        content.append(await paneStreamManager?.mouseModeSequences(for: paneId) ?? Data())
+        let message = TerminalStreamMessage.resetState(
+            paneId: paneId,
+            width: snapshot.width,
+            height: snapshot.height,
+            content: content
+        )
+        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Handle dimension change from PaneStreamManager
@@ -590,6 +692,160 @@ final public class TerminalStreamService {
     }
 }
 
+// MARK: - Bounded Input Buffer
+
+/// MainActor-owned queue with a byte high-water mark. Control barriers survive
+/// overload; terminal data is replaced by one authoritative snapshot request.
+@MainActor
+final class TerminalStreamInputBuffer {
+    enum EnqueueResult: Equatable {
+        case enqueued
+        case awaitingSnapshot
+        case resyncRequired
+    }
+
+    let wakeStream: AsyncStream<Void>
+
+    private let paneId: String
+    private let highWaterBytes: Int
+    private let wakeContinuation: AsyncStream<Void>.Continuation
+    private var items: [TerminalStreamInput] = []
+    private var headIndex = 0
+    private var pendingBytes = 0
+    private(set) var isAwaitingSnapshot = false
+
+    init(paneId: String, highWaterBytes: Int) {
+        precondition(highWaterBytes > 0)
+        self.paneId = paneId
+        self.highWaterBytes = highWaterBytes
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        self.wakeStream = stream
+        self.wakeContinuation = continuation
+    }
+
+    var queuedBytes: Int {
+        pendingBytes
+    }
+
+    var queuedDepth: Int {
+        items.count - headIndex
+    }
+
+    func enqueueData(_ data: Data) -> EnqueueResult {
+        guard !data.isEmpty else { return .enqueued }
+        guard !isAwaitingSnapshot else { return .awaitingSnapshot }
+
+        guard pendingBytes + data.count <= highWaterBytes else {
+            retainControlItemsOnly()
+            isAwaitingSnapshot = true
+            recordQueue()
+            return .resyncRequired
+        }
+
+        items.append(.data(data))
+        pendingBytes += data.count
+        recordQueue()
+        wakeContinuation.yield()
+        return .enqueued
+    }
+
+    func enqueueControl(_ input: TerminalStreamInput) {
+        items.append(input)
+        recordQueue()
+        wakeContinuation.yield()
+    }
+
+    func enqueueReset(_ snapshot: PaneStreamManager.SubscriptionResult) {
+        let controls = remainingControlItems()
+        items = [.reset(snapshot)] + controls
+        headIndex = 0
+        pendingBytes = 0
+        isAwaitingSnapshot = false
+        recordQueue()
+        wakeContinuation.yield()
+    }
+
+    func enqueueResyncFailure(_ error: Error) {
+        let controls = remainingControlItems()
+        items = [.resyncFailed(error)] + controls
+        headIndex = 0
+        pendingBytes = 0
+        isAwaitingSnapshot = false
+        recordQueue()
+        wakeContinuation.yield()
+    }
+
+    func requireResync() -> EnqueueResult {
+        guard !isAwaitingSnapshot else { return .awaitingSnapshot }
+        retainControlItemsOnly()
+        isAwaitingSnapshot = true
+        recordQueue()
+        return .resyncRequired
+    }
+
+    func dequeue() -> TerminalStreamInput? {
+        guard !isAwaitingSnapshot, headIndex < items.count else { return nil }
+        let input = items[headIndex]
+        headIndex += 1
+        pendingBytes = max(0, pendingBytes - input.byteCount)
+        compactConsumedItems()
+        recordQueue()
+        return input
+    }
+
+    func scheduleRemainingWork() {
+        guard !isAwaitingSnapshot, headIndex < items.count else { return }
+        wakeContinuation.yield()
+    }
+
+    func finish() {
+        wakeContinuation.finish()
+        items.removeAll(keepingCapacity: false)
+        headIndex = 0
+        pendingBytes = 0
+        isAwaitingSnapshot = false
+        TerminalTransportMetrics.shared.clearQueue(.streamIngress, id: paneId)
+    }
+
+    private func retainControlItemsOnly() {
+        items = remainingControlItems()
+        headIndex = 0
+        pendingBytes = 0
+    }
+
+    private func remainingControlItems() -> [TerminalStreamInput] {
+        items[headIndex...].filter { input in
+            switch input {
+            case .finishBootstrap:
+                true
+            case .data, .reset, .resyncFailed:
+                false
+            }
+        }
+    }
+
+    private func compactConsumedItems() {
+        if headIndex == items.count {
+            items.removeAll(keepingCapacity: true)
+            headIndex = 0
+        } else if headIndex >= 32 {
+            items.removeFirst(headIndex)
+            headIndex = 0
+        }
+    }
+
+    private func recordQueue() {
+        TerminalTransportMetrics.shared.recordQueue(
+            .streamIngress,
+            id: paneId,
+            depth: queuedDepth,
+            bytes: pendingBytes
+        )
+    }
+}
+
 // MARK: - Stream Context
 
 /// Context for an active terminal stream, handles data batching.
@@ -614,10 +870,15 @@ final class StreamContext {
         pendingData.count
     }
 
+    var maximumBufferedDataSize: Int {
+        max(pendingData.count, bootstrapData.values.map(\.count).max() ?? 0)
+    }
+
     init(paneId: String, viewerId: String) {
         self.paneId = paneId
         self.ownership = TerminalStreamOwnership(viewerId: viewerId)
         self.bootstrapData[viewerId] = Data()
+        recordBufferedQueue()
     }
 
     var readyViewers: Set<String> {
@@ -628,6 +889,7 @@ final class StreamContext {
         ownership.subscribe(viewerId)
         readyViewerIds.remove(viewerId)
         bootstrapData[viewerId] = Data()
+        recordBufferedQueue()
     }
 
     func isBootstrapping(_ viewerId: String) -> Bool {
@@ -647,22 +909,42 @@ final class StreamContext {
         if !readyViewerIds.isEmpty {
             pendingData.append(data)
         }
+        recordBufferedQueue()
     }
 
     func flushPendingData() -> PendingBatch {
-        let batch = PendingBatch(data: pendingData, recipients: readyViewerIds)
+        takePendingData(maxBytes: pendingData.count)
+    }
+
+    func takePendingData(maxBytes: Int) -> PendingBatch {
+        guard maxBytes > 0, !pendingData.isEmpty else {
+            return PendingBatch(data: Data(), recipients: readyViewerIds)
+        }
+        let count = min(maxBytes, pendingData.count)
+        let data = Data(pendingData.prefix(count))
+        pendingData.removeFirst(count)
+        recordBufferedQueue()
+        return PendingBatch(data: data, recipients: readyViewerIds)
+    }
+
+    func clearPendingDataForReset() {
         pendingData = Data()
-        return batch
+        for viewerId in Array(bootstrapData.keys) {
+            bootstrapData[viewerId] = Data()
+        }
+        recordBufferedQueue()
     }
 
     func takeBootstrapData(for viewerId: String) -> Data {
         let data = bootstrapData[viewerId] ?? Data()
         bootstrapData[viewerId] = Data()
+        recordBufferedQueue()
         return data
     }
 
     func finishBootstrap(for viewerId: String) {
         guard bootstrapData.removeValue(forKey: viewerId) != nil else { return }
+        recordBufferedQueue()
         guard ownership.contains(viewerId) else { return }
         readyViewerIds.insert(viewerId)
     }
@@ -670,6 +952,7 @@ final class StreamContext {
     func removeViewer(_ viewerId: String) {
         readyViewerIds.remove(viewerId)
         bootstrapData.removeValue(forKey: viewerId)
+        recordBufferedQueue()
     }
 
     func waitForBootstrapBarrier(_ barrierId: UUID) async {
@@ -694,5 +977,24 @@ final class StreamContext {
         for continuation in continuations {
             continuation.resume()
         }
+    }
+
+    func finishMetrics() {
+        TerminalTransportMetrics.shared.clearQueue(.streamIngress, id: "\(paneId):batch")
+    }
+
+    private func recordBufferedQueue() {
+        var depth = pendingData.isEmpty ? 0 : 1
+        var bytes = pendingData.count
+        for data in bootstrapData.values {
+            if !data.isEmpty { depth += 1 }
+            bytes += data.count
+        }
+        TerminalTransportMetrics.shared.recordQueue(
+            .streamIngress,
+            id: "\(paneId):batch",
+            depth: depth,
+            bytes: bytes
+        )
     }
 }

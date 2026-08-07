@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import Foundation
     import Logging
@@ -79,6 +80,7 @@
             let onTitleChange: (@MainActor (String) -> Void)?
             let onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
             let onClipboard: (@MainActor (String) -> Void)?
+            let onResync: (@MainActor (Result<SubscriptionResult, Error>) -> Void)?
         }
 
         /// Per-pane state owned by the manager.
@@ -123,6 +125,13 @@
         /// Per-pane single-flight for reader startup. Without this, an on-demand
         /// subscribe can race pane discovery and both replace the same FIFO.
         private let readerStartGate = PaneReaderStartGate()
+
+        /// Overload recovery is coalesced per pane. While a snapshot is being
+        /// captured, incremental callbacks are suppressed and the reader buffers
+        /// the post-snapshot boundary for an ordered flush.
+        private var pendingResyncSubscribers: [String: Set<UUID>] = [:]
+        private var resyncTasks: [String: Task<Void, Never>] = [:]
+        private var resyncingPaneIds: Set<String> = []
 
         /// `disconnectAll` is terminal for this manager. Keep late callbacks
         /// from restarting readers while shutdown drains in-flight work.
@@ -257,7 +266,8 @@
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
             onTitleChange: (@MainActor (String) -> Void)? = nil,
             onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)? = nil,
-            onClipboard: (@MainActor (String) -> Void)? = nil
+            onClipboard: (@MainActor (String) -> Void)? = nil,
+            onResync: (@MainActor (Result<SubscriptionResult, Error>) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
@@ -267,7 +277,8 @@
                 onDimensionChange: onDimensionChange,
                 onTitleChange: onTitleChange,
                 onNotification: onNotification,
-                onClipboard: onClipboard
+                onClipboard: onClipboard,
+                onResync: onResync
             )
 
             let sessionName = TmuxControlClientManager.extractSessionName(from: target)
@@ -452,6 +463,7 @@
             }
 
             let paneId = subscription.paneId
+            pendingResyncSubscribers[paneId]?.remove(subscriptionId)
 
             guard var context = readers[paneId] else {
                 logger.warning("Reader not found for pane: \(paneId)")
@@ -526,6 +538,28 @@
             return (content, context.width, context.height)
         }
 
+        /// Requests an authoritative snapshot for one subscription after its
+        /// downstream queue crossed the high-water mark. Concurrent requests for
+        /// the same pane share one capture and are notified before buffered live
+        /// bytes are flushed.
+        func requestResync(subscriptionId: UUID) {
+            guard
+                let subscription = subscriptions[subscriptionId],
+                let context = readers[subscription.paneId]
+            else { return }
+            let paneId = subscription.paneId
+            // Buffering and forward suppression are pane-wide. Every existing
+            // subscriber therefore crosses the same snapshot boundary, even
+            // when only one downstream queue reported overload.
+            pendingResyncSubscribers[paneId, default: []].formUnion(context.subscriberIds)
+            resyncingPaneIds.insert(paneId)
+            guard resyncTasks[paneId] == nil else { return }
+
+            resyncTasks[paneId] = Task { @MainActor [weak self] in
+                await self?.runResyncLoop(paneId: paneId)
+            }
+        }
+
         /// Returns DEC private mode escape sequences to enable the pane's current mouse tracking mode.
         ///
         /// `capture-pane` only records text and SGR attributes, not terminal state like mouse
@@ -574,6 +608,8 @@
                 await tearDownReader(paneId: paneId)
             }
             subscriptions.removeAll()
+            pendingResyncSubscribers.removeAll()
+            resyncingPaneIds.removeAll()
             paneRefreshTask?.cancel()
             paneRefreshTask = nil
             logger.info("Disconnected all pane readers")
@@ -751,6 +787,13 @@
         }
 
         private func tearDownReader(paneId: String) async {
+            if let task = resyncTasks.removeValue(forKey: paneId) {
+                task.cancel()
+                _ = await task.value
+            }
+            pendingResyncSubscribers.removeValue(forKey: paneId)
+            resyncingPaneIds.remove(paneId)
+
             guard let context = readers.removeValue(forKey: paneId) else { return }
 
             // Drop subscriptions belonging to this pane (caller likely already
@@ -780,6 +823,13 @@
             forwardData(paneId: paneId, data: data)
         }
 
+        public func pipePaneReaderDidOverflow(_ paneId: String) {
+            guard let context = readers[paneId] else { return }
+            for subscriptionId in context.subscriberIds {
+                requestResync(subscriptionId: subscriptionId)
+            }
+        }
+
         public func pipePaneReader(
             _ paneId: String,
             didReceiveNotification notification: TerminalStreamMessage.TerminalNotification
@@ -802,12 +852,82 @@
         // MARK: - Private Forwarding
 
         private func forwardData(paneId: String, data: Data) {
+            guard !resyncingPaneIds.contains(paneId) else { return }
             guard let context = readers[paneId] else { return }
 
             for subscriberId in context.subscriberIds {
                 if let subscription = subscriptions[subscriberId] {
                     subscription.onData(data)
                 }
+            }
+        }
+
+        private func runResyncLoop(paneId: String) async {
+            defer {
+                resyncTasks[paneId] = nil
+                resyncingPaneIds.remove(paneId)
+            }
+
+            while !Task.isCancelled {
+                guard
+                    pendingResyncSubscribers[paneId]?.isEmpty == false,
+                    var context = readers[paneId]
+                else { return }
+
+                await context.reader.setBuffering(true)
+                if let dimensions = try? await tmuxService.getPaneDimensions(context.target) {
+                    context.width = dimensions.width
+                    context.height = dimensions.height
+                    readers[paneId] = context
+                }
+
+                let captured: Data
+                do {
+                    captured = try await tmuxService.capturePaneViaControlMode(
+                        paneId: paneId,
+                        width: context.width,
+                        height: context.height,
+                        controlClientManager: controlClientManager,
+                        sessionName: context.sessionName
+                    )
+                } catch {
+                    let targets = pendingResyncSubscribers.removeValue(forKey: paneId) ?? []
+                    await context.reader.setBuffering(false)
+                    for subscriptionId in targets {
+                        subscriptions[subscriptionId]?.onResync?(.failure(error))
+                    }
+                    logger.error("Failed to resynchronize pane stream", metadata: [
+                        "paneId": "\(paneId)",
+                        "error": "\(error)",
+                    ])
+                    return
+                }
+
+                guard !Task.isCancelled else {
+                    await context.reader.setBuffering(false)
+                    return
+                }
+
+                // Include requests that arrived while capture-pane was suspended.
+                let targets = pendingResyncSubscribers.removeValue(forKey: paneId) ?? []
+                TerminalTransportMetrics.shared.recordResync()
+                for subscriptionId in targets {
+                    guard let subscription = subscriptions[subscriptionId] else { continue }
+                    subscription.onResync?(.success(SubscriptionResult(
+                        subscriptionId: subscriptionId,
+                        initialContent: captured,
+                        width: context.width,
+                        height: context.height
+                    )))
+                }
+
+                // Reset callbacks are synchronous MainActor work. Once they all
+                // ran, allow the reader's buffered post-snapshot bytes through.
+                resyncingPaneIds.remove(paneId)
+                await context.reader.flushBuffer()
+
+                guard pendingResyncSubscribers[paneId]?.isEmpty == false else { return }
+                resyncingPaneIds.insert(paneId)
             }
         }
 

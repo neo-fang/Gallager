@@ -591,6 +591,14 @@
                 terminalState = state
                 streamState = .streaming
 
+            case let .resetState(snapshot):
+                guard let content = snapshot.content else { return }
+                terminalState?.replace(
+                    width: snapshot.width,
+                    height: snapshot.height,
+                    content: content
+                )
+
             case let .dataChunk(chunk):
                 // Feed new data to terminal
                 guard let data = chunk.data else { return }
@@ -648,6 +656,9 @@
         /// Callback to feed data to the terminal view
         var onData: ((Data) -> Void)?
 
+        /// Callback to atomically reset the existing UIKit terminal instance.
+        var onReset: ((Int, Int, Data) -> Void)?
+
         /// Callback called once after initial content is fed (for scroll-to-bottom and enabling preservation)
         var onInitialContentLoaded: (() -> Void)?
 
@@ -681,6 +692,17 @@
                 onData(data)
             } else {
                 pendingInitialContent.append(data)
+            }
+        }
+
+        func replace(width: Int, height: Int, content: Data) {
+            self.width = width
+            self.height = height
+            pendingInitialContent = Data()
+            if let onReset {
+                onReset(width, height, content)
+            } else {
+                pendingInitialContent = content
             }
         }
 
@@ -792,9 +814,11 @@
             context.coordinator.heightConstraint = heightConstraint
 
             // Wire up data callbacks
-            terminalState.onData = { [weak terminalView] data in
-                guard let terminalView else { return }
-                terminalView.feedPreservingScroll([UInt8](data)[...])
+            terminalState.onData = { [weak coordinator = context.coordinator] data in
+                coordinator?.enqueue(data)
+            }
+            terminalState.onReset = { [weak coordinator = context.coordinator] width, height, data in
+                coordinator?.replace(width: width, height: height, content: data)
             }
 
             // Scroll both the inner terminal (scrollback) and outer scroll view
@@ -870,6 +894,24 @@
             /// scroll view picks them up (`isDirectionalLockEnabled` doesn't
             /// engage for diagonal starts per Apple's documented behavior).
             private var dragInitialOffsetY: CGFloat?
+
+            private lazy var feedCoalescer = TerminalFeedCoalescer(
+                id: "ios:\(ObjectIdentifier(self))"
+            ) { [weak self] data in
+                guard let terminalView = self?.terminalView else { return }
+                terminalView.feedPreservingScroll([UInt8](data)[...])
+            }
+
+            func enqueue(_ data: Data) {
+                feedCoalescer.enqueue(data)
+            }
+
+            func replace(width: Int, height: Int, content: Data) {
+                handleResize(width: width, height: height)
+                feedCoalescer.replace(with: content) { [weak self] in
+                    self?.terminalView?.getTerminal().resetToInitialState()
+                }
+            }
 
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }

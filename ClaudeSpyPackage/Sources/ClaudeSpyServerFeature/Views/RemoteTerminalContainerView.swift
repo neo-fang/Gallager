@@ -700,6 +700,12 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] keys in
             self?.enqueueKeySend(keys: keys)
         }
+        private lazy var feedCoalescer = TerminalFeedCoalescer(
+            id: "mac-remote:\(paneId ?? "unknown")"
+        ) { [weak self] data in
+            guard let terminalView = self?.terminalView else { return }
+            terminalView.feedPreservingScroll([UInt8](data)[...])
+        }
 
         init() {
             self.terminalView = InteractiveTerminalView(
@@ -790,6 +796,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil
             keyCoalescer.reset()
+            feedCoalescer.discardPending()
 
             streamTask?.cancel()
             streamTask = nil
@@ -901,6 +908,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             keyCoalescer.reset()
             bootstrapPolicy.beginAttempt()
             bootstrapBuffer.reset()
+            feedCoalescer.discardPending()
             terminalView.preserveUserScroll = false
             terminalView.isHidden = true
             terminalView.getTerminal().resetToInitialState()
@@ -917,6 +925,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             streamAttemptId = nil
             bootstrapPolicy.beginAttempt()
             bootstrapBuffer.reset()
+            feedCoalescer.discardPending()
             terminalView.preserveUserScroll = false
             terminalView.isHidden = true
             keystrokeDebouncer?.cancelAll()
@@ -968,12 +977,26 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
                 revealTerminalIfReady()
 
+            case let .resetState(state):
+                guard let data = Data(base64Encoded: state.contentBase64) else { return }
+                columns = state.width
+                rows = state.height
+                applyTerminalDimensions(cols: columns, rows: rows)
+                feedCoalescer.replace(with: data) { [terminalView] in
+                    terminalView.getTerminal().resetToInitialState()
+                    terminalView.preserveUserScroll = false
+                }
+                terminalView.scroll(toPosition: 1)
+                terminalView.preserveUserScroll = true
+                terminalView.isHidden = false
+                terminalView.needsDisplay = true
+                notifyStateChange()
+
             case let .dataChunk(chunk):
                 guard bootstrapPolicy.hasInitialState else { return }
                 if let data = Data(base64Encoded: chunk.dataBase64) {
                     if streamState == .streaming {
-                        let bytes = [UInt8](data)[...]
-                        terminalView.feedPreservingScroll(bytes)
+                        feedCoalescer.enqueue(data)
                     } else {
                         bootstrapBuffer.appendData(data)
                     }
@@ -1011,14 +1034,23 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private func revealTerminalIfReady() {
             guard bootstrapPolicy.isReady, streamState != .streaming else { return }
 
+            var replacedTerminal = false
             for event in bootstrapBuffer.takeEvents() {
                 switch event {
                 case let .dimensions(cols, rows):
                     applyTerminalDimensions(cols: cols, rows: rows)
                 case let .data(data):
-                    terminalView.feed(byteArray: [UInt8](data)[...])
+                    if replacedTerminal {
+                        feedCoalescer.enqueue(data)
+                    } else {
+                        feedCoalescer.replace(with: data) { [terminalView] in
+                            terminalView.getTerminal().resetToInitialState()
+                        }
+                        replacedTerminal = true
+                    }
                 }
             }
+            feedCoalescer.flushPendingNow()
 
             terminalView.scroll(toPosition: 1)
             terminalView.preserveUserScroll = true

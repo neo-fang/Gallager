@@ -67,6 +67,39 @@ actor RelayService {
 
     // MARK: - Message Handling
 
+    /// Fast path for end-to-end encrypted frames. `WebSocketController` has
+    /// already validated the outer envelope; the relay cannot inspect the
+    /// ciphertext, so preserve the original bytes instead of base64 decoding
+    /// and JSON re-encoding them.
+    func handleEncryptedFrame(
+        _ data: Data,
+        kind: RelayFrameKind,
+        pairId: String,
+        sender: DeviceType
+    ) async {
+        let target: DeviceType = sender == .host ? .viewer : .host
+        let isConnected = if target == .host {
+            await connectionHub.isHostConnected(pairId: pairId)
+        } else {
+            await connectionHub.isViewerConnected(pairId: pairId)
+        }
+
+        guard isConnected else {
+            logger.debug("Encrypted relay target is not connected", metadata: [
+                "pairId": "\(pairId)",
+                "target": "\(target)",
+            ])
+            return
+        }
+
+        await metricsService.incrementMessagesRelayed()
+        logger.trace("Relaying raw encrypted frame", metadata: [
+            "pairId": "\(pairId)",
+            "bytes": "\(data.count)",
+        ])
+        await connectionHub.sendRawEncryptedFrame(data, kind: kind, to: pairId, deviceType: target)
+    }
+
     /// Handle incoming message from host
     func handleHostMessage(_ message: WebSocketMessage, pairId: String) async {
         logger.info("Host message received", metadata: ["pairId": "\(pairId)", "type": "\(message.messageType)"])
@@ -83,7 +116,7 @@ actor RelayService {
             // counter when the peer is offline (push notifications go out via `.encryptedPush`).
             if await connectionHub.isViewerConnected(pairId: pairId) {
                 await metricsService.incrementMessagesRelayed()
-                logger.info("Relaying encrypted message to viewer")
+                logger.trace("Relaying encrypted message to viewer")
                 await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .viewer)
             } else {
                 logger.debug("Viewer not connected, dropping encrypted relay message")
@@ -130,7 +163,7 @@ actor RelayService {
             // Pass through encrypted messages to host - server cannot decrypt or see message type
             if await connectionHub.isHostConnected(pairId: pairId) {
                 await metricsService.incrementMessagesRelayed()
-                logger.info("Relaying encrypted message to host")
+                logger.trace("Relaying encrypted message to host")
                 await connectionHub.send(.encrypted(encryptedMessage), to: pairId, deviceType: .host)
             } else {
                 // Host not connected - encrypted commands will fail
