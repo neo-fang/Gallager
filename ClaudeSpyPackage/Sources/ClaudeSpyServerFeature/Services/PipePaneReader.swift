@@ -6,12 +6,10 @@
 
     /// Receives events parsed by `PipePaneReader`.
     ///
-    /// All methods are called on the main actor. The reader dispatches each
-    /// chunk's events as a single fire-and-forget Task to MainActor, so the
-    /// FIFO consumer pulling from the pipe-pane stream is never blocked
-    /// waiting on rendering. MainActor Tasks of the same priority dispatched
-    /// from the reader actor run in submission order, preserving stream
-    /// ordering across chunks.
+    /// All methods are called on the main actor. The reader coalesces pending
+    /// events into one fire-and-forget MainActor delivery loop, so the FIFO
+    /// consumer is never blocked waiting on rendering. Individual data chunks
+    /// remain separate delegate calls and retain their FIFO order.
     @MainActor
     protocol PipePaneReaderDelegate: AnyObject, Sendable {
         func pipePaneReader(_ paneId: String, didReceiveData data: Data)
@@ -71,6 +69,8 @@
         private weak var delegate: (any PipePaneReaderDelegate)?
         private var mode: Mode = .scanOnly
         private var buffer: [Data] = []
+        private var pendingDelegateEvents: [DelegateEvent] = []
+        private var delegateDeliveryScheduled = false
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
@@ -244,23 +244,15 @@
         /// received, then transitions to live mode (subsequent bytes flow
         /// directly to the delegate). The buffer is empty after this call.
         ///
-        /// Delivery is fire-and-forget: chunks are dispatched as a single
-        /// MainActor Task per call, so the actor never suspends mid-flush
-        /// and concurrent writers can't interleave with the buffered chunks.
-        /// Subsequent `processIncomingData` calls in `.live` mode dispatch
-        /// their own Tasks; MainActor processes them in submission order
-        /// after this flush Task completes.
+        /// Delivery is fire-and-forget: buffered chunks are appended to the
+        /// same ordered MainActor delivery queue used by live data.
         func flushBuffer() {
             notificationParser.scanOnly = false
             let toFlush = buffer
             buffer = []
             mode = .live
             if !toFlush.isEmpty {
-                dispatchToDelegate { [paneId] delegate in
-                    for chunk in toFlush {
-                        delegate.pipePaneReader(paneId, didReceiveData: chunk)
-                    }
-                }
+                enqueueDelegateEvents(toFlush.map(DelegateEvent.data))
             }
             logger.debug("Flushed \(toFlush.count) buffered chunks for \(paneId)")
         }
@@ -309,6 +301,18 @@
         // MARK: - Data Processing
 
         private func processIncomingData(_ data: Data) {
+            guard !data.isEmpty else { return }
+
+            // Terminal output is overwhelmingly plain UTF-8. Avoid six full
+            // Data scans and the OSC parser when this chunk cannot contain a
+            // control sequence. Buffered fragments disable this path because
+            // the current chunk may complete a sequence begun by the previous
+            // read without containing another introducer itself.
+            if canUsePlainDataPath(data) {
+                processPlainData(data)
+                return
+            }
+
             // Filter tmux-specific escape sequences (ESC k ... ESC \)
             let tmuxFiltered = filterTmuxEscapeSequences(data)
             guard !tmuxFiltered.isEmpty else { return }
@@ -368,31 +372,94 @@
                 || liveData != nil
             else { return }
 
-            dispatchToDelegate { [paneId] delegate in
-                for notification in notifications {
-                    delegate.pipePaneReader(paneId, didReceiveNotification: notification)
-                }
-                if let title { delegate.pipePaneReader(paneId, didReceiveTitle: title) }
-                if let clipboard { delegate.pipePaneReader(paneId, didReceiveClipboard: clipboard) }
-                if let progress { delegate.pipePaneReader(paneId, didReceiveProgress: progress) }
-                if let liveData { delegate.pipePaneReader(paneId, didReceiveData: liveData) }
+            var events = notifications.map(DelegateEvent.notification)
+            if let title { events.append(.title(title)) }
+            if let clipboard { events.append(.clipboard(clipboard)) }
+            if let progress { events.append(.progress(progress)) }
+            if let liveData { events.append(.data(liveData)) }
+            enqueueDelegateEvents(events)
+        }
+
+        private func canUsePlainDataPath(_ data: Data) -> Bool {
+            tmuxEscapeBuffer.isEmpty
+                && !notificationParser.hasBufferedSequence
+                && !data.contains(0x1B) // ESC
+                && !data.contains(0x9B) // C1 CSI
+                && !data.contains(0x9D) // C1 OSC
+        }
+
+        private func processPlainData(_ data: Data) {
+            switch mode {
+            case .scanOnly:
+                return
+            case .buffering:
+                buffer.append(data)
+            case .live:
+                enqueueDelegateEvents([.data(data)])
             }
         }
 
-        /// Dispatches a fire-and-forget MainActor Task that delivers events
-        /// for one chunk to the delegate, in the order the closure invokes
-        /// methods. Tasks at the same priority dispatched from this actor run
-        /// in submission order on MainActor, so cross-chunk stream order is
-        /// preserved without blocking the FIFO consumer task.
-        private func dispatchToDelegate(
-            _ deliver: @escaping @Sendable @MainActor (any PipePaneReaderDelegate) -> Void
-        ) {
-            // `delegate` is weak; capture it inside the Task so a deallocation
-            // between dispatch and execution simply drops the events.
-            let weakRef = WeakDelegate(delegate)
-            Task { @MainActor in
-                guard let delegate = weakRef.value else { return }
-                deliver(delegate)
+        /// Adds events to the FIFO delivery queue. One MainActor task drains
+        /// every event currently available instead of spawning a task for
+        /// every pipe read.
+        private func enqueueDelegateEvents(_ events: [DelegateEvent]) {
+            guard !events.isEmpty else { return }
+            pendingDelegateEvents.append(contentsOf: events)
+            guard !delegateDeliveryScheduled else { return }
+
+            delegateDeliveryScheduled = true
+            Task { @MainActor [weak self] in
+                while let delivery = await self?.takePendingDelegateDelivery() {
+                    delivery.deliver()
+                }
+            }
+        }
+
+        private func takePendingDelegateDelivery() -> DelegateDelivery? {
+            guard !pendingDelegateEvents.isEmpty else {
+                delegateDeliveryScheduled = false
+                return nil
+            }
+
+            let events = pendingDelegateEvents
+            pendingDelegateEvents.removeAll(keepingCapacity: true)
+            return DelegateDelivery(
+                paneId: paneId,
+                delegate: WeakDelegate(delegate),
+                events: events
+            )
+        }
+
+        private enum DelegateEvent: Sendable {
+            case notification(TerminalStreamMessage.TerminalNotification)
+            case title(String)
+            case clipboard(String)
+            case progress(TerminalProgressState)
+            case data(Data)
+        }
+
+        private struct DelegateDelivery: Sendable {
+            let paneId: String
+            let delegate: WeakDelegate
+            let events: [DelegateEvent]
+
+            @MainActor
+            func deliver() {
+                guard let delegate = delegate.value else { return }
+                for event in events {
+                    switch event {
+                    case let .notification(notification):
+                        delegate.pipePaneReader(paneId, didReceiveNotification: notification)
+                    case let .title(title):
+                        delegate.pipePaneReader(paneId, didReceiveTitle: title)
+                    case let .clipboard(clipboard):
+                        delegate.pipePaneReader(paneId, didReceiveClipboard: clipboard)
+                    case let .progress(progress):
+                        delegate.pipePaneReader(paneId, didReceiveProgress: progress)
+                    case let .data(data):
+                        delegate.pipePaneReader(paneId, didReceiveData: data)
+                    }
+                }
             }
         }
 
@@ -488,14 +555,13 @@
             processIncomingData(data)
         }
 
-        /// Drains any MainActor delivery Tasks dispatched by prior
+        /// Drains any MainActor delivery work dispatched by prior
         /// `testProcessIncomingData` / `flushBuffer` calls. Tests assert on
         /// delegate state only after this returns.
         func testWaitForDelivery() async {
-            // Hop to MainActor and back. Tasks at the same priority dispatched
-            // from this actor run on MainActor in submission order; this trip
-            // queues behind them, so by the time we resume, they've all run.
-            await Task { @MainActor in }.value
+            while delegateDeliveryScheduled {
+                await Task.yield()
+            }
         }
 
         /// Exposes fifoPath for testing.

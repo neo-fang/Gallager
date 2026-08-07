@@ -404,3 +404,40 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
 - 断开的远程 host 不允许发起重命名。
 - close/split/drag 及非 terminal 标签不误触发重命名。
 - Window Rename E2E 编译、受影响 Swift tests 与 macOS 构建通过。
+
+## Stage 14：远程终端输入与回显延迟
+
+### 目标
+
+降低 Mac/iOS viewer 控制 Mac host 时的按键到回显延迟，并保证 Codex 等 TUI
+持续高频输出时输入仍能及时显示。优化必须保持按键、raw input 和 terminal stream
+顺序，不使用会与真实 PTY 状态分叉的本地字符预回显。
+
+### 实施范围
+
+1. 远程按键批处理从 30ms 尾随 debounce 改为首个按键启动、后续按键不重置的
+   10ms 有界窗口；现有单消费者发送队列继续保证 keystroke/raw input 顺序。
+2. host terminal stream 从 50ms 尾随 debounce 改为首个数据块启动、后续数据不
+   重置的 16ms 固定节拍；达到 8KiB 时立即 flush，并取消已经失效的定时任务。
+3. 增加连续输入和连续输出测试，证明数据流持续到来时仍会在窗口上界内发送，
+   同时覆盖取消、立即 flush 和操作顺序。
+4. 所有性能测量和可分发 DMG 使用 macOS Release 构建；Debug 仅用于定位，不作为
+   验收结果。记录同一 211 × 59 Codex 高频刷新 pane 的 CPU 和采样热点。
+5. Release 采样若仍显示 pipe-pane/MainActor 数据投递为热点，则只合并连续数据
+   delegate 投递，并减少确定没有相关转义序列时的多轮全量扫描；不得改变 terminal
+   字节顺序、OSC 事件语义或 relay 协议。
+6. viewer 的 UI 状态和 SwiftTerm feed 仍在 MainActor；只允许不可变 `Data` 在 actor
+   边界传递，不使用 `Task.detached`、`nonisolated(unsafe)` 或伪造 `Sendable`。
+7. iOS 复制终端文本 sheet 弹出前同步释放终端 first responder，并在 sheet 存续期间
+   禁止底层 terminal 因视图更新重新激活；关闭时只恢复弹出前已开启的输入状态。
+
+### 验收标准
+
+- 单个远程按键的人为等待上界从约 30ms 降至 10ms；连续输入不会等到停止打字才发送。
+- terminal stream 人为等待上界从约 50ms 降至 16ms；持续输出仍按固定节拍发送。
+- keystroke、raw input、initial state、增量数据及 stream end 的顺序保持不变。
+- Codex 高频输出时 Mac/iOS viewer 可持续输入，不出现成批延迟回显或主线程长时间阻塞。
+- 聚焦测试、完整 Swift package 测试、macOS/iOS 构建和 macOS Release 签名校验通过。
+- 生成的 `Gallager-2.7-zengjice.dmg` 来自 Release 产物，覆盖安装后可正常连接和输入。
+- iOS 复制终端文本 sheet 内可滚动、选中和复制，但不会显示系统键盘；关闭后终端输入
+  状态与弹出前一致。
