@@ -191,7 +191,7 @@ sequenceDiagram
 - The first Viewer creates the PaneStreamManager subscription
 - Additional Viewers reuse that stream and receive a private bootstrap snapshot
 - Bootstrap data is drained before `StartTerminalStream` returns success
-- Live chunks are sent only to ready subscribers; a joining Viewer cannot refresh others
+- Live chunks and terminal control events are sent only to ready subscribers; a joining Viewer cannot refresh others or receive pre-initial updates
 - `stopStreaming()` removes one owner; the stream stops when the set becomes empty
 - System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true`
 

@@ -151,13 +151,14 @@ final public class TerminalStreamService {
             )
             await streamSender.sendTerminalStream(initialMessage, to: [viewerId])
 
-            // Send current terminal title so the new viewer gets it immediately
+            try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
+
+            // Live title callbacks exclude bootstrapping viewers. Send the
+            // latest cached title after the viewer joins the ready set.
             if let title = paneStreamManager.terminalTitle(for: paneId) {
                 let titleMessage = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
                 await streamSender.sendTerminalStream(titleMessage, to: [viewerId])
             }
-
-            try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
             return
         }
 
@@ -259,6 +260,11 @@ final public class TerminalStreamService {
         // command response emitted by AppCoordinator is therefore a real ready
         // acknowledgement rather than merely "initialState was queued".
         try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
+
+        if let title = paneStreamManager.terminalTitle(for: paneId) {
+            let titleMessage = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
+            await streamSender.sendTerminalStream(titleMessage, to: [viewerId])
+        }
     }
 
     private func makeDataConsumer(
@@ -524,7 +530,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
-        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.readyViewers)
     }
 
     /// Handle title change reported by a subscriber's SwiftTerm instance
@@ -538,7 +544,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
-        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.readyViewers)
     }
 
     /// Handle terminal notification (OSC 9/777) — forward to connected iOS viewers
@@ -554,7 +560,7 @@ final public class TerminalStreamService {
             title: notification.title,
             body: notification.body
         )
-        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.readyViewers)
     }
 
     /// Maximum clipboard content size (1 MB) to forward to viewers.
@@ -580,7 +586,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.clipboardUpdate(paneId: paneId, content: content)
-        await streamSender.sendTerminalStream(message, to: context.ownership.subscribers)
+        await streamSender.sendTerminalStream(message, to: context.readyViewers)
     }
 }
 
