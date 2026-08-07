@@ -524,6 +524,13 @@
                 Section {
                     @Bindable var settings = settings
 
+                    Picker("Keyboard Control", selection: $settings.terminalKeyboardControlPosition) {
+                        ForEach(TerminalKeyboardControlPosition.allCases, id: \.self) { position in
+                            Text(position.displayName).tag(position)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
                     Picker("Font", selection: $settings.terminalFontName) {
                         ForEach(Self.availableFonts, id: \.self) { font in
                             Text(font).tag(font)
@@ -545,7 +552,7 @@
                 } header: {
                     Text("Terminal")
                 } footer: {
-                    Text("Customize the font used in terminal snapshots.")
+                    Text("Choose where the keyboard control appears and customize the terminal font.")
                 }
 
                 Section {

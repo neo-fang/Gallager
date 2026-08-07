@@ -132,7 +132,7 @@
                 barWidth = newWidth
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if window != nil {
+                if window != nil, settings.terminalKeyboardControlPosition == .bottomBar {
                     TerminalKeyboardBar(
                         keyboardVisible: keyboardVisible,
                         isEnabled: relayClient.isHostConnected && activePaneId != nil,
@@ -227,6 +227,20 @@
                         .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
+                if settings.terminalKeyboardControlPosition == .topRight {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isKeyboardActive.toggle()
+                        } label: {
+                            Label(
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                            )
+                        }
+                        .disabled(!relayClient.isHostConnected || activePaneId == nil)
+                    }
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {

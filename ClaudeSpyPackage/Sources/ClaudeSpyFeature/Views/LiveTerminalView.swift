@@ -37,6 +37,10 @@
         /// Set to false when used in multi-pane layouts where the parent manages the keyboard.
         let showKeyboardButton: Bool
 
+        /// Shared settings. The body reads the control position directly so a
+        /// Settings change updates an already-open terminal without reconnecting.
+        let settings: IOSSettings
+
         /// Whether this pane owns the terminal-copy toolbar action.
         /// Multi-pane layouts enable it only for the selected pane.
         let showCopyButton: Bool
@@ -100,6 +104,7 @@
             self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
             self.showKeyboardButton = showKeyboardButton
+            self.settings = settings
             self.showCopyButton = showCopyButton
             self.isActive = isActive
             self.telemetry = telemetry
@@ -141,13 +146,20 @@
                 // Keep the copy action reachable when the navigation bar is hidden.
                 terminalContent
                     .overlay(alignment: .topTrailing) {
-                        if hideNavigationBar, showCopyButton {
-                            copyOverlayButton
+                        if hideNavigationBar {
+                            HStack(spacing: 8) {
+                                if showCopyButton {
+                                    copyOverlayButton
+                                }
+                                if showKeyboardButton, settings.terminalKeyboardControlPosition == .topRight {
+                                    keyboardOverlayButton
+                                }
+                            }
                         }
                     }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if showKeyboardButton {
+                if showKeyboardButton, settings.terminalKeyboardControlPosition == .bottomBar {
                     TerminalKeyboardBar(
                         keyboardVisible: keyboardVisible,
                         isEnabled: isConnected && coordinator.streamState == .streaming,
@@ -159,6 +171,20 @@
                 if showCopyButton {
                     ToolbarItem(placement: .topBarTrailing) {
                         copyButton
+                    }
+                }
+
+                if showKeyboardButton, settings.terminalKeyboardControlPosition == .topRight, !hideNavigationBar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isInteractive.toggle()
+                        } label: {
+                            Label(
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                            )
+                        }
+                        .disabled(!isConnected || coordinator.streamState != .streaming)
                     }
                 }
             }
@@ -226,6 +252,23 @@
                 Label("Copy Terminal Text", symbol: .docOnClipboard)
             }
             .disabled(coordinator.streamState != .streaming)
+        }
+
+        /// Keyboard toggle used when the navigation bar is hidden.
+        private var keyboardOverlayButton: some View {
+            Button {
+                isInteractive.toggle()
+            } label: {
+                (keyboardVisible ? Symbols.keyboardChevronCompactDown.image : Symbols.keyboard.image)
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .accessibilityLabel(keyboardVisible ? "Hide Keyboard" : "Show Keyboard")
+            .disabled(!isConnected || coordinator.streamState != .streaming)
+            .padding(8)
         }
 
         private var copyOverlayButton: some View {
