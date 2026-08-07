@@ -70,6 +70,10 @@
         /// Immutable terminal text shown in the native iOS copy surface.
         @State private var textSnapshot: TerminalTextSnapshot?
 
+        /// Restores toolbar-controlled terminal input after the copy sheet closes.
+        /// Parent-controlled multi-pane input is restored by its existing binding.
+        @State private var restoresTerminalInputAfterCopy = false
+
         /// Whether the terminal had no meaningful text when a snapshot was requested.
         @State private var showsEmptySnapshotAlert = false
 
@@ -168,7 +172,7 @@
                     }
                 }
             }
-            .sheet(item: $textSnapshot) { snapshot in
+            .sheet(item: $textSnapshot, onDismiss: restoreTerminalInputAfterCopy) { snapshot in
                 TerminalTextCopyView(snapshot: snapshot)
             }
             .alert("No Terminal Text", isPresented: $showsEmptySnapshotAlert) {
@@ -269,7 +273,33 @@
                 showsEmptySnapshotAlert = true
                 return
             }
+
+            let terminalWasInteractive = TerminalInputPresentation.isInteractive(
+                showKeyboardButton: showKeyboardButton,
+                keyboardRequested: isInteractive,
+                isActive: isActive,
+                isCopyPresented: false
+            )
+            restoresTerminalInputAfterCopy = showKeyboardButton && terminalWasInteractive
+            isInteractive = false
+
+            // Sheet presentation does not reliably release the terminal's
+            // UIKit first responder. Resign synchronously before changing the
+            // presentation state; the effective-interactivity guard below
+            // prevents a later SwiftUI update from activating it again.
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
             textSnapshot = snapshot
+        }
+
+        private func restoreTerminalInputAfterCopy() {
+            defer { restoresTerminalInputAfterCopy = false }
+            guard restoresTerminalInputAfterCopy, isActive else { return }
+            isInteractive = true
         }
 
         @ViewBuilder
@@ -283,9 +313,15 @@
             case .streaming,
                  .ended: // View auto-dismisses on stream end
                 if let state = coordinator.terminalState {
-                    // When showKeyboardButton is false, parent controls interactivity
-                    // entirely through isActive. Otherwise, use internal toggle.
-                    let effectiveInteractive = showKeyboardButton ? (isInteractive && isActive) : isActive
+                    // A presented copy sheet always wins over both toolbar and
+                    // parent-controlled input. This prevents the underlying
+                    // UIKit terminal from reclaiming first responder mid-sheet.
+                    let effectiveInteractive = TerminalInputPresentation.isInteractive(
+                        showKeyboardButton: showKeyboardButton,
+                        keyboardRequested: isInteractive,
+                        isActive: isActive,
+                        isCopyPresented: textSnapshot != nil
+                    )
                     TerminalStreamContainerView(
                         terminalState: state,
                         isInteractive: effectiveInteractive,
