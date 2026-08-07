@@ -628,3 +628,46 @@ Mac 同时运行本地 sessions 时仍须优先保证交互响应；允许为此
 - Mac Viewer 的远端 `file://` 链接不再回退给本机系统打开器。
 - SwiftTerm 的拖动状态在正常、链接和 mouse-reporting 提前返回路径均被复位。
 - 聚焦测试、完整 Swift package 测试和 macOS Release 构建通过。
+
+## Stage 20：终端传输背压与高吞吐恢复
+
+### 目标
+
+让持续大量终端输出不再转化为无界内存增长和不断累积的输入回显延迟。Host、Relay
+和 Viewer 必须提供可测量的有界传输链路；当 Viewer 长时间跟不上 Host 时，以原子
+terminal snapshot 恢复到最新状态，而不是永久回放已经过时的输出。
+
+### 实施范围
+
+1. 增加低开销、聚合式传输指标，覆盖 pipe/stream 队列深度与 pending bytes、实际
+   batch size、加密耗时、WebSocket send 耗时和 SwiftTerm feed 耗时。热路径不得逐帧
+   写日志；指标按固定窗口汇总，并提供可测试的快照。
+2. 修复实时输出批处理：每条 `dataChunk` 必须真正受最大尺寸约束；处理循环采用明确
+   的事件数与字节预算，批次之间归还执行权，避免持续输出独占 MainActor。
+3. 为 Host terminal stream 增加按字节计的高水位。超过上限后不任意丢弃 ANSI 字节，
+   而是合并为一次重同步请求；通过 `PaneStreamManager` 的原子 capture/buffer/flush
+   边界生成最新 snapshot，向该 pane 的 Viewer 发送 reset initial state 后继续增量流。
+4. Mac 与 iOS Viewer 将同一轮到达的 terminal bytes 在主线程下一轮合并 feed，保留
+   消息顺序、首屏原子揭示和 Host 尺寸语义；每次 feed 记录聚合耗时，不把 SwiftTerm
+   parser 移到未经证明线程安全的后台线程。
+5. Relay 对已校验为 `.encrypted` 的消息直接转发原始 WebSocket 文本帧，不再将密文
+   base64 解码后重新 JSON 编码；控制、配对和错误消息继续走现有强类型路径。
+6. 修正本机 Relay 部署配置的 `GALLAGER_SOURCE_DIR`，指向稳定主仓库而非已删除的
+   worktree。配置只改本机未跟踪文件，不写入仓库或提交敏感值。
+7. 增加聚焦测试覆盖超大实时 chunk 切分、公平调度、高水位去重、snapshot 恢复顺序、
+   Viewer feed 合并和 Relay 原始帧透传；完成完整 Swift package 与 macOS/iOS 构建。
+
+### 验收标准
+
+- 单次 64KiB pipe read 不产生超过配置上限的 `dataChunk`；bootstrap 与 live 使用同一
+  分片规则，字节顺序和内容完全一致。
+- 持续输出时队列深度、pending bytes 和内存有明确上限；控制工作与输入回显不会被
+  单次无界 drain 长期饿死。
+- 超过高水位只触发一次进行中的重同步；Viewer 先重置为完整 snapshot，再消费边界后
+  的增量数据，不显示过时积压或损坏的 ANSI 状态。
+- Mac/iOS terminal feed 在同一主线程轮次合并，首屏、窗口切换、选择、复制、滚动和
+  输入行为不回归。
+- Relay 原始转发保持原 frame 字节不变，仍拒绝非法或非授权连接，连接计数和消息计数
+  语义不变。
+- 聚焦测试、完整 Swift package、Relay Linux 构建、macOS Release 和 iOS 构建通过；
+  两分钟持续输出场景中指标证明队列保持有界，停止输出后不继续长时间回放积压。
