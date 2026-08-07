@@ -2,7 +2,7 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress（待打包后真机持续输出验收）
+- **Status**: ✅ Completed
 - **Progress**: 8/8 tasks
 - **Dependencies**: Stage 14 ✅, Stage 16 ✅, Stage 17 ✅
 
@@ -39,4 +39,12 @@
 - Relay 原始 frame、非法密文、snapshot wire round-trip、队列高水位和 feed 合并测试通过。
 - `~/.config/gallager/server/.env.local` 中 `GALLAGER_SOURCE_DIR` 已指向主仓库；文件权限保持 `600`。
 - `git diff --check` 通过。
-- 待使用后续 DMG/真机产物做两分钟持续输出验收，并观察 debug 窗口指标确认真实网络下无长尾回放。
+- 新 Relay 镜像已在本机重建，容器健康检查与内外网 `/health` 均通过。
+- macOS Release 2.7 (40) 已深度签名并覆盖安装；CLI `wait-ready` 和 `ping`
+  通过，现有 tmux session 保持可见。
+- 自行签名的 iOS 2.7 (40) 已在物理真机原位升级并启动；新
+  `resetState` 协议与持续大量输出场景验收通过。
+- 固定名称 `dist/Gallager-2.7-zengjice.dmg` 已更新；映像 CRC、只读挂载、
+  Applications 链接、包内 App 深度签名、2.7 (40) 版本、arm64 主程序
+  与源产物哈希一致性均校验通过。DMG SHA-256 为
+  `c9dcb208db07bf7084719d8902112c27632b2af15947673c739711dd63e4251e`。
