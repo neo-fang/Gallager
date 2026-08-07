@@ -714,14 +714,14 @@ public actor MacOSDriver {
     }
 
     /// Click at a specific screen coordinate after focusing the app.
-    public func clickAtScreenPoint(x: Double, y: Double) async throws {
+    public func clickAtScreenPoint(x: Double, y: Double, clickCount: Int = 1) async throws {
         let pid = try requirePID()
-        logger.info("Click at screen point (\(x), \(y))")
+        logger.info("Click at screen point (\(x), \(y)), count: \(clickCount)")
 
         MacOSAccessibility.focusApp(appPID: pid)
         try await Task.sleep(for: .milliseconds(200))
 
-        MacOSAccessibility.clickAtPoint(CGPoint(x: x, y: y))
+        MacOSAccessibility.clickAtPoint(CGPoint(x: x, y: y), clickCount: clickCount)
     }
 
     /// Drag from one screen coordinate to another after focusing the app.

@@ -405,7 +405,7 @@ public enum TestStep: Sendable {
     /// matched row scrolls away beneath it.
     case macScrollWheelAtElement(titled: String, deltaY: Int32, count: Int = 3, instance: Int = 0)
     /// Click at a specific screen coordinate in the macOS app.
-    case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
+    case macClickAtPoint(x: Double, y: Double, clickCount: Int = 1, instance: Int = 0)
     /// Drag from one screen coordinate to another in the macOS app.
     case macDrag(fromX: Double, fromY: Double, toX: Double, toY: Double, instance: Int = 0)
     /// Drag from the center of one accessibility element to the center of

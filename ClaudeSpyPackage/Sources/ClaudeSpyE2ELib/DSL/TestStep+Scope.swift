@@ -127,7 +127,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macScrollWheelAtElement(_, _, _, instance):
             return .macOS(instance: instance)
-        case let .macClickAtPoint(_, _, instance):
+        case let .macClickAtPoint(_, _, _, instance):
             return .macOS(instance: instance)
         case let .macDrag(_, _, _, _, instance):
             return .macOS(instance: instance)

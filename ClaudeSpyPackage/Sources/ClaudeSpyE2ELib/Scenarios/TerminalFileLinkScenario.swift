@@ -11,9 +11,10 @@ import Foundation
 /// Flow:
 /// 1. Print an OSC 8 hyperlink whose URL is `file:///tmp/hello.txt` (the
 ///    in-memory fake file system resolves any path ending in `/hello.txt`).
-/// 2. Click on the visible hyperlink text in the terminal — a real CGEvent
-///    click, not a tmux-simulated event.
-/// 3. Verify a new file tab appears with the file's name and content.
+/// 2. Drag-select, double-click and triple-click the hyperlink text; verify
+///    each selection auto-copies without opening the link.
+/// 3. Single-click the visible hyperlink text — a real CGEvent click, not a
+///    tmux-simulated event — and verify a new file tab appears.
 /// 4. Close the tab and verify the originating terminal is reselected (issue
 ///    #433): the link text must be visible again and the file browser tree
 ///    must NOT be the active view.
@@ -68,6 +69,34 @@ public enum TerminalFileLinkScenario {
             timeout: 10
         )
         TestStep.macScreenshot(label: "mac-terminal-with-file-link")
+
+        // ── Phase 0: Selection gestures copy but never open ──────
+        TestStep.log("Phase 0: Drag-select the link without activating it")
+        TestStep.macClearClipboard()
+        TestStep.macDrag(fromX: 330, fromY: linkClickY, toX: 520, toY: linkClickY)
+        TestStep.wait(seconds: 1)
+        TestStep.macReadClipboard(storeAs: "dragSelectedLinkText")
+        TestStep.assertStoredContains(key: "dragSelectedLinkText", substring: "here-to-open")
+        TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 1)
+
+        TestStep.log("Phase 0.1: Double-click selects a word without activating the first click")
+        TestStep.macClearClipboard()
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY, clickCount: 2)
+        TestStep.wait(seconds: 1)
+        TestStep.macReadClipboard(storeAs: "doubleClickedLinkText")
+        TestStep.assertStoredContains(key: "doubleClickedLinkText", substring: "click")
+        TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 1)
+
+        TestStep.log("Phase 0.2: Triple-click selects the row without activating the first click")
+        TestStep.macClearClipboard()
+        TestStep.macClickAtPoint(x: linkClickX, y: linkClickY, clickCount: 3)
+        TestStep.wait(seconds: 1)
+        TestStep.macReadClipboard(storeAs: "tripleClickedLinkText")
+        TestStep.assertStoredContains(
+            key: "tripleClickedLinkText",
+            substring: "click-here-to-open-hello-txt-file"
+        )
+        TestStep.macWaitForElementToDisappear(titled: "File tab: hello.txt", timeout: 1)
 
         // ── Phase 1: Click the link → file tab opens ─────────────
         TestStep.log("Phase 1: Click the file link in the terminal")
