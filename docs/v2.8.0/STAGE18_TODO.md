@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 4/6 tasks
+- **Progress**: 5/6 tasks
 - **Dependencies**: Stage 17 ✅
 
 ## Tasks
@@ -12,7 +12,7 @@
 - [x] 为持久连接命令编码、命中、回退和 FIFO 顺序增加聚焦测试。
 - [x] 复用现有 control-mode 连接发送本地交互按键。
 - [x] 保留且验证连接不存在、编码不支持或写入前断开时的进程回退。
-- [ ] 完成聚焦测试、完整测试和 macOS Release 构建。
+- [x] 完成聚焦测试、完整测试和 macOS Release 构建。
 - [ ] 使用 Release 产物完成本机 local session 验收并记录结果。
 
 ## Decisions
@@ -29,4 +29,14 @@
 
 ## Verification
 
-- 待完成。
+- `LocalKeystrokeInputTests`：12 tests passed；覆盖 literal/Unicode、命名键、
+  Ctrl/Alt、无连接回退、重批次拒绝，以及隔离 tmux socket 的真实 control-mode
+  输入执行。
+- 相同隔离 tmux socket 上，200 次进程式发送约 1.00 秒；复用持久 control-mode 且逐次
+  等待 `%end` 约 0.01 秒。该结果只衡量 tmux 命令提交，不代表端到端回显延迟。
+- 完整 Swift package：1616 tests / 225 suites passed。
+- macOS Release：`ClaudeSpyServer` arm64 构建通过，产物为 `Gallager.app` 2.7 (40)；
+  Apple Development 深度重签和 `codesign --verify --deep --strict` 通过。
+- Release 候选版已覆盖安装到 `/Applications/Gallager.app`，`wait-ready` 返回 `ready`，
+  `ping` 返回 `pong`，并能读取现有 `coding` session 和 windows。
+- 待在同一 local session 与直接 `tmux attach` 对比输入手感后完成最终验收。
