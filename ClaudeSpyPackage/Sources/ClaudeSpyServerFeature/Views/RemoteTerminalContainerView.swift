@@ -688,6 +688,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var fontSize: CGFloat?
         private var containerSize: NSSize = .zero
         private var bootstrapPolicy = TerminalStreamBootstrapPolicy()
+        private var bootstrapBuffer = TerminalStreamBootstrapBuffer()
         private var streamTask: Task<Void, Never>?
         private var lastIsHostConnected: Bool?
         private var lastRetryGeneration: Int?
@@ -788,6 +789,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             streamTask?.cancel()
             streamTask = nil
             streamAttemptId = nil
+            bootstrapBuffer.reset()
+            terminalView.lockedDimensions = nil
 
             // Unsubscribe from terminal stream
             if let subscriptionId = streamSubscriptionId {
@@ -882,6 +885,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                         continue
                     }
 
+                    bootstrapBuffer.reset()
                     updateState(.error(error.localizedDescription))
                 }
             }
@@ -890,6 +894,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private func beginStreamAttempt() -> UUID {
             keystrokeDebouncer?.cancelAll()
             bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
             terminalView.preserveUserScroll = false
             terminalView.isHidden = true
             terminalView.getTerminal().resetToInitialState()
@@ -905,6 +910,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             streamTask = nil
             streamAttemptId = nil
             bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
             terminalView.preserveUserScroll = false
             terminalView.isHidden = true
             keystrokeDebouncer?.cancelAll()
@@ -943,31 +949,32 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
                 columns = state.width
                 rows = state.height
-                terminalView.getTerminal().resize(cols: columns, rows: rows)
-                updateTerminalFrameSize()
-
-                let bytes = [UInt8](data)[...]
-                terminalView.feed(byteArray: bytes)
+                bootstrapBuffer.appendDimensions(cols: columns, rows: rows)
+                bootstrapBuffer.appendData(data)
 
                 revealTerminalIfReady()
 
             case let .dataChunk(chunk):
                 guard bootstrapPolicy.hasInitialState else { return }
                 if let data = Data(base64Encoded: chunk.dataBase64) {
-                    let bytes = [UInt8](data)[...]
                     if streamState == .streaming {
+                        let bytes = [UInt8](data)[...]
                         terminalView.feedPreservingScroll(bytes)
                     } else {
-                        terminalView.feed(byteArray: bytes)
+                        bootstrapBuffer.appendData(data)
                     }
                 }
 
             case let .dimensionChange(change):
+                guard bootstrapPolicy.hasInitialState else { return }
                 columns = change.width
                 rows = change.height
-                terminalView.getTerminal().resize(cols: columns, rows: rows)
-                updateTerminalFrameSize()
-                notifyStateChange()
+                if streamState == .streaming {
+                    applyTerminalDimensions(cols: columns, rows: rows)
+                    notifyStateChange()
+                } else {
+                    bootstrapBuffer.appendDimensions(cols: columns, rows: rows)
+                }
 
             case let .titleChange(change):
                 onTitleChange?(change.title)
@@ -989,6 +996,15 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         private func revealTerminalIfReady() {
             guard bootstrapPolicy.isReady, streamState != .streaming else { return }
+
+            for event in bootstrapBuffer.takeEvents() {
+                switch event {
+                case let .dimensions(cols, rows):
+                    applyTerminalDimensions(cols: cols, rows: rows)
+                case let .data(data):
+                    terminalView.feed(byteArray: [UInt8](data)[...])
+                }
+            }
 
             terminalView.scroll(toPosition: 1)
             terminalView.preserveUserScroll = true
@@ -1041,6 +1057,14 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private func updateTerminalFrameSize() {
             let optimalSize = terminalView.getOptimalFrameSize().size
             terminalView.setTerminalSize(optimalSize)
+        }
+
+        private func applyTerminalDimensions(cols: Int, rows: Int) {
+            columns = cols
+            self.rows = rows
+            terminalView.lockedDimensions = (cols: cols, rows: rows)
+            terminalView.getTerminal().resize(cols: cols, rows: rows)
+            updateTerminalFrameSize()
         }
 
         private func updateState(_ state: RemoteStreamState) {

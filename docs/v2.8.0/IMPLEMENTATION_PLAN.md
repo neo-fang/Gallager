@@ -497,19 +497,24 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
    16ms batch；只有该内部屏障通过后，`StartTerminalStream` 才返回成功。
 3. initial state、title 和增量 terminal 消息只发送给实际订阅该 pane 的 Viewer；
    push notification 和 session state 的广播语义不变。
-4. Mac viewer 在连接阶段保持 terminal 隐藏，以主题背景承接首屏装载；同时收到有效
-   initial state 和 start command success 后才一次揭示、恢复滚动与焦点。
-5. 保留现有约三屏 scrollback、8KiB/16ms 实时批处理和当前 pane 按需订阅；不使用
+4. Mac viewer 在连接阶段缓存 initial state 与随后到达的 bootstrap 原始字节，不逐块
+   feed SwiftTerm；同时收到有效 initial state 和 start command success 后，以一次
+   feed 建立最终首屏，再揭示 terminal、恢复滚动与焦点。
+5. Mac viewer 始终将 SwiftTerm 行列锁定为 Host 报告的 pane 尺寸，布局变化不得按
+   Viewer 窗口高度重算 terminal rows；尺寸变化只接受 Host 的 dimension change。
+6. 保留现有约三屏 scrollback、8KiB/16ms 实时批处理和当前 pane 按需订阅；不使用
    固定等待、ANSI 启发式去重、后台 window 常驻或本地伪回显。
-6. 保持现有网络消息格式，复用 `StartTerminalStream` command response 作为 ready
+7. 保持现有网络消息格式，复用 `StartTerminalStream` command response 作为 ready
    信号；旧 Host 仍可连接，新 Host 提供更严格的 bootstrap 完成语义。
-7. 增加 flush 屏障、initial/data/ready 顺序、多 Viewer 路由、重试及持续输出期间
+8. 增加 flush 屏障、initial/data/ready 顺序、多 Viewer 路由、重试及持续输出期间
    首屏揭示的聚焦测试，并以 Release-like 构建验证切换和高频输出行为。
 
 ### 验收标准
 
 - Mac viewer 打开、切换或重连远程 pane 时不显示历史内容逐段回刷；首屏准备完成后
-  一次出现，且当前终端内容正确。
+  只执行一次 bootstrap feed 并一次出现，且当前终端内容正确。
+- Viewer 布局与窗口尺寸变化不会改写 Host pane 的 terminal rows，也不会触发额外的
+  SwiftTerm resize/layout 反馈。
 - `flushBuffer()` 完成前的所有数据先于 bootstrap ready；未满 8KiB 的末尾 batch
   不等待常规 16ms 定时器。
 - 新 Viewer 的 initial state 不再刷新无关 Viewer；增量数据不发送给未订阅该 pane

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import ClaudeSpyCommon
 
@@ -58,5 +59,57 @@ struct TerminalStreamBootstrapPolicyTests {
         policy.beginAttempt()
         #expect(!policy.isReady)
         #expect(!policy.acceptsInitialState)
+    }
+}
+
+@Suite("Terminal stream bootstrap buffer")
+struct TerminalStreamBootstrapBufferTests {
+    @Test("Initial state and data chunks become one feed")
+    func coalescesAdjacentData() {
+        var buffer = TerminalStreamBootstrapBuffer()
+
+        buffer.appendDimensions(cols: 80, rows: 24)
+        buffer.appendData(Data("initial".utf8))
+        buffer.appendData(Data("-one".utf8))
+        buffer.appendData(Data("-two".utf8))
+
+        #expect(buffer.takeEvents() == [
+            .dimensions(cols: 80, rows: 24),
+            .data(Data("initial-one-two".utf8)),
+        ])
+        #expect(buffer.takeEvents().isEmpty)
+    }
+
+    @Test("Dimension changes preserve terminal byte order")
+    func preservesDimensionBoundaries() {
+        var buffer = TerminalStreamBootstrapBuffer()
+
+        buffer.appendDimensions(cols: 80, rows: 24)
+        buffer.appendData(Data("before".utf8))
+        buffer.appendDimensions(cols: 120, rows: 40)
+        buffer.appendData(Data("after".utf8))
+
+        #expect(buffer.takeEvents() == [
+            .dimensions(cols: 80, rows: 24),
+            .data(Data("before".utf8)),
+            .dimensions(cols: 120, rows: 40),
+            .data(Data("after".utf8)),
+        ])
+    }
+
+    @Test("Reset drops bytes from a stale stream attempt")
+    func resetDropsStaleData() {
+        var buffer = TerminalStreamBootstrapBuffer()
+        buffer.appendDimensions(cols: 80, rows: 24)
+        buffer.appendData(Data("stale".utf8))
+
+        buffer.reset()
+        buffer.appendDimensions(cols: 100, rows: 30)
+        buffer.appendData(Data("current".utf8))
+
+        #expect(buffer.takeEvents() == [
+            .dimensions(cols: 100, rows: 30),
+            .data(Data("current".utf8)),
+        ])
     }
 }
