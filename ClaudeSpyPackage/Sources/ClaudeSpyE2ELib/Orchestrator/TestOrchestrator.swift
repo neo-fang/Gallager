@@ -943,9 +943,13 @@ public actor TestOrchestrator {
             try await macDriver(for: instance)
                 .scrollWheel(atElementTitled: resolvedTitle, deltaY: deltaY, count: count)
 
-        case let .macClickAtPoint(x, y, instance):
+        case let .macClickAtPoint(x, y, clickCount, instance):
             let p = staged(x: x, y: y, instance: instance)
-            try await macDriver(for: instance).clickAtScreenPoint(x: p.x, y: p.y)
+            try await macDriver(for: instance).clickAtScreenPoint(
+                x: p.x,
+                y: p.y,
+                clickCount: clickCount
+            )
 
         case let .macDrag(fromX, fromY, toX, toY, instance):
             let from = staged(x: fromX, y: fromY, instance: instance)
