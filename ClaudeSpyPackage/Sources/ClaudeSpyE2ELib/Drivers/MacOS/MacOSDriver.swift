@@ -296,10 +296,11 @@ public actor MacOSDriver {
     public func cgClick(
         matching query: ElementQuery,
         pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        clickCount: Int = 1,
         timeout: TimeInterval = 5
     ) async throws {
         let pid = try requirePID()
-        logger.info("CGEvent clicking element matching query")
+        logger.info("CGEvent clicking element matching query (count: \(clickCount))")
         // Poll the click itself instead of a separate find gate. The old form
         // gated on `findElement` → `describeUI(maxDepth: 15)` and then clicked via
         // `cgClick` → `findAllRawElements(maxDepth: 20)` — two different traversals
@@ -318,7 +319,12 @@ public actor MacOSDriver {
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect)
+            MacOSAccessibility.cgClick(
+                appPID: pid,
+                matching: query,
+                pointInRect: pointInRect,
+                clickCount: clickCount
+            )
         }
     }
 

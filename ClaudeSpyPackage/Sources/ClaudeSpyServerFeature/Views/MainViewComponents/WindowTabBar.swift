@@ -490,6 +490,12 @@ struct WindowTabBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
+            .modifier(WindowRenamingModifier(
+                currentName: window.windowName,
+                onRename: { newName in
+                    onRenameWindow(window, newName)
+                }
+            ))
 
             TabSplitToggleButton(
                 isSplit: isSplit,
@@ -511,12 +517,6 @@ struct WindowTabBar: View {
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == payload)
         }
-        .modifier(WindowRenamingModifier(
-            currentName: window.windowName,
-            onRename: { newName in
-                onRenameWindow(window, newName)
-            }
-        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }

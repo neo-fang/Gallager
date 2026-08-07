@@ -312,6 +312,13 @@ struct RemoteWindowTabBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
+            .modifier(WindowRenamingModifier(
+                currentName: window.windowName,
+                isDisabled: !isHostConnected,
+                onRename: { newName in
+                    onRenameWindow(window, newName)
+                }
+            ))
 
             TabSplitToggleButton(
                 isSplit: isSplit,
@@ -334,13 +341,6 @@ struct RemoteWindowTabBar: View {
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == payload)
         }
-        .modifier(WindowRenamingModifier(
-            currentName: window.windowName,
-            isDisabled: !isHostConnected,
-            onRename: { newName in
-                onRenameWindow(window, newName)
-            }
-        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }

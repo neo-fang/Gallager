@@ -67,7 +67,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macCGClick(_, instance):
             return .macOS(instance: instance)
-        case let .macCGClickElement(_, _, instance, _):
+        case let .macCGClickElement(_, _, _, instance, _):
             return .macOS(instance: instance)
         case let .macRightClick(_, instance):
             return .macOS(instance: instance)

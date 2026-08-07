@@ -780,10 +780,11 @@ public actor TestOrchestrator {
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
 
-        case let .macCGClickElement(query, pointInRect, instance, timeout):
+        case let .macCGClickElement(query, pointInRect, clickCount, instance, timeout):
             try await macDriver(for: instance).cgClick(
                 matching: query.resolved(context.resolve),
                 pointInRect: pointInRect,
+                clickCount: clickCount,
                 timeout: timeout
             )
 
