@@ -292,10 +292,17 @@ final public class ConnectedViewerManager {
         }
     }
 
-    /// Send terminal stream data to all connected viewers.
-    public func sendTerminalStreamToAll(_ streamMessage: TerminalStreamMessage) async {
+    /// Send terminal stream data only to viewers subscribed to its pane.
+    public func sendTerminalStream(
+        _ streamMessage: TerminalStreamMessage,
+        to viewerIds: Set<String>
+    ) async {
         await withTaskGroup(of: Void.self) { group in
-            for connection in connections.values where connection.state.isConnected {
+            for viewerId in viewerIds {
+                guard
+                    let connection = connections[viewerId],
+                    connection.state.isConnected
+                else { continue }
                 group.addTask { await connection.sendTerminalStream(streamMessage) }
             }
         }

@@ -2,6 +2,11 @@ import ClaudeSpyNetworking
 import Foundation
 import Logging
 
+private enum TerminalStreamInput: Sendable {
+    case data(Data)
+    case finishBootstrap(viewerId: String, barrierId: UUID)
+}
+
 // MARK: - Terminal Stream Service
 
 /// Manages live terminal streaming to connected viewers.
@@ -33,7 +38,7 @@ final public class TerminalStreamService {
     /// Ordered data stream for each pane — ensures strictly sequential processing
     /// of incoming terminal data, preventing interleaved flushes from reordering
     /// WebSocket messages.
-    private var dataStreams: [String: AsyncStream<Data>.Continuation] = [:]
+    private var dataStreams: [String: AsyncStream<TerminalStreamInput>.Continuation] = [:]
     private var dataConsumerTasks: [String: Task<Void, Never>] = [:]
 
     // MARK: - Batching Configuration
@@ -99,12 +104,12 @@ final public class TerminalStreamService {
             throw StreamError.notConfigured
         }
 
-        // If a stream is already active for this pane, reuse it.
-        // Multiple viewers can watch the same pane simultaneously.
-        // Record ownership by viewer ID and send the current state.
+        // If a stream is already active for this pane, reuse its single tmux
+        // subscription. Only the joining viewer is staged while the existing
+        // viewers continue receiving live output.
         if let context = activeStreams[paneId] {
-            // Capture current content first — only record ownership if we succeed.
-            // This avoids retaining an owner when the pane is no longer available.
+            context.beginBootstrap(for: viewerId)
+
             guard let current = await paneStreamManager.currentContent(for: paneId) else {
                 logger.error("Failed to capture content for existing stream", metadata: [
                     "paneId": "\(paneId)",
@@ -113,15 +118,15 @@ final public class TerminalStreamService {
                 throw StreamError.paneNotAvailable
             }
 
-            context.ownership.subscribe(viewerId)
+            guard let activeContext = activeStreams[paneId], activeContext === context else {
+                throw StreamError.paneNotAvailable
+            }
 
             logger.info("Viewer subscribing to existing stream", metadata: [
                 "paneId": "\(paneId)",
                 "subscriberCount": "\(context.ownership.count)",
             ])
 
-            // Send current state as initialState to all devices.
-            // Existing viewers get a content refresh (cosmetic), new viewer gets the full state.
             let initialMessage = await makeInitialStateMessage(
                 paneId: paneId,
                 width: current.width,
@@ -129,14 +134,15 @@ final public class TerminalStreamService {
                 content: current.content,
                 paneStreamManager: paneStreamManager
             )
-            await connectionManager.sendTerminalStreamToAll(initialMessage)
+            await connectionManager.sendTerminalStream(initialMessage, to: [viewerId])
 
             // Send current terminal title so the new viewer gets it immediately
             if let title = paneStreamManager.terminalTitle(for: paneId) {
                 let titleMessage = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
-                await connectionManager.sendTerminalStreamToAll(titleMessage)
+                await connectionManager.sendTerminalStream(titleMessage, to: [viewerId])
             }
 
+            try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
             return
         }
 
@@ -151,13 +157,16 @@ final public class TerminalStreamService {
         // Store context BEFORE subscribing so callbacks work immediately
         activeStreams[paneId] = context
 
-        // Create the ordered data stream before subscribing so bytes emitted during
-        // the atomic snapshot are retained. Do not start its consumer yet: live data
-        // must never enter the WebSocket send chain before initialState. Under heavy
-        // output that old ordering could starve the start response until the viewer's
-        // command timeout and leave it on Stream Error.
-        let (dataStream, dataContinuation) = AsyncStream.makeStream(of: Data.self)
+        // Start the ordered consumer before capture. While the first viewer is
+        // bootstrapping, data is retained in its private buffer and cannot enter
+        // the WebSocket send chain ahead of initialState.
+        let (dataStream, dataContinuation) = AsyncStream.makeStream(of: TerminalStreamInput.self)
         dataStreams[paneId] = dataContinuation
+        dataConsumerTasks[paneId] = makeDataConsumer(
+            stream: dataStream,
+            context: context,
+            paneId: paneId
+        )
 
         // Subscribe to PaneStreamManager for data
         // This returns initial content captured atomically with the subscription
@@ -169,7 +178,7 @@ final public class TerminalStreamService {
                 onData: { [weak self] (data: Data) in
                     guard let self else { return }
                     guard self.activeStreams[paneId] != nil else { return }
-                    self.dataStreams[paneId]?.yield(data)
+                    self.dataStreams[paneId]?.yield(.data(data))
                 },
                 onDimensionChange: { [weak self] (newWidth: Int, newHeight: Int) in
                     guard let self else { return }
@@ -214,9 +223,8 @@ final public class TerminalStreamService {
             "bufferSize": "\(result.initialContent.count)",
         ])
 
-        // Send initial state to all viewers
-        // The content was captured atomically with the subscription,
-        // so there's no gap between this state and incoming live updates
+        // Send the initial snapshot only to the requesting viewer. The ordered
+        // consumer retains capture-time data in that viewer's bootstrap buffer.
         let initialMessage = await makeInitialStateMessage(
             paneId: paneId,
             width: result.width,
@@ -224,26 +232,103 @@ final public class TerminalStreamService {
             content: result.initialContent,
             paneStreamManager: paneStreamManager
         )
-        await connectionManager.sendTerminalStreamToAll(initialMessage)
+        await connectionManager.sendTerminalStream(initialMessage, to: [viewerId])
 
-        // Only now drain live bytes. AsyncStream retained everything yielded while
-        // capture and initialState were in flight, preserving byte order without
-        // allowing high-volume output to overtake terminal initialization.
         guard let activeContext = activeStreams[paneId], activeContext === context else {
             dataContinuation.finish()
             dataStreams.removeValue(forKey: paneId)
             throw StreamError.paneNotAvailable
         }
-        dataConsumerTasks[paneId] = Task { [weak self] in
-            for await data in dataStream {
+
+        // This returns only after every pre-barrier byte has been sent. The
+        // command response emitted by AppCoordinator is therefore a real ready
+        // acknowledgement rather than merely "initialState was queued".
+        try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
+    }
+
+    private func makeDataConsumer(
+        stream: AsyncStream<TerminalStreamInput>,
+        context: StreamContext,
+        paneId: String
+    ) -> Task<Void, Never> {
+        Task { [weak self] in
+            for await input in stream {
                 guard
                     let self,
                     let activeContext = self.activeStreams[paneId],
                     activeContext === context
-                else { break }
-                await self.handleIncomingData(context: context, paneId: paneId, data: data)
+                else {
+                    context.cancelBootstrapBarriers()
+                    break
+                }
+
+                switch input {
+                case let .data(data):
+                    await self.handleIncomingData(context: context, paneId: paneId, data: data)
+
+                case let .finishBootstrap(viewerId, barrierId):
+                    await self.completeBootstrap(
+                        for: viewerId,
+                        barrierId: barrierId,
+                        context: context,
+                        paneId: paneId
+                    )
+                }
             }
         }
+    }
+
+    private func finishBootstrap(
+        for viewerId: String,
+        context: StreamContext,
+        paneId: String
+    ) async throws {
+        guard let continuation = dataStreams[paneId] else {
+            throw StreamError.paneNotAvailable
+        }
+
+        let barrierId = UUID()
+        continuation.yield(.finishBootstrap(viewerId: viewerId, barrierId: barrierId))
+        await context.waitForBootstrapBarrier(barrierId)
+
+        guard
+            let activeContext = activeStreams[paneId],
+            activeContext === context,
+            context.isReady(viewerId)
+        else {
+            throw StreamError.paneNotAvailable
+        }
+    }
+
+    private func completeBootstrap(
+        for viewerId: String,
+        barrierId: UUID,
+        context: StreamContext,
+        paneId: String
+    ) async {
+        defer { context.completeBootstrapBarrier(barrierId) }
+        guard context.isBootstrapping(viewerId) else { return }
+
+        // Data already batched for established viewers must be sent before the
+        // ready set changes; otherwise the joining viewer would receive those
+        // bytes both here and from the shared live batch.
+        await flushPendingData(for: context, paneId: paneId)
+
+        guard let connectionManager else { return }
+        let bootstrapData = context.takeBootstrapData(for: viewerId)
+        var offset = bootstrapData.startIndex
+        while offset < bootstrapData.endIndex {
+            let remaining = bootstrapData.distance(from: offset, to: bootstrapData.endIndex)
+            let end = bootstrapData.index(offset, offsetBy: min(maxBatchSize, remaining))
+            let message = TerminalStreamMessage.dataChunk(
+                paneId: paneId,
+                data: Data(bootstrapData[offset..<end])
+            )
+            await connectionManager.sendTerminalStream(message, to: [viewerId])
+            offset = end
+        }
+
+        context.finishBootstrap(for: viewerId)
     }
 
     /// Builds an `initialState` message with the pane's current mouse-mode escape sequences
@@ -285,6 +370,8 @@ final public class TerminalStreamService {
             return
         }
 
+        let endRecipients = context.ownership.subscribers
+
         if !force {
             guard let viewerId else {
                 logger.error("Missing viewer ID when stopping terminal stream", metadata: [
@@ -302,6 +389,7 @@ final public class TerminalStreamService {
                 return
 
             case let .retained(remainingSubscribers):
+                context.removeViewer(viewerId)
                 logger.info("Viewer unsubscribed from stream, others still watching", metadata: [
                     "paneId": "\(paneId)",
                     "remainingSubscribers": "\(remainingSubscribers)",
@@ -309,6 +397,7 @@ final public class TerminalStreamService {
                 return
 
             case .empty:
+                context.removeViewer(viewerId)
                 break
             }
         }
@@ -322,6 +411,7 @@ final public class TerminalStreamService {
         dataConsumerTasks.removeValue(forKey: paneId)
         dataStreams[paneId]?.finish()
         dataStreams.removeValue(forKey: paneId)
+        context.cancelBootstrapBarriers()
 
         // Cancel any pending batch send. The drain below sends its bytes once.
         context.batchTask?.cancel()
@@ -335,10 +425,10 @@ final public class TerminalStreamService {
         // Flush any pending data
         await flushPendingData(for: context, paneId: paneId)
 
-        // Send stream end to all viewers
+        // Send stream end only to viewers that owned this pane.
         guard let connectionManager else { return }
         let endMessage = TerminalStreamMessage.streamEnd(paneId: paneId)
-        await connectionManager.sendTerminalStreamToAll(endMessage)
+        await connectionManager.sendTerminalStream(endMessage, to: endRecipients)
     }
 
     /// Stop all active streams.
@@ -388,29 +478,29 @@ final public class TerminalStreamService {
     private func flushPendingData(for context: StreamContext, paneId: String) async {
         context.batchTask?.cancel()
         context.batchTask = nil
-        let dataToSend = context.flushPendingData()
-        guard !dataToSend.isEmpty else { return }
+        let pendingBatch = context.flushPendingData()
+        guard !pendingBatch.data.isEmpty, !pendingBatch.recipients.isEmpty else { return }
 
         guard let connectionManager else { return }
-        let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: dataToSend)
-        await connectionManager.sendTerminalStreamToAll(message)
+        let message = TerminalStreamMessage.dataChunk(paneId: paneId, data: pendingBatch.data)
+        await connectionManager.sendTerminalStream(message, to: pendingBatch.recipients)
     }
 
     /// Handle incoming data from PaneStreamManager
     private func handleIncomingData(context: StreamContext, paneId: String, data: Data) async {
-        context.appendData(data)
+        context.appendIncomingData(data)
 
         // Check if we should send immediately (batch full) or schedule
         if context.pendingDataSize >= maxBatchSize {
             await flushPendingData(for: context, paneId: paneId)
-        } else {
+        } else if context.pendingDataSize > 0 {
             scheduleBatchSend(for: context, paneId: paneId)
         }
     }
 
     /// Handle dimension change from PaneStreamManager
     private func handleDimensionChange(paneId: String, width: Int, height: Int) async {
-        guard activeStreams[paneId] != nil else { return }
+        guard let context = activeStreams[paneId] else { return }
         guard let connectionManager else { return }
 
         logger.info("Sending dimension change", metadata: [
@@ -419,12 +509,12 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.dimensionChange(paneId: paneId, width: width, height: height)
-        await connectionManager.sendTerminalStreamToAll(message)
+        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Handle title change reported by a subscriber's SwiftTerm instance
     private func handleTitleChange(paneId: String, title: String) async {
-        guard activeStreams[paneId] != nil else { return }
+        guard let context = activeStreams[paneId] else { return }
         guard let connectionManager else { return }
 
         logger.info("Sending title change", metadata: [
@@ -433,7 +523,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
-        await connectionManager.sendTerminalStreamToAll(message)
+        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Handle terminal notification (OSC 9/777) — forward to connected iOS viewers
@@ -441,7 +531,7 @@ final public class TerminalStreamService {
         paneId: String,
         notification: TerminalStreamMessage.TerminalNotification
     ) async {
-        guard activeStreams[paneId] != nil else { return }
+        guard let context = activeStreams[paneId] else { return }
         guard let connectionManager else { return }
 
         let message = TerminalStreamMessage.notification(
@@ -449,7 +539,7 @@ final public class TerminalStreamService {
             title: notification.title,
             body: notification.body
         )
-        await connectionManager.sendTerminalStreamToAll(message)
+        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 
     /// Maximum clipboard content size (1 MB) to forward to viewers.
@@ -458,7 +548,7 @@ final public class TerminalStreamService {
 
     /// Handle clipboard content (OSC 52) — forward to connected viewers
     private func handleClipboard(paneId: String, content: String) async {
-        guard activeStreams[paneId] != nil else { return }
+        guard let context = activeStreams[paneId] else { return }
         guard let connectionManager else { return }
 
         guard content.utf8.count <= Self.maxClipboardSize else {
@@ -475,7 +565,7 @@ final public class TerminalStreamService {
         ])
 
         let message = TerminalStreamMessage.clipboardUpdate(paneId: paneId, content: content)
-        await connectionManager.sendTerminalStreamToAll(message)
+        await connectionManager.sendTerminalStream(message, to: context.ownership.subscribers)
     }
 }
 
@@ -484,10 +574,19 @@ final public class TerminalStreamService {
 /// Context for an active terminal stream, handles data batching.
 @MainActor
 final class StreamContext {
+    struct PendingBatch: Equatable, Sendable {
+        let data: Data
+        let recipients: Set<String>
+    }
+
     let paneId: String
     var ownership: TerminalStreamOwnership
     var subscriptionId: UUID?
     private var pendingData = Data()
+    private var readyViewerIds: Set<String> = []
+    private var bootstrapData: [String: Data] = [:]
+    private var bootstrapBarrierWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var completedBootstrapBarriers: Set<UUID> = []
     var batchTask: Task<Void, Never>?
 
     var pendingDataSize: Int {
@@ -497,15 +596,82 @@ final class StreamContext {
     init(paneId: String, viewerId: String) {
         self.paneId = paneId
         self.ownership = TerminalStreamOwnership(viewerId: viewerId)
+        self.bootstrapData[viewerId] = Data()
     }
 
-    func appendData(_ data: Data) {
-        pendingData.append(data)
+    var readyViewers: Set<String> {
+        readyViewerIds
     }
 
-    func flushPendingData() -> Data {
-        let data = pendingData
+    func beginBootstrap(for viewerId: String) {
+        ownership.subscribe(viewerId)
+        readyViewerIds.remove(viewerId)
+        bootstrapData[viewerId] = Data()
+    }
+
+    func isBootstrapping(_ viewerId: String) -> Bool {
+        bootstrapData[viewerId] != nil
+    }
+
+    func isReady(_ viewerId: String) -> Bool {
+        readyViewerIds.contains(viewerId)
+    }
+
+    func appendIncomingData(_ data: Data) {
+        guard !data.isEmpty else { return }
+
+        for viewerId in Array(bootstrapData.keys) {
+            bootstrapData[viewerId]?.append(data)
+        }
+        if !readyViewerIds.isEmpty {
+            pendingData.append(data)
+        }
+    }
+
+    func flushPendingData() -> PendingBatch {
+        let batch = PendingBatch(data: pendingData, recipients: readyViewerIds)
         pendingData = Data()
+        return batch
+    }
+
+    func takeBootstrapData(for viewerId: String) -> Data {
+        let data = bootstrapData[viewerId] ?? Data()
+        bootstrapData[viewerId] = Data()
         return data
+    }
+
+    func finishBootstrap(for viewerId: String) {
+        guard bootstrapData.removeValue(forKey: viewerId) != nil else { return }
+        guard ownership.contains(viewerId) else { return }
+        readyViewerIds.insert(viewerId)
+    }
+
+    func removeViewer(_ viewerId: String) {
+        readyViewerIds.remove(viewerId)
+        bootstrapData.removeValue(forKey: viewerId)
+    }
+
+    func waitForBootstrapBarrier(_ barrierId: UUID) async {
+        if completedBootstrapBarriers.remove(barrierId) != nil { return }
+        await withCheckedContinuation { continuation in
+            bootstrapBarrierWaiters[barrierId] = continuation
+        }
+    }
+
+    func completeBootstrapBarrier(_ barrierId: UUID) {
+        if let continuation = bootstrapBarrierWaiters.removeValue(forKey: barrierId) {
+            continuation.resume()
+        } else {
+            completedBootstrapBarriers.insert(barrierId)
+        }
+    }
+
+    func cancelBootstrapBarriers() {
+        let continuations = bootstrapBarrierWaiters.values
+        bootstrapBarrierWaiters.removeAll()
+        completedBootstrapBarriers.removeAll()
+        for continuation in continuations {
+            continuation.resume()
+        }
     }
 }
