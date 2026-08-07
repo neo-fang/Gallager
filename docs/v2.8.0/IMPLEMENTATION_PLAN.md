@@ -428,6 +428,8 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
    字节顺序、OSC 事件语义或 relay 协议。
 6. viewer 的 UI 状态和 SwiftTerm feed 仍在 MainActor；只允许不可变 `Data` 在 actor
    边界传递，不使用 `Task.detached`、`nonisolated(unsafe)` 或伪造 `Sendable`。
+7. iOS 复制终端文本 sheet 弹出前同步释放终端 first responder，并在 sheet 存续期间
+   禁止底层 terminal 因视图更新重新激活；关闭时只恢复弹出前已开启的输入状态。
 
 ### 验收标准
 
@@ -437,3 +439,5 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
 - Codex 高频输出时 Mac/iOS viewer 可持续输入，不出现成批延迟回显或主线程长时间阻塞。
 - 聚焦测试、完整 Swift package 测试、macOS/iOS 构建和 macOS Release 签名校验通过。
 - 生成的 `Gallager-2.7-zengjice.dmg` 来自 Release 产物，覆盖安装后可正常连接和输入。
+- iOS 复制终端文本 sheet 内可滚动、选中和复制，但不会显示系统键盘；关闭后终端输入
+  状态与弹出前一致。

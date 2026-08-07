@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 6/7 tasks
+- **Progress**: 6/8 tasks
 - **Dependencies**: Stage 4 ✅, Stage 7 ✅
 
 ## Tasks
@@ -14,6 +14,7 @@
 - [x] 构建 Release 并在相同高频输出 pane 重新采样。
 - [x] 依据 Release 热点最小化 pipe-pane/MainActor 数据路径开销。
 - [x] 完成全量测试、Release DMG 和覆盖安装。
+- [ ] 禁止 iOS 终端文本复制 sheet 弹出或继承键盘，并保持关闭前后的输入状态。
 - [ ] 由用户在异机 Mac viewer 与 iOS viewer 完成真实远程输入手感验收。
 
 ## Decisions
