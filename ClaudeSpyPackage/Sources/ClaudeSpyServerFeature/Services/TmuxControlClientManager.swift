@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Logging
 
@@ -127,6 +128,42 @@
         ) async throws -> CommandResponse {
             let client = try await getClient(for: sessionName)
             return try await client.sendCommand(command, timeout: timeout)
+        }
+
+        /// Sends a small interactive key batch through an existing control client.
+        ///
+        /// This method never creates a connection. Returning `false` means no
+        /// command was written and the caller may safely use its process-based
+        /// fallback. Once any command succeeds, later failures are thrown instead
+        /// of returning `false`, which prevents replaying an already-partial batch.
+        func sendKeystrokesIfConnected(
+            paneId: String,
+            sessionName: String,
+            keys: [TmuxKey]
+        ) async throws -> Bool {
+            guard let commands = TmuxControlInputEncoder.commands(paneId: paneId, keys: keys) else {
+                return false
+            }
+            guard !commands.isEmpty else { return true }
+            guard let client = clients[sessionName], await client.isConnected else { return false }
+
+            var completedCommand = false
+            for command in commands {
+                let response: CommandResponse
+                do {
+                    response = try await client.sendCommand(command)
+                } catch TmuxControlError.notConnected where !completedCommand {
+                    return false
+                } catch {
+                    throw error
+                }
+
+                guard !response.isError else {
+                    throw TmuxControlError.commandFailed(message: response.output)
+                }
+                completedCommand = true
+            }
+            return true
         }
 
         /// Unregisters a pane from dimension tracking.
