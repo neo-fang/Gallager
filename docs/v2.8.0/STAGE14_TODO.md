@@ -55,4 +55,6 @@
   `72e7f2da191fa71ba149352a75371ed4c6142942e192867c0306cf0720d5297c`。
 - 已从该 DMG 覆盖安装 `/Applications/Gallager.app`；`wait-ready` 与 `ping` 分别返回
   `ready`、`pong`。
+- iOS 真机包已使用本地 provisioning profile 分层签名并覆盖安装到 `ZengJice iPhone`；
+  Bundle ID 为 `com.zengjice.gallager.local`，版本 2.7 (40)，安装后已成功启动。
 - 待用户从另一台 Mac 和 iOS 真机连接本机 host，确认主观输入回显改善后关闭 Stage 14。
