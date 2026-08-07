@@ -2,6 +2,21 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
 
+/// Keeps JSONDecoder and its CPU work off MainActor while preserving the
+/// receive loop's message order.
+private actor WebSocketMessageDecoder {
+    private let decoder: JSONDecoder
+
+    init() {
+        decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+    }
+
+    func decode(_ data: Data) throws -> WebSocketMessage {
+        try decoder.decode(WebSocketMessage.self, from: data)
+    }
+}
+
 /// Errors that can occur during viewer relay communication.
 public enum ViewerRelayClientError: Error, LocalizedError {
     case notConnected
@@ -56,6 +71,7 @@ final public class ViewerRelayClient {
     // MARK: - Properties
 
     private let logger = Logger(label: "com.claudespy.viewerrelayclient")
+    private let messageDecoder = WebSocketMessageDecoder()
 
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
@@ -662,9 +678,7 @@ final public class ViewerRelayClient {
         }
 
         do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let wsMessage = try decoder.decode(WebSocketMessage.self, from: data)
+            let wsMessage = try await messageDecoder.decode(data)
             await handleWebSocketMessage(wsMessage)
         } catch {
             logger.error("Failed to decode WebSocket message: \(error)")

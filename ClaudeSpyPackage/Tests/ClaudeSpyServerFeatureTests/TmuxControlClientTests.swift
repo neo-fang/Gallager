@@ -411,6 +411,21 @@
                 #expect(delegate.notifications.count == 1, "OSC 9 notification must still flow")
             }
 
+            @Test("A split OSC sequence is resumed even when the next chunk is plain")
+            func splitOSCResumesSlowPath() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+                await reader.setBuffering(false)
+
+                await reader.testProcessIncomingData(Data([0x1B, 0x5D]) + Data("9;split".utf8))
+                await reader.testProcessIncomingData(Data(" message".utf8) + Data([0x07]))
+                await reader.testWaitForDelivery()
+
+                #expect(delegate.data.isEmpty)
+                #expect(delegate.notifications.map(\.body) == ["split message"])
+            }
+
             @Test("flushBuffer keeps order even when bytes arrive during the drain")
             func flushBufferOrderingUnderConcurrentInput() async {
                 let reader = PipePaneReader(paneId: "%0")
