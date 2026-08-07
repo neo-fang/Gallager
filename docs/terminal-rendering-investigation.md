@@ -345,13 +345,13 @@ The byte-level buffering (`byteBuffer`) handles this correctly for line-splittin
 
 `TerminalStreamService` batches data with:
 - 8KB max batch size
-- 50ms interval timer
+- 16ms fixed-cadence timer
 
 The batching is simple append + flush, which preserves ordering. **But:** dimension change messages are sent **outside** the batching pipeline:
 ```swift
 private func handleDimensionChange(paneId: String, width: Int, height: Int) async {
     let message = TerminalStreamMessage.dimensionChange(...)
-    await connectionManager.sendTerminalStreamToAll(message)
+    await streamSender.sendTerminalStream(message, to: subscribers)
 }
 ```
 

@@ -19,6 +19,14 @@ struct TerminalStreamOwnership: Equatable, Sendable {
         viewerIds.count
     }
 
+    var subscribers: Set<String> {
+        viewerIds
+    }
+
+    func contains(_ viewerId: String) -> Bool {
+        viewerIds.contains(viewerId)
+    }
+
     @discardableResult
     mutating func subscribe(_ viewerId: String) -> Bool {
         viewerIds.insert(viewerId).inserted

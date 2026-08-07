@@ -378,7 +378,6 @@
                 #expect(delegate.data.isEmpty, "Buffered bytes must not reach delegate before flush")
 
                 await reader.flushBuffer()
-                await reader.testWaitForDelivery()
 
                 #expect(delegate.data.count == 3)
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8)
@@ -450,6 +449,28 @@
 
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8) ?? ""
                 #expect(combined == "ABC", "Expected A,B,C in order, got: \(combined)")
+            }
+
+            @Test("flushBuffer returns only after buffered bytes reach the delegate")
+            func flushWaitsForDelegateDelivery() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("ready".utf8))
+                await reader.flushBuffer()
+
+                #expect(delegate.concatenatedData == Data("ready".utf8))
+            }
+
+            @Test("flushBuffer completes when the weak delegate is gone")
+            func flushWithoutDelegateDoesNotHang() async {
+                let reader = PipePaneReader(paneId: "%0")
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("discarded".utf8))
+
+                await reader.flushBuffer()
             }
 
             @Test("flushBuffer transitions to live: subsequent bytes flow directly")

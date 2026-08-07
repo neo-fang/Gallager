@@ -303,11 +303,11 @@
                 subscriptions[subscriptionId] = subscription
 
                 // 1. Retain live bytes during the snapshot so we don't drop any
-                //    between "buffering on" and "snapshot taken". Bytes that
-                //    arrive in this window also appear in the capture's screen
-                //    state — the duplicate is intentional and idempotent in
-                //    SwiftTerm; tightening the fence is tracked as future work
-                //    in issue #476.
+                //    between "buffering on" and "snapshot taken". Some bytes may
+                //    also be represented by the captured screen state; terminal
+                //    output is not generally idempotent, so remote viewers stage
+                //    this bootstrap offscreen instead of presenting intermediate
+                //    redraws. Exact scrollback de-duplication remains issue #476.
                 await context.reader.setBuffering(true)
 
                 // 2. Refresh dimensions from tmux. capture-pane uses these to

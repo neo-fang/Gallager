@@ -7,9 +7,10 @@
     /// Receives events parsed by `PipePaneReader`.
     ///
     /// All methods are called on the main actor. The reader coalesces pending
-    /// events into one fire-and-forget MainActor delivery loop, so the FIFO
-    /// consumer is never blocked waiting on rendering. Individual data chunks
-    /// remain separate delegate calls and retain their FIFO order.
+    /// events into one MainActor delivery loop. Normal live delivery remains
+    /// fire-and-forget; `flushBuffer()` inserts a barrier when a subscriber
+    /// needs proof that bootstrap bytes reached the delegate. Individual data
+    /// chunks remain separate delegate calls and retain their FIFO order.
     @MainActor
     protocol PipePaneReaderDelegate: AnyObject, Sendable {
         func pipePaneReader(_ paneId: String, didReceiveData data: Data)
@@ -244,15 +245,19 @@
         /// received, then transitions to live mode (subsequent bytes flow
         /// directly to the delegate). The buffer is empty after this call.
         ///
-        /// Delivery is fire-and-forget: buffered chunks are appended to the
-        /// same ordered MainActor delivery queue used by live data.
-        func flushBuffer() {
+        /// The method returns only after all buffered chunks have reached the
+        /// delegate. Live chunks that arrive after the inserted barrier remain
+        /// fire-and-forget and continue through the same FIFO queue.
+        func flushBuffer() async {
             notificationParser.scanOnly = false
             let toFlush = buffer
             buffer = []
             mode = .live
-            if !toFlush.isEmpty {
-                enqueueDelegateEvents(toFlush.map(DelegateEvent.data))
+
+            await withCheckedContinuation { continuation in
+                var events = toFlush.map(DelegateEvent.data)
+                events.append(.barrier(continuation))
+                enqueueDelegateEvents(events)
             }
             logger.debug("Flushed \(toFlush.count) buffered chunks for \(paneId)")
         }
@@ -436,6 +441,7 @@
             case clipboard(String)
             case progress(TerminalProgressState)
             case data(Data)
+            case barrier(CheckedContinuation<Void, Never>)
         }
 
         private struct DelegateDelivery: Sendable {
@@ -445,19 +451,20 @@
 
             @MainActor
             func deliver() {
-                guard let delegate = delegate.value else { return }
                 for event in events {
                     switch event {
                     case let .notification(notification):
-                        delegate.pipePaneReader(paneId, didReceiveNotification: notification)
+                        delegate.value?.pipePaneReader(paneId, didReceiveNotification: notification)
                     case let .title(title):
-                        delegate.pipePaneReader(paneId, didReceiveTitle: title)
+                        delegate.value?.pipePaneReader(paneId, didReceiveTitle: title)
                     case let .clipboard(clipboard):
-                        delegate.pipePaneReader(paneId, didReceiveClipboard: clipboard)
+                        delegate.value?.pipePaneReader(paneId, didReceiveClipboard: clipboard)
                     case let .progress(progress):
-                        delegate.pipePaneReader(paneId, didReceiveProgress: progress)
+                        delegate.value?.pipePaneReader(paneId, didReceiveProgress: progress)
                     case let .data(data):
-                        delegate.pipePaneReader(paneId, didReceiveData: data)
+                        delegate.value?.pipePaneReader(paneId, didReceiveData: data)
+                    case let .barrier(continuation):
+                        continuation.resume()
                     }
                 }
             }
