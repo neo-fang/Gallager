@@ -2,20 +2,20 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 1/8 tasks
+- **Status**: 🟡 In Progress（待打包后真机持续输出验收）
+- **Progress**: 8/8 tasks
 - **Dependencies**: Stage 14 ✅, Stage 16 ✅, Stage 17 ✅
 
 ## Tasks
 
 - [x] 记录传输指标、背压、重同步和 Relay 原始转发的实施边界。
-- [ ] 增加低开销传输指标及聚焦测试。
-- [ ] 修复 live dataChunk 切分和公平调度。
-- [ ] 实现高水位 snapshot resync。
-- [ ] 合并 Mac/iOS terminal feed 并记录耗时。
-- [ ] 实现 Relay 加密文本帧原始转发。
-- [ ] 修正本机 Relay 稳定源码目录。
-- [ ] 完成聚焦测试、完整测试和平台构建验证。
+- [x] 增加低开销传输指标及聚焦测试。
+- [x] 修复 live dataChunk 切分和公平调度。
+- [x] 实现高水位 snapshot resync。
+- [x] 合并 Mac/iOS terminal feed 并记录耗时。
+- [x] 实现 Relay 加密 frame 原始转发。
+- [x] 修正本机 Relay 稳定源码目录。
+- [x] 完成聚焦测试、完整测试和平台构建验证。
 
 ## Decisions
 
@@ -31,4 +31,12 @@
 
 ## Verification
 
-- 待完成。
+- `swift test --quiet`：1639 tests / 232 suites 全部通过（45.638s）。
+- 65,536-byte live output 聚焦测试确认拆为 8 个 8,192-byte `dataChunk`。
+- macOS `ClaudeSpyServer` Release（arm64、ad-hoc 签名）构建通过。
+- iOS `ClaudeSpy` Debug generic-device 构建通过。
+- Swift 6.3 Jammy/Linux Release Relay 构建通过；容器 `/health` 返回 `{"status":"ok"}`。
+- Relay 原始 frame、非法密文、snapshot wire round-trip、队列高水位和 feed 合并测试通过。
+- `~/.config/gallager/server/.env.local` 中 `GALLAGER_SOURCE_DIR` 已指向主仓库；文件权限保持 `600`。
+- `git diff --check` 通过。
+- 待使用后续 DMG/真机产物做两分钟持续输出验收，并观察 debug 窗口指标确认真实网络下无长尾回放。

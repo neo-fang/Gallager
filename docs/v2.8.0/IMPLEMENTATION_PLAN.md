@@ -650,8 +650,9 @@ terminal snapshot 恢复到最新状态，而不是永久回放已经过时的�
 4. Mac 与 iOS Viewer 将同一轮到达的 terminal bytes 在主线程下一轮合并 feed，保留
    消息顺序、首屏原子揭示和 Host 尺寸语义；每次 feed 记录聚合耗时，不把 SwiftTerm
    parser 移到未经证明线程安全的后台线程。
-5. Relay 对已校验为 `.encrypted` 的消息直接转发原始 WebSocket 文本帧，不再将密文
-   base64 解码后重新 JSON 编码；控制、配对和错误消息继续走现有强类型路径。
+5. Relay 对已校验为 `.encrypted` 的消息直接转发原始 WebSocket frame，不再将密文
+   base64 解码后重新 JSON 编码，并保留原 text/binary opcode；控制、配对和错误消息
+   继续走现有强类型路径。
 6. 修正本机 Relay 部署配置的 `GALLAGER_SOURCE_DIR`，指向稳定主仓库而非已删除的
    worktree。配置只改本机未跟踪文件，不写入仓库或提交敏感值。
 7. 增加聚焦测试覆盖超大实时 chunk 切分、公平调度、高水位去重、snapshot 恢复顺序、
