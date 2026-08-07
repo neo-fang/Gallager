@@ -81,8 +81,13 @@ struct RemoteTerminalContainerView: View {
                 },
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: settings.theme.palette.background.nativeColor))
             .overlay {
-                if case let .error(message) = streamState {
+                if streamState == .connecting {
+                    Color(nsColor: settings.theme.palette.background.nativeColor)
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("remote-terminal-bootstrap")
+                } else if case let .error(message) = streamState {
                     ContentUnavailableView(
                         "Terminal Stream Error",
                         symbol: .exclamationmarkTriangle,
@@ -656,7 +661,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         // responder to the terminal so typing resumes without a manual click.
         let wasEditorActive = nsView.isEditorActive
         nsView.isEditorActive = isEditorActive
-        if wasEditorActive, !isEditorActive {
+        if wasEditorActive, !isEditorActive, !nsView.isHidden {
             nsView.focusTerminal()
         }
     }
@@ -682,7 +687,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var fontName: String?
         private var fontSize: CGFloat?
         private var containerSize: NSSize = .zero
-        private var hasReceivedInitialState = false
+        private var bootstrapPolicy = TerminalStreamBootstrapPolicy()
         private var streamTask: Task<Void, Never>?
         private var lastIsHostConnected: Bool?
         private var lastRetryGeneration: Int?
@@ -699,6 +704,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             // Disable custom block glyph rendering — see TerminalContainerView.init for details.
             terminalView.customBlockGlyphs = false
             terminalView.applyTheme(.defaultDark)
+            terminalView.isHidden = true
         }
 
         func start(
@@ -843,6 +849,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                     }
                 }
 
+                bootstrapPolicy.willSendStartRequest()
+
                 let result = await connection.relayClient.sendCommand(
                     StartTerminalStream(),
                     paneId: paneId,
@@ -852,7 +860,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
                 switch result {
                 case .success:
-                    // The host sends initialState before this response.
+                    // A Stage 16 host sends every bootstrap byte before this
+                    // response. Older hosts still preserve initial-before-ack.
+                    bootstrapPolicy.receiveStartAcknowledgement()
+                    revealTerminalIfReady()
                     return
 
                 case let .failure(error):
@@ -878,8 +889,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         private func beginStreamAttempt() -> UUID {
             keystrokeDebouncer?.cancelAll()
-            hasReceivedInitialState = false
+            bootstrapPolicy.beginAttempt()
             terminalView.preserveUserScroll = false
+            terminalView.isHidden = true
             terminalView.getTerminal().resetToInitialState()
 
             let id = UUID()
@@ -892,7 +904,9 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             streamTask?.cancel()
             streamTask = nil
             streamAttemptId = nil
-            hasReceivedInitialState = false
+            bootstrapPolicy.beginAttempt()
+            terminalView.preserveUserScroll = false
+            terminalView.isHidden = true
             keystrokeDebouncer?.cancelAll()
             updateState(.connecting)
         }
@@ -922,31 +936,30 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private func handleStreamMessage(_ message: TerminalStreamMessage) {
             switch message.updateType {
             case let .initialState(state):
-                // The host broadcasts a new subscriber's initial state to every
-                // viewer. Existing streams must not feed that full snapshot a
-                // second time; our own reconnect sets state to `.connecting`.
-                guard streamState != .streaming else { return }
+                guard
+                    let data = Data(base64Encoded: state.contentBase64),
+                    bootstrapPolicy.receiveInitialState()
+                else { return }
 
                 columns = state.width
                 rows = state.height
                 terminalView.getTerminal().resize(cols: columns, rows: rows)
                 updateTerminalFrameSize()
 
-                if let data = Data(base64Encoded: state.contentBase64) {
-                    let bytes = [UInt8](data)[...]
-                    terminalView.feed(byteArray: bytes)
-                    terminalView.scroll(toPosition: 1)
-                    terminalView.preserveUserScroll = true
-                }
+                let bytes = [UInt8](data)[...]
+                terminalView.feed(byteArray: bytes)
 
-                hasReceivedInitialState = true
-                updateState(.streaming)
+                revealTerminalIfReady()
 
             case let .dataChunk(chunk):
-                guard hasReceivedInitialState else { return }
+                guard bootstrapPolicy.hasInitialState else { return }
                 if let data = Data(base64Encoded: chunk.dataBase64) {
                     let bytes = [UInt8](data)[...]
-                    terminalView.feedPreservingScroll(bytes)
+                    if streamState == .streaming {
+                        terminalView.feedPreservingScroll(bytes)
+                    } else {
+                        terminalView.feed(byteArray: bytes)
+                    }
                 }
 
             case let .dimensionChange(change):
@@ -971,6 +984,20 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 // the old host stream before the matching start arrives.
                 guard streamState == .streaming else { return }
                 updateState(.disconnected)
+            }
+        }
+
+        private func revealTerminalIfReady() {
+            guard bootstrapPolicy.isReady, streamState != .streaming else { return }
+
+            terminalView.scroll(toPosition: 1)
+            terminalView.preserveUserScroll = true
+            terminalView.isHidden = false
+            terminalView.needsDisplay = true
+            updateState(.streaming)
+
+            if terminalView.autoFocusEnabled, !terminalView.isEditorActive {
+                terminalView.focusTerminal()
             }
         }
 
