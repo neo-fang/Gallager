@@ -15,7 +15,7 @@
 
 ## Mac viewer 打开远程 pane 时显示历史回刷
 
-- **状态**：Stage 16 处理中。
+- **状态**：Stage 16 已实施，待双 Mac 真机验收。
 - **复现**：Mac viewer 打开、切换或重连远程 pane，首屏历史和捕获期间输出分阶段
   显示，而不是准备完成后一次出现。
 - **证据**：viewer 收到 initial state 后立即进入 streaming；Host 的
