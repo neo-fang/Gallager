@@ -1,4 +1,5 @@
 #if os(macOS)
+    import Foundation
     import Testing
     @testable import ClaudeSpyServerFeature
 
@@ -27,6 +28,40 @@
 
             #expect(ownership.unsubscribe("viewer-b") == .notSubscribed)
             #expect(ownership.count == 1)
+        }
+    }
+
+    @Suite("Terminal stream fixed-cadence batching")
+    @MainActor
+    struct TerminalStreamBatchingTests {
+        @Test("Later chunks keep the first scheduled deadline")
+        func continuousChunksDoNotReschedule() {
+            let service = TerminalStreamService()
+            let context = StreamContext(paneId: "%1", viewerId: "viewer-a")
+
+            context.appendData(Data("a".utf8))
+            service.scheduleBatchSend(for: context, paneId: "%1")
+            let firstTask = context.batchTask
+
+            context.appendData(Data("b".utf8))
+            service.scheduleBatchSend(for: context, paneId: "%1")
+
+            #expect(firstTask?.isCancelled == false)
+            #expect(String(data: context.flushPendingData(), encoding: .utf8) == "ab")
+
+            context.batchTask?.cancel()
+            context.batchTask = nil
+        }
+
+        @Test("Draining clears all pending bytes")
+        func drainingClearsPendingBytes() {
+            let context = StreamContext(paneId: "%1", viewerId: "viewer-a")
+            context.appendData(Data("abc".utf8))
+
+            #expect(context.pendingDataSize == 3)
+            #expect(context.flushPendingData() == Data("abc".utf8))
+            #expect(context.pendingDataSize == 0)
+            #expect(context.flushPendingData().isEmpty)
         }
     }
 #endif

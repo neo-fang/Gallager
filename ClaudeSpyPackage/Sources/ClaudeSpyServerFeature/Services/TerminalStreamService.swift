@@ -38,8 +38,8 @@ final public class TerminalStreamService {
 
     // MARK: - Batching Configuration
 
-    /// Minimum interval between stream messages (throttling)
-    private let batchInterval: TimeInterval = 0.05 // 50ms = 20 updates/sec max
+    /// Maximum time the oldest pending bytes wait before transmission.
+    private let batchInterval: Duration = .milliseconds(16)
 
     /// Maximum batch size before forced send
     private let maxBatchSize = 8_192 // 8KB
@@ -323,8 +323,9 @@ final public class TerminalStreamService {
         dataStreams[paneId]?.finish()
         dataStreams.removeValue(forKey: paneId)
 
-        // Cancel any pending batch send
+        // Cancel any pending batch send. The drain below sends its bytes once.
         context.batchTask?.cancel()
+        context.batchTask = nil
 
         // Unsubscribe from PaneStreamManager
         if let subscriptionId = context.subscriptionId {
@@ -369,18 +370,24 @@ final public class TerminalStreamService {
 
     // MARK: - Private Methods
 
-    private func scheduleBatchSend(for context: StreamContext, paneId: String) {
-        // Cancel existing scheduled send
-        context.batchTask?.cancel()
+    func scheduleBatchSend(for context: StreamContext, paneId: String) {
+        // A fixed cadence starts with the first byte. Do not move the deadline
+        // when later chunks arrive, otherwise a busy TUI can postpone delivery
+        // until it stops drawing.
+        guard context.batchTask == nil else { return }
 
         context.batchTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(self?.batchInterval ?? 0.05))
-            guard !Task.isCancelled, let self else { return }
+            guard let self else { return }
+            try? await Task.sleep(for: self.batchInterval)
+            guard !Task.isCancelled else { return }
+            context.batchTask = nil
             await self.flushPendingData(for: context, paneId: paneId)
         }
     }
 
     private func flushPendingData(for context: StreamContext, paneId: String) async {
+        context.batchTask?.cancel()
+        context.batchTask = nil
         let dataToSend = context.flushPendingData()
         guard !dataToSend.isEmpty else { return }
 
@@ -476,7 +483,7 @@ final public class TerminalStreamService {
 
 /// Context for an active terminal stream, handles data batching.
 @MainActor
-final private class StreamContext {
+final class StreamContext {
     let paneId: String
     var ownership: TerminalStreamOwnership
     var subscriptionId: UUID?
