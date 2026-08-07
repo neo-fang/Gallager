@@ -3238,17 +3238,19 @@ public struct MainView: View {
     /// inside a remote terminal follow the same `browserLinkBehavior` rules as
     /// local clicks — including the per-domain overrides — so the
     /// in-app/system-browser preference is honoured uniformly across
-    /// host types. `file://` URLs are not routed in-app for remote sessions
-    /// because the remote filesystem isn't browsable here yet; they fall
-    /// through to `URLOpener` which the host treats as a no-op for unknown
-    /// schemes.
+    /// host types. URLs that require Host-local handling (including
+    /// `file://` and scheme-less absolute paths) are consumed here: the
+    /// remote filesystem isn't browsable yet, and passing them to this Mac's
+    /// `NSWorkspace` would target the wrong machine.
     private func handleRemoteTerminalURLClick(
         _ url: URL,
         hostId: String,
         sessionName: String,
         windowId: String
     ) -> Bool {
-        guard BrowserURLDispatcher.canHandle(url) else { return false }
+        if RemoteTerminalURLPolicy.shouldConsumeWithoutOpening(url) {
+            return true
+        }
 
         let effective = settings.browserBehavior(for: url) ?? settings.browserLinkBehavior
 
