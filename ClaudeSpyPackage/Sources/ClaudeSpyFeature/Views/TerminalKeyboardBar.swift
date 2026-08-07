@@ -13,16 +13,17 @@
                     keyboardVisible ? "Hide Keyboard" : "Input",
                     symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
                 )
-                .font(.callout.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 44)
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 18)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
+            .controlSize(.mini)
             .disabled(!isEnabled)
             .accessibilityIdentifier("terminal-keyboard-control")
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
             .background(.bar)
             .overlay(alignment: .top) {
                 Divider()

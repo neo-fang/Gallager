@@ -696,4 +696,4 @@ terminal snapshot 恢复到最新状态，而不是永久回放已经过时的�
 - `Bottom Bar` 模式的可见高度约 28pt，不超过原约 56pt 的一半。
 - `Input` 与 `Hide Keyboard` 状态切换、断线禁用及设置即时切换行为不回归。
 - 单 pane 与多 pane 页面呈现一致；`Top Right` 模式完全不受影响。
-- 聚焦测试与 iOS 构建通过，并在真机确认按钮可点击且终端可视区域明显增加。
+- `git diff --check` 与 iOS 构建通过，并在真机确认按钮可点击且终端可视区域明显增加。
