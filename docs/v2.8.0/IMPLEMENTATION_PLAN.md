@@ -441,3 +441,42 @@ fallback；Claude Code 原生 `OSC 9;4` 进度不受此条件影响。
 - 生成的 `Gallager-2.7-zengjice.dmg` 来自 Release 产物，覆盖安装后可正常连接和输入。
 - iOS 复制终端文本 sheet 内可滚动、选中和复制，但不会显示系统键盘；关闭后终端输入
   状态与弹出前一致。
+
+## Stage 15：iOS 终端输入控件位置
+
+### 目标
+
+让 iOS 终端的键盘显示/隐藏入口可在原有右上角与底部安全区之间切换，
+既保持升级用户的原有布局，也提供更易点击且不与终端手势冲突的底部选项。
+
+### 实施范围
+
+1. 新增持久化的 `Keyboard Control Position` 枚举设置，只允许 `Top Right` 与
+   `Bottom Bar` 两个互斥值；默认 `Top Right`，非法旧值也回退到该值。
+2. 在 iOS `Settings > Terminal` 使用原生两项 Picker 绑定该设置，切换后当前终端
+   页即时更新，不重连 host 或 relay。
+3. 保留轻量的共享底部键盘控件：键盘隐藏时显示 `Input`，键盘显示时
+   显示 `Hide Keyboard`，使用系统按钮样式和不小于 44pt 的点击区域。
+4. 单终端页在 `Top Right` 时使用原导航栏按钮，隐藏导航栏时使用原右上角
+   悬浮按钮；`Bottom Bar` 时只通过 `safeAreaInset(edge: .bottom)` 展示底部控件。
+   复制按钮保持原有位置。
+5. 多 pane 页由父视图根据同一设置只展示一个右上角或底部控件，键盘输入
+   继续只发送到当前选中 pane；无选中 pane 或 host 断开时禁用。
+6. 保留现有终端滚动、双击、长按、粘贴/选择及 tmux mouse mode 手势，不给终端
+   内容区增加键盘触发事件。
+7. 保留 Stage 14 的复制 sheet 焦点隔离；sheet 打开时不得弹出键盘，关闭后按原有
+   规则恢复输入状态。
+8. 不修改 relay、host、tmux 或 agent 协议，不引入自动弹出键盘或新手势。
+
+### 验收标准
+
+- 未保存设置或保存值无效时默认 `Top Right`，显示升级前的右上角按钮。
+- 切换到 `Bottom Bar` 后，键盘隐藏时底部安全区显示 `Input` 控件；点击后键盘
+  弹出，控件随键盘上移并
+  变为 `Hide Keyboard`。
+- 两种位置始终互斥；设置切换即时生效，不断开当前 host 连接。
+- 单终端、隐藏导航栏和多 pane 页均遵循同一位置设置。
+- 多 pane 切换后，只有选中 pane 接收输入；host 断开时不能启用键盘。
+- 终端滚动、双击、长按、粘贴/复制及 tmux mouse mode 行为不回归。
+- 复制 sheet 依旧不弹出键盘，关闭后输入状态恢复正确。
+- 聚焦测试、Swift package 测试、iOS device 构建和 iPhone 真机验证通过。
