@@ -26,6 +26,13 @@
                 return (Data(base64Encoded: chunk.dataBase64) ?? Data(), delivery.recipients)
             }
         }
+
+        var resetDeliveries: [(state: TerminalStreamMessage.InitialState, recipients: Set<String>)] {
+            deliveries.compactMap { delivery in
+                guard case let .resetState(state) = delivery.message.updateType else { return nil }
+                return (state, delivery.recipients)
+            }
+        }
     }
 
     @Suite("Terminal stream ownership")
@@ -174,6 +181,87 @@
             #expect(sender.dataDeliveries.map(\.data.count) == [8_192, 8_192, 3_616])
             #expect(sender.dataDeliveries.allSatisfy { $0.recipients == ["viewer-a"] })
             #expect(context.isReady("viewer-a"))
+        }
+
+        @Test("Oversized live output is split into bounded relay messages")
+        func liveOutputUsesBoundedChunks() async {
+            let sender = CapturingTerminalStreamSender()
+            let service = TerminalStreamService(streamSender: sender)
+            let context = StreamContext(paneId: "%1", viewerId: "viewer-a")
+            context.finishBootstrap(for: "viewer-a")
+
+            await service.handleIncomingData(
+                context: context,
+                paneId: "%1",
+                data: Data(repeating: 0x61, count: 65_536)
+            )
+
+            #expect(sender.dataDeliveries.map(\.data.count) == Array(repeating: 8_192, count: 8))
+            #expect(sender.dataDeliveries.allSatisfy { $0.recipients == ["viewer-a"] })
+            #expect(context.pendingDataSize == 0)
+        }
+
+        @Test("High water preserves controls and requests one snapshot")
+        func highWaterCollapsesDataIntoSnapshot() {
+            let buffer = TerminalStreamInputBuffer(paneId: "%1", highWaterBytes: 5)
+            let barrierId = UUID()
+
+            #expect(buffer.enqueueData(Data("abc".utf8)) == .enqueued)
+            buffer.enqueueControl(.finishBootstrap(viewerId: "viewer-a", barrierId: barrierId))
+            #expect(buffer.enqueueData(Data("def".utf8)) == .resyncRequired)
+            #expect(buffer.enqueueData(Data("ignored".utf8)) == .awaitingSnapshot)
+            #expect(buffer.queuedBytes == 0)
+
+            let snapshot = PaneStreamManager.SubscriptionResult(
+                subscriptionId: UUID(),
+                initialContent: Data("snapshot".utf8),
+                width: 80,
+                height: 24
+            )
+            buffer.enqueueReset(snapshot)
+
+            guard case let .reset(received)? = buffer.dequeue() else {
+                Issue.record("Expected reset before preserved control barrier")
+                return
+            }
+            #expect(received.initialContent == Data("snapshot".utf8))
+            guard case let .finishBootstrap(viewerId, receivedBarrier)? = buffer.dequeue() else {
+                Issue.record("Expected preserved bootstrap barrier")
+                return
+            }
+            #expect(viewerId == "viewer-a")
+            #expect(receivedBarrier == barrierId)
+            #expect(buffer.dequeue() == nil)
+        }
+
+        @Test("Snapshot reset precedes fresh data and clears stale viewer buffers")
+        func snapshotResetOrdering() async {
+            let sender = CapturingTerminalStreamSender()
+            let service = TerminalStreamService(streamSender: sender)
+            let context = StreamContext(paneId: "%1", viewerId: "viewer-a")
+            context.finishBootstrap(for: "viewer-a")
+            context.beginBootstrap(for: "viewer-b")
+            context.appendIncomingData(Data("stale".utf8))
+
+            let snapshot = PaneStreamManager.SubscriptionResult(
+                subscriptionId: UUID(),
+                initialContent: Data("snapshot".utf8),
+                width: 80,
+                height: 24
+            )
+            await service.applyReset(snapshot, context: context, paneId: "%1")
+
+            let fresh = Data(repeating: 0x61, count: 8_192)
+            await service.handleIncomingData(context: context, paneId: "%1", data: fresh)
+
+            #expect(sender.deliveries.count == 2)
+            #expect(sender.resetDeliveries.count == 1)
+            #expect(sender.resetDeliveries[0].state.content == Data("snapshot".utf8))
+            #expect(sender.resetDeliveries[0].recipients == ["viewer-a", "viewer-b"])
+            #expect(sender.dataDeliveries.count == 1)
+            #expect(sender.dataDeliveries[0].data == fresh)
+            #expect(sender.dataDeliveries[0].recipients == ["viewer-a"])
+            #expect(context.takeBootstrapData(for: "viewer-b") == fresh)
         }
 
     }

@@ -14,9 +14,14 @@
         var titles: [String] = []
         var clipboards: [String] = []
         var progress: [TerminalProgressState] = []
+        var overflowCount = 0
 
         func pipePaneReader(_ paneId: String, didReceiveData data: Data) {
             self.data.append(data)
+        }
+
+        func pipePaneReaderDidOverflow(_ paneId: String) {
+            overflowCount += 1
         }
 
         func pipePaneReader(
@@ -283,6 +288,57 @@
 
     @Suite("PipePaneReader Tests")
     struct PipePaneReaderTests {
+        @Suite("Ingress backpressure")
+        struct IngressBackpressureTests {
+            @Test("Overflow drops stale chunks and marks the exact retained boundary")
+            func overflowBoundary() {
+                let buffer = PipeIngressBuffer(paneId: "%0", maximumChunks: 2)
+
+                buffer.enqueue(Data("A".utf8))
+                buffer.enqueue(Data("B".utf8))
+                #expect(buffer.dequeue()?.data == Data("A".utf8))
+
+                // B and C fill the queue while A is already being processed.
+                // D must discard both and carry the reset marker itself.
+                buffer.enqueue(Data("C".utf8))
+                buffer.enqueue(Data("D".utf8))
+
+                let retained = buffer.dequeue()
+                #expect(retained?.data == Data("D".utf8))
+                #expect(retained?.requiresResyncBefore == true)
+                #expect(buffer.dequeue()?.data == nil)
+            }
+
+            @Test("Delegate backlog collapses to one snapshot boundary")
+            @MainActor
+            func delegateHighWater() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                let chunk = Data(repeating: 0x61, count: 65_536)
+                await reader.testEnqueueDelegateData(Array(repeating: chunk, count: 9))
+                await reader.testWaitForDelivery()
+
+                #expect(delegate.data.isEmpty)
+                #expect(delegate.overflowCount == 1)
+            }
+
+            @Test("Normal FIFO delivery does not request a snapshot")
+            func normalDelivery() {
+                let buffer = PipeIngressBuffer(paneId: "%0", maximumChunks: 2)
+                buffer.enqueue(Data("A".utf8))
+                buffer.enqueue(Data("B".utf8))
+
+                let first = buffer.dequeue()
+                let second = buffer.dequeue()
+                #expect(first?.data == Data("A".utf8))
+                #expect(first?.requiresResyncBefore == false)
+                #expect(second?.data == Data("B".utf8))
+                #expect(second?.requiresResyncBefore == false)
+            }
+        }
+
         @Suite("Tmux Escape Filtering")
         struct TmuxEscapeFilteringTests {
             @Test("Regular data passes through unchanged")
