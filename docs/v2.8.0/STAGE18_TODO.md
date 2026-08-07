@@ -41,3 +41,7 @@
   `ping` 返回 `pong`，并能读取现有 `coding` session 和 windows。
 - 本机 local session 与直接 `tmux attach` 对比验收通过；持续输入的响应较旧版明显
   改善，当前体验符合预期。第一阶段已达到目标，不实施缺少测量依据的第二阶段快速路径。
+- 固定名称 `Gallager-2.7-zengjice.dmg` 已更新；映像 CRC、只读挂载、Applications
+  链接、包内 App 深度签名、2.7 (40) 版本、arm64 主程序/CLI 及源产物可执行文件哈希
+  均校验通过。DMG SHA-256 为
+  `ae7d5718f3fe971db65c8006a40ffd979db2ca6a347b56f62a6f43bd94a64df9`。
