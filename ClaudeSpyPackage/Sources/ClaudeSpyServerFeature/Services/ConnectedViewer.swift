@@ -147,6 +147,8 @@ final public class ConnectedViewer: Identifiable {
     /// pushes, which would otherwise race and leave `claudeSession` wiped on the
     /// viewer.
     private var pendingSend: Task<Void, Never>?
+    private var pendingSendCount = 0
+    private var pendingSendBytes = 0
 
     /// Partner's public key received during registration or connection (Base64-encoded)
     private var partnerPublicKey: String
@@ -880,6 +882,16 @@ final public class ConnectedViewer: Identifiable {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(message)
+            pendingSendBytes += data.count
+            recordSendQueue()
+            defer {
+                pendingSendBytes -= data.count
+                recordSendQueue()
+            }
+            let sendStart = ContinuousClock.now
+            defer {
+                TerminalTransportMetrics.shared.recordDuration(.webSocketSend, since: sendStart)
+            }
             try await task.send(.data(data))
         } catch {
             logger.error("Failed to send WebSocket message: \(error)")
@@ -887,10 +899,15 @@ final public class ConnectedViewer: Identifiable {
     }
 
     private func sendEncrypted(_ message: WebSocketMessage) async {
+        pendingSendCount += 1
+        recordSendQueue()
         let previous = pendingSend
         let task = Task { [weak self] in
+            guard let self else { return }
             _ = await previous?.value
-            await self?.performEncryptedSend(message)
+            await self.performEncryptedSend(message)
+            self.pendingSendCount = max(0, self.pendingSendCount - 1)
+            self.recordSendQueue()
         }
         pendingSend = task
         await task.value
@@ -903,11 +920,24 @@ final public class ConnectedViewer: Identifiable {
         }
 
         do {
+            let encryptionStart = ContinuousClock.now
+            defer {
+                TerminalTransportMetrics.shared.recordDuration(.encryption, since: encryptionStart)
+            }
             let encryptedMessage = try await message.encrypt(using: e2eeService)
             await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
         }
+    }
+
+    private func recordSendQueue() {
+        TerminalTransportMetrics.shared.recordQueue(
+            .webSocketSend,
+            id: "host:\(id)",
+            depth: pendingSendCount,
+            bytes: pendingSendBytes
+        )
     }
 
     private func pingLoop() async {

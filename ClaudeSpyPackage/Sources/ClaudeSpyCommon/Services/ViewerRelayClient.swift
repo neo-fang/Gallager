@@ -152,6 +152,8 @@ final public class ViewerRelayClient {
 
     /// Task for retrying registration (handles server-side race condition)
     private var registrationRetryTask: Task<Void, Never>?
+    private var activeSendCount = 0
+    private var activeSendBytes = 0
 
     // MARK: - E2EE Properties
 
@@ -921,6 +923,18 @@ final public class ViewerRelayClient {
                 )
                 return false
             }
+            activeSendCount += 1
+            activeSendBytes += data.count
+            recordSendQueue()
+            defer {
+                activeSendCount -= 1
+                activeSendBytes -= data.count
+                recordSendQueue()
+            }
+            let sendStart = ContinuousClock.now
+            defer {
+                TerminalTransportMetrics.shared.recordDuration(.webSocketSend, since: sendStart)
+            }
             try await task.send(.data(data))
             return true
         } catch {
@@ -963,12 +977,25 @@ final public class ViewerRelayClient {
         }
 
         do {
+            let encryptionStart = ContinuousClock.now
+            defer {
+                TerminalTransportMetrics.shared.recordDuration(.encryption, since: encryptionStart)
+            }
             let encryptedMessage = try await message.encrypt(using: e2eeService)
             return await send(encryptedMessage)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
             return false
         }
+    }
+
+    private func recordSendQueue() {
+        TerminalTransportMetrics.shared.recordQueue(
+            .webSocketSend,
+            id: "viewer:\(pairId ?? "unpaired")",
+            depth: activeSendCount,
+            bytes: activeSendBytes
+        )
     }
 
     private func pingLoop() async {
