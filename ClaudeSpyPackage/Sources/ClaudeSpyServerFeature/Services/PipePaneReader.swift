@@ -365,7 +365,7 @@
             }
 
             let notifications = parseResult.notifications
-            let title = parseResult.titleChange
+            let title = parseResult.titleChange.map(TerminalTitleStabilizer.stabilize)
             let clipboard = parseResult.clipboardContent
             let progress = parseResult.progressUpdate
 
