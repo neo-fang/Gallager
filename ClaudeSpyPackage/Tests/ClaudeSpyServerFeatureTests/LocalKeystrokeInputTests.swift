@@ -15,6 +15,53 @@
     /// app only deletes a character instead of a word.
     @MainActor
     struct LocalKeystrokeInputTests {
+        @Test("Control mode encodes literal text as hex")
+        func controlModeEncodesLiteralTextAsHex() {
+            let commands = TmuxControlInputEncoder.commands(
+                paneId: "%7",
+                keys: [.text("a;\n中")]
+            )
+
+            #expect(commands == ["send-keys -t %7 -H 61 3b 0a e4 b8 ad"])
+        }
+
+        @Test("Control mode keeps split Option-Backspace in one named command")
+        func controlModeKeepsOptionBackspaceTogether() {
+            let commands = TmuxControlInputEncoder.commands(
+                paneId: "%7",
+                keys: [.escape, .backspace]
+            )
+
+            #expect(commands == ["send-keys -t %7 Escape BSpace"])
+        }
+
+        @Test("Control mode preserves mixed input order")
+        func controlModePreservesMixedInputOrder() {
+            let commands = TmuxControlInputEncoder.commands(
+                paneId: "%7",
+                keys: [.text("a"), .left, .text("b"), .ctrl("c"), .alt("d"), .ctrlAlt("x")]
+            )
+
+            #expect(commands == [
+                "send-keys -t %7 -H 61",
+                "send-keys -t %7 Left",
+                "send-keys -t %7 -H 62 03 1b 64 1b 18",
+            ])
+        }
+
+        @Test("Control mode declines unsafe or heavyweight batches")
+        func controlModeDeclinesFallbackCases() {
+            #expect(TmuxControlInputEncoder.commands(paneId: "session:0.0", keys: [.text("a")]) == nil)
+            #expect(TmuxControlInputEncoder.commands(paneId: "%7", keys: [.ctrl("中")]) == nil)
+            #expect(TmuxControlInputEncoder.commands(paneId: "%7", keys: [.delay(1)]) == nil)
+            #expect(
+                TmuxControlInputEncoder.commands(
+                    paneId: "%7",
+                    keys: [.text(String(repeating: "a", count: TmuxControlInputEncoder.maximumHexBytes + 1))]
+                ) == nil
+            )
+        }
+
         @Test("Keys enqueued in the same runloop turn coalesce into one batch")
         func coalescesSameTurnEnqueues() async {
             await withMainSerialExecutor {
