@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 6/8 tasks
+- **Progress**: 7/8 tasks
 - **Dependencies**: Stage 4 ✅, Stage 7 ✅
 
 ## Tasks
@@ -14,7 +14,7 @@
 - [x] 构建 Release 并在相同高频输出 pane 重新采样。
 - [x] 依据 Release 热点最小化 pipe-pane/MainActor 数据路径开销。
 - [x] 完成全量测试、Release DMG 和覆盖安装。
-- [ ] 禁止 iOS 终端文本复制 sheet 弹出或继承键盘，并保持关闭前后的输入状态。
+- [x] 禁止 iOS 终端文本复制 sheet 弹出或继承键盘，并保持关闭前后的输入状态。
 - [ ] 由用户在异机 Mac viewer 与 iOS viewer 完成真实远程输入手感验收。
 
 ## Decisions
@@ -58,4 +58,6 @@
   `ready`、`pong`。
 - iOS 真机包已使用本地 provisioning profile 分层签名并覆盖安装到 `ZengJice iPhone`；
   Bundle ID 为 `com.zengjice.gallager.local`，版本 2.7 (40)，安装后已成功启动。
+- 复制 sheet 焦点策略的 3 项测试通过；iOS 真机重新编译、签名、覆盖安装并启动成功。
+  sheet 存续期间 toolbar 与多 pane 两种模式都强制关闭底层 terminal input。
 - 待用户从另一台 Mac 和 iOS 真机连接本机 host，确认主观输入回显改善后关闭 Stage 14。
