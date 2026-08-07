@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 17 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 复用现有 control-mode 连接发送本地交互按键。
 - [x] 保留且验证连接不存在、编码不支持或写入前断开时的进程回退。
 - [x] 完成聚焦测试、完整测试和 macOS Release 构建。
-- [ ] 使用 Release 产物完成本机 local session 验收并记录结果。
+- [x] 使用 Release 产物完成本机 local session 验收并记录结果。
 
 ## Decisions
 
@@ -39,4 +39,5 @@
   Apple Development 深度重签和 `codesign --verify --deep --strict` 通过。
 - Release 候选版已覆盖安装到 `/Applications/Gallager.app`，`wait-ready` 返回 `ready`，
   `ping` 返回 `pong`，并能读取现有 `coding` session 和 windows。
-- 待在同一 local session 与直接 `tmux attach` 对比输入手感后完成最终验收。
+- 本机 local session 与直接 `tmux attach` 对比验收通过；持续输入的响应较旧版明显
+  改善，当前体验符合预期。第一阶段已达到目标，不实施缺少测量依据的第二阶段快速路径。
