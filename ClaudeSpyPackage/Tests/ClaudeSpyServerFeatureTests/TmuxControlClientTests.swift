@@ -1,5 +1,8 @@
 #if os(macOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import Darwin
+    import Dependencies
     import Foundation
     import Testing
     @testable import ClaudeSpyServerFeature
@@ -72,6 +75,66 @@
                 let environment = TmuxControlClient.controlClientEnvironment(inheriting: inherited)
 
                 #expect(environment == inherited)
+            }
+        }
+
+        @Suite("Process Lifecycle")
+        struct ProcessLifecycleTests {
+            @Test("Disconnect reaps only the control client and preserves its tmux pane")
+            @MainActor
+            func disconnectReapsControlClient() async throws {
+                let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
+                let suffix = UUID().uuidString.lowercased()
+                let socketPath = "/tmp/gallager-control-\(suffix.prefix(8)).sock"
+                let sessionName = "gallager-control-\(suffix)"
+                defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+
+                try await withDependencies {
+                    $0[ProcessRunner.self] = .liveValue
+                } operation: {
+                    let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                    let created = try await tmux.createSession(
+                        baseName: sessionName,
+                        width: 80,
+                        height: 24
+                    )
+                    let client = TmuxControlClient(tmuxPath: tmuxPath, socketPath: socketPath)
+
+                    try await client.connect(sessionTarget: created.sessionName)
+                    let firstPID = try #require(await client.testProcessIdentifier)
+                    #expect(processExists(firstPID))
+
+                    await client.disconnect()
+                    #expect(await client.testProcessIdentifier == nil)
+                    #expect(!processExists(firstPID))
+
+                    // Reusing the same actor catches a stale termination handler
+                    // clearing the next connection after the old process exits.
+                    try await client.connect(sessionTarget: created.sessionName)
+                    let secondPID = try #require(await client.testProcessIdentifier)
+                    #expect(secondPID != firstPID)
+                    #expect(processExists(secondPID))
+                    await client.disconnect()
+                    #expect(!processExists(secondPID))
+
+                    let panes = await tmux.refreshPanes()
+                    #expect(panes.contains { $0.paneId == created.paneId })
+                    _ = try await tmux.capturePaneText(created.paneId)
+                }
+            }
+
+            private func processExists(_ pid: Int32) -> Bool {
+                kill(pid, 0) == 0 || errno == EPERM
+            }
+
+            private func killTmuxServer(tmuxPath: String, socketPath: String) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: tmuxPath)
+                process.arguments = ["-S", socketPath, "kill-server"]
+                process.environment = [:]
+                process.standardError = Pipe()
+                process.standardOutput = Pipe()
+                try? process.run()
             }
         }
 

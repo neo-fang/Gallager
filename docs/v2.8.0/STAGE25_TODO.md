@@ -3,14 +3,14 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 1/7 tasks
+- **Progress**: 3/7 tasks
 - **Dependencies**: Stage 20 ✅, Stage 24 ✅
 
 ## Tasks
 
 - [x] 审计 App 退出、tmux control client、安装脚本与 launchd 进程现场。
-- [ ] 增加 control client 确定性退出和进程身份竞态测试。
-- [ ] 实现 actor 所有权内的 stdin close、TERM、bounded wait 与精确 PID KILL。
+- [x] 增加 control client 确定性退出和进程身份竞态测试。
+- [x] 实现 actor 所有权内的 stdin close、TERM、bounded wait 与精确 PID KILL。
 - [ ] 强化零参数安装脚本，保持 LaunchServices 启动和 tmux 非破坏边界。
 - [ ] 完成隔离 tmux socket 的 session/pane/agent 身份不变集成测试。
 - [ ] 完成完整测试、macOS Release 构建、签名和本机更新验收。
@@ -30,4 +30,5 @@
 
 ## Verification
 
-- Pending.
+- control client process lifecycle 聚焦测试：1 test passed；两次 control PID 均在断开返回前退出，
+  隔离 tmux socket 上的 pane 保持存在并可 capture。

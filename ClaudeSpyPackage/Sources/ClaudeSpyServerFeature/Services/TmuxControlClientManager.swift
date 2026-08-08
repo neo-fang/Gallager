@@ -215,13 +215,25 @@
         /// Disconnects all control clients.
         public func disconnectAll() async {
             logger.info("Disconnecting all control clients")
-            for (sessionName, client) in clients {
-                await client.disconnect()
-                logger.debug("Disconnected client", metadata: [
-                    "session": "\(sessionName)",
-                ])
-            }
+            let clientsToDisconnect = clients
             clients.removeAll()
+
+            // Each client owns an independent child process. Stop them in
+            // parallel so one wedged session cannot consume the shutdown budget
+            // before the remaining exact child PIDs are reaped.
+            await withTaskGroup(of: String.self) { group in
+                for (sessionName, client) in clientsToDisconnect {
+                    group.addTask {
+                        await client.disconnect()
+                        return sessionName
+                    }
+                }
+                for await sessionName in group {
+                    logger.debug("Disconnected client", metadata: [
+                        "session": "\(sessionName)",
+                    ])
+                }
+            }
         }
 
         /// Extracts the session name from a pane target.
