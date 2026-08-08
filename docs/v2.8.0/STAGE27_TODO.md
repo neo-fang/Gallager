@@ -3,15 +3,15 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 1/6 tasks
+- **Progress**: 4/6 tasks
 - **Dependencies**: Stage 26 ✅
 
 ## Tasks
 
 - [x] 定位窗口切换时自动返回 session 列表的导航触发路径。
-- [ ] 提取并测试窗口选择/缺失状态决策。
-- [ ] 将瞬时空 session 改为可取消的延迟确认。
-- [ ] 让 App 内主动关闭 session 成功后显式返回。
+- [x] 提取并测试窗口选择/缺失状态决策。
+- [x] 将瞬时空 session 改为可取消的延迟确认。
+- [x] 让 App 内主动关闭 session 成功后显式返回。
 - [ ] 完成聚焦测试、完整测试和 iOS device build。
 - [ ] 安装真机验收，合入主仓库并清理 worktree。
 
@@ -27,4 +27,4 @@
 
 ## Verification
 
-- Pending.
+- `WindowSelectionReconciliationTests`：6/6 通过。
