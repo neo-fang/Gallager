@@ -11,6 +11,14 @@
 
         public var body: some View {
             Form {
+                Section("Build") {
+                    LabeledContent("Version") {
+                        Text(AppBuildInfo.current.displayVersion)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+
                 Section("Why \"Gallager\"?") {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Gallager is named after [Robert G. Gallager](https://en.wikipedia.org/wiki/Robert_G._Gallager), a pioneering information theorist and professor at MIT.")

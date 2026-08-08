@@ -605,6 +605,13 @@
 
                 // About Section
                 Section("About") {
+                    LabeledContent("Version") {
+                        Text(AppBuildInfo.current.displayVersion)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+
                     LabeledContent("Device ID") {
                         Text(settings.deviceId)
                             .font(.caption)

@@ -10,6 +10,13 @@
 MARKETING_VERSION = 2.7
 CURRENT_PROJECT_VERSION = 40
 
+// Local/release packaging scripts override these with a UTC timestamp and the
+// source commit. They are display-only and must not affect protocol versioning.
+GALLAGER_BUILD_STAMP =
+GALLAGER_SOURCE_REVISION =
+INFOPLIST_KEY_GallagerBuildStamp = $(GALLAGER_BUILD_STAMP)
+INFOPLIST_KEY_GallagerSourceRevision = $(GALLAGER_SOURCE_REVISION)
+
 // ==========================================
 // Build Performance
 // ==========================================
