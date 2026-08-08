@@ -40,13 +40,10 @@
                     .font(.title)
                     .fontWeight(.bold)
 
-                if
-                    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String,
-                    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
-                    Text("Version \(version) (\(build))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Version \(AppBuildInfo.current.displayVersion)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
         }
 

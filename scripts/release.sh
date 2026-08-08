@@ -18,6 +18,9 @@ BUILD_DIR="$PROJECT_ROOT/build"
 ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="Gallager"
+LOCAL_BUILD_ROOT="$PROJECT_ROOT/.build-local"
+XCODE_DERIVED_DATA="$LOCAL_BUILD_ROOT/DerivedData/release-macOS"
+XCODE_SOURCE_PACKAGES="$LOCAL_BUILD_ROOT/SourcePackages"
 
 # Repo plugins (plugins/*) published for remote install
 PLUGINS_DIR="$PROJECT_ROOT/plugins"
@@ -48,6 +51,8 @@ UPDATES_HOST=""         # update host resolved by verify_updates_host
 # =====================================================
 # shellcheck source=scripts/common.sh
 source "$SCRIPT_DIR/common.sh"
+
+BUILD_STAMP="$(get_build_stamp)"
 
 # =====================================================
 # Parse arguments
@@ -162,6 +167,8 @@ cleanup_on_exit() {
 check_prerequisites() {
     log_info "Checking prerequisites..."
 
+    assert_primary_worktree
+
     if [ "$BETA" != true ]; then
         if ! command -v create-dmg &> /dev/null; then
             log_error "create-dmg is not installed. Install with: brew install create-dmg"
@@ -252,7 +259,10 @@ run_unit_tests() {
 build_archive() {
     log_info "Building archive..."
 
-    mkdir -p "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR" "$XCODE_DERIVED_DATA" "$XCODE_SOURCE_PACKAGES"
+
+    local source_revision
+    source_revision="$(get_source_revision)"
 
     local build_args=(
         archive
@@ -262,7 +272,12 @@ build_archive() {
         -scheme "$SCHEME"
         -configuration Release
         -archivePath "$ARCHIVE_PATH"
+        -derivedDataPath "$XCODE_DERIVED_DATA"
+        -clonedSourcePackagesDirPath "$XCODE_SOURCE_PACKAGES"
+        -disablePackageRepositoryCache
         -quiet
+        GALLAGER_BUILD_STAMP="$BUILD_STAMP"
+        GALLAGER_SOURCE_REVISION="$source_revision"
     )
 
     if [ "$LOCAL_SIGNING" = true ]; then
