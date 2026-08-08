@@ -30,6 +30,9 @@
         /// Tracks keyboard visibility for the bottom input control
         @State private var keyboardVisible = false
 
+        /// Bottom system gesture inset before this view adds its keyboard bar.
+        @State private var bottomSafeAreaInset: CGFloat = 0
+
         /// Service for the active pane's Claude session (nil if no session)
         @State private var activeService: SessionDetailService?
 
@@ -131,11 +134,17 @@
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
                 barWidth = newWidth
             }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.safeAreaInsets.bottom
+            } action: { newValue in
+                bottomSafeAreaInset = newValue
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if window != nil, settings.terminalKeyboardControlPosition == .bottomBar {
                     TerminalKeyboardBar(
                         keyboardVisible: keyboardVisible,
                         isEnabled: relayClient.isHostConnected && activePaneId != nil,
+                        bottomSafeAreaInset: bottomSafeAreaInset,
                         action: { isKeyboardActive.toggle() }
                     )
                 }
