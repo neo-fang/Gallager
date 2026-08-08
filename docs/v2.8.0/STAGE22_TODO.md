@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 4/6 tasks
+- **Progress**: 5/6 tasks
 - **Dependencies**: Stage 11 ✅, Stage 20 ✅
 
 ## Tasks
@@ -12,7 +12,7 @@
 - [x] 使用 SwiftTerm 逻辑行导出替代逐行拼接。
 - [x] 保留 bracketed-paste 起止序列及多行输入顺序。
 - [x] 增加快照格式和输入解析聚焦测试。
-- [ ] 完成完整测试与 iOS device 构建。
+- [x] 完成完整测试与 iOS device 构建。
 - [ ] 完成 iPhone 真机复制、粘贴验收。
 
 ## Decisions
@@ -34,3 +34,6 @@
   scrollback、alternate buffer 和 Unicode。
 - `TmuxKeyCsiParsingTests`：16 tests / 1 suite 通过，确认 200/201 边界、多行正文与 Enter
   顺序完整，其它未知 CSI 仍被丢弃。
+- 完整 Swift package：1,642 tests / 232 suites 通过。
+- iPhoneOS generic 无签名构建、个人开发团队真机签名构建及深度签名校验通过；已覆盖
+  安装并启动到 `ZengJice iPhone`，Bundle ID 保持 `com.zengjice.gallager.local`。
