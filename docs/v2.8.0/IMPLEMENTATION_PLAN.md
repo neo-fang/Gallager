@@ -910,3 +910,30 @@ agent 必须保持原身份和进程不变。
 - App 内主动关闭 session 成功后立即返回，失败时留在原页面并展示原有错误。
 - 窗口选择决策聚焦测试、完整 Swift package 测试及 iOS device build 通过，并完成真机
   新建/切换窗口验收。
+
+## Stage 28：远程粘贴连字符参数完整性
+
+### 目标
+
+修复 iOS 等远程 Viewer 粘贴包含以 `-` 开头的 shell 参数时，Host 只写入参数之前内容的
+问题。例如粘贴 `sudo scutil --set HostName` 必须完整到达 tmux pane，不能停在
+`sudo scutil`。
+
+### 实施范围
+
+1. 在 Host 的统一 tmux literal 输入入口使用 `--` 终止 `send-keys` 选项解析，确保
+   `--set`、`-n` 等用户文本不会被 tmux 当成命令选项。
+2. 保持现有 `TmuxKey`、`SendKeystroke`、E2EE、Relay、bracketed paste 和输入 FIFO
+   不变；不为 iOS 增加第二套粘贴命令或剪贴板状态。
+3. 更新进程发送路径的聚焦测试，覆盖以双连字符、单连字符开头的 literal 批次，以及
+   普通文本、命名按键和 delay 边界。
+4. 使用独立 tmux socket 做集成验证，确认完整命令实际进入 pane；完成受影响测试、
+   完整 Swift package 测试和 macOS 构建。
+
+### 验收标准
+
+- `sudo scutil --set HostName` 经与 iOS 相同的分段键序列后完整出现在 pane 中。
+- 任何 literal 批次以 `-` 或 `--` 开头时均不会触发 tmux `invalid flag`。
+- 普通文字、空格、Enter、方向键、bracketed paste 和输入顺序不回归。
+- 不修改网络协议或 iOS UI；更新 Host 后旧 Viewer 仍兼容。
+- 聚焦测试、完整 Swift package、`git diff --check` 与 macOS 构建通过，并完成真机粘贴验收。
