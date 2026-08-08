@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 6/7 tasks
+- **Status**: ✅ Completed
+- **Progress**: 7/7 tasks
 - **Dependencies**: Stage 26 ✅
 
 ## Tasks
@@ -14,7 +14,7 @@
 - [x] 删除 pane `streamEnd` 对父导航的控制并增加一次有界恢复。
 - [x] 让 App 内主动关闭 session 成功后显式返回。
 - [x] 重新完成聚焦测试、完整测试和 iOS device build。
-- [ ] 重新安装真机验收，合入主仓库并清理 worktree。
+- [x] 重新安装真机验收，合入主仓库并清理 worktree。
 
 ## Root cause
 
@@ -39,3 +39,5 @@
 - 修正版 Swift Package：1659 项测试、236 个测试集全部通过。
 - 修正版 iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
 - `git diff --check`：通过。
+- 真机验收通过：新建和切换 window 后不再异常返回 session 列表；验收版本为
+  `2.7 (40) · 20260808-172822 · 8034150df0cf`。

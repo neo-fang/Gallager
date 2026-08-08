@@ -32,5 +32,6 @@
 
 ## Assessment
 
-Approved for device acceptance. 修正版收回了子 pane 的导航所有权并删除基于时间的 session
-缺失推断；状态更少、责任边界更清楚，未增加协议分支或第二套导航状态机。
+Approved. 修正版收回了子 pane 的导航所有权并删除基于时间的 session 缺失推断；状态更少、
+责任边界更清楚，未增加协议分支或第二套导航状态机。真机验证新建和切换 window 均未再异常
+返回 session 列表。
