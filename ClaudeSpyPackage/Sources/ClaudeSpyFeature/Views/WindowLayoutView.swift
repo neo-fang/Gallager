@@ -10,6 +10,8 @@
     /// `LiveTerminalView` instances in the correct split arrangement,
     /// matching the macOS `WindowPaneLayoutView`.
     struct WindowLayoutView: View {
+        private static let missingSessionConfirmationDelay = Duration.seconds(2)
+
         let sessionName: String
         let hostId: String
         let relayClient: ViewerRelayClient
@@ -82,6 +84,24 @@
         private var sessionWindows: [TmuxWindow] {
             sessionStore.windows(for: hostId).filter { $0.sessionName == sessionName }
                 .sorted { $0.windowIndex < $1.windowIndex }
+        }
+
+        private var windowSelectionCandidates: [WindowSelectionCandidate] {
+            sessionWindows.map { window in
+                WindowSelectionCandidate(
+                    windowId: window.id,
+                    paneId: window.activePane?.paneId ?? window.panes.first?.paneId,
+                    isActive: window.isWindowActive
+                )
+            }
+        }
+
+        private var windowSelectionInput: WindowSelectionReconciliationInput {
+            WindowSelectionReconciliationInput(
+                candidates: windowSelectionCandidates,
+                isHostConnected: relayClient.isHostConnected,
+                hasReceivedState: sessionStore.hasReceivedState(for: hostId)
+            )
         }
 
         /// The current window data from the session store
@@ -347,17 +367,12 @@
                 Text("Enter a new name for this window")
             }
             .task {
-                // Default to the active window in the session
-                if selectedWindowId == nil {
-                    selectedWindowId = window?.id
-                }
-                // Default to the active pane (or first pane) on appear
-                if activePaneId == nil, let window {
-                    activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
-                }
                 updateActiveService()
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
+            }
+            .task(id: windowSelectionInput) {
+                await reconcileWindowSelection(input: windowSelectionInput)
             }
             .onChange(of: activeService?.session?.state) {
                 if activeSessionHasBlockingForm {
@@ -389,19 +404,47 @@
                     await sendCommand(.selectTmuxPane, paneId: newValue)
                 }
             }
-            .onChange(of: sessionWindows.map(\.id)) { _, newWindowIds in
-                guard let selectedWindowId else { return }
-                // If the selected window was removed, switch to another or dismiss
-                if !newWindowIds.contains(selectedWindowId) {
-                    let windows = sessionWindows
-                    if let next = windows.first(where: \.isWindowActive) ?? windows.first {
-                        self.selectedWindowId = next.id
-                        activePaneId = next.activePane?.paneId ?? next.panes.first?.paneId
-                    } else {
-                        // Session is gone — navigate back to the session list
-                        dismiss()
-                    }
+        }
+
+        @MainActor
+        private func reconcileWindowSelection(
+            input: WindowSelectionReconciliationInput
+        ) async {
+            let decision = WindowSelectionReconciliation.resolve(
+                selectedWindowId: selectedWindowId,
+                candidates: input.candidates
+            )
+
+            switch decision {
+            case .unchanged:
+                return
+
+            case let .select(windowId, paneId):
+                selectedWindowId = windowId
+                activePaneId = paneId
+
+            case .confirmSessionMissing:
+                guard input.isHostConnected, input.hasReceivedState else { return }
+
+                do {
+                    // A create/select command can briefly publish an empty tmux
+                    // snapshot. Keep navigation stable until a subsequent
+                    // snapshot either restores the session or confirms its loss.
+                    try await Task.sleep(for: Self.missingSessionConfirmationDelay)
+                } catch {
+                    return
                 }
+
+                guard
+                    relayClient.isHostConnected,
+                    sessionStore.hasReceivedState(for: hostId),
+                    WindowSelectionReconciliation.resolve(
+                        selectedWindowId: selectedWindowId,
+                        candidates: windowSelectionCandidates
+                    ) == .confirmSessionMissing
+                else { return }
+
+                dismiss()
             }
         }
 
@@ -759,7 +802,9 @@
             Task {
                 let spec = KillTmuxSession(sessionName: sessionName)
                 let result = await relayClient.sendCommand(spec, paneId: "")
-                if case let .failure(error) = result {
+                if case .success = result {
+                    dismiss()
+                } else if case let .failure(error) = result {
                     commandError = error.localizedDescription
                 }
             }
