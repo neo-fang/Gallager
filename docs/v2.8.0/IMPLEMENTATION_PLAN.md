@@ -846,3 +846,37 @@ agent 必须保持原身份和进程不变。
   与 ping 通过，本地 session 可立即输入。
 - 聚焦测试、完整 Swift package、`git diff --check`、macOS Release 构建、DMG 校验及公网
   下载 checksum 全部通过；无新增 Swift 并发隔离或数据竞争告警。
+
+## Stage 26：主仓库可重现打包与可见构建标识
+
+### 目标
+
+将 macOS DMG 和 iOS IPA 的本地打包入口固定到主仓库及主仓库内的独立缓存，
+不再复用 DerivedData 或 SwiftPM 中指向已删 worktree 的依赖路径。两端界面同时展示
+语义版本、构建号、UTC 构建时间与 Git 短 revision，使真机验收能直接判断是否已更新。
+
+### 实施范围
+
+1. 增加共享的 `AppBuildInfo` 值类型，只从 bundle 标准版本字段和两个自定义 Info.plist
+   字段生成展示文本；macOS About 与 iOS Settings/About 复用同一实现。
+2. 时间戳与 Git revision 是编译期只读元数据。不改写 `MARKETING_VERSION`、
+   `CURRENT_PROJECT_VERSION` 或协议兼容版本，避免破坏 App Store、Sparkle 及 peer 版本比较。
+3. 提供零参数 macOS/iOS 本地打包脚本。脚本必须校验当前项目是 Git primary
+   worktree，否则立即失败；产物固定写入主仓库 `dist/`。
+4. DerivedData 与 cloned SourcePackages 固定在主仓库忽略目录 `.build-local/`；
+   Xcode 显式禁用全局 package repository cache，防止命中旧 worktree 镜像路径。
+5. iOS 脚本从已忽略的 `Config/Local.xcconfig` 及本机 provisioning profiles 自动完成
+   个人团队分层签名；不在仓库硬编码 team、bundle ID、证书 hash 或设备 ID。
+6. 现有 `release.sh` 和 `testflight.sh` 也复用主仓库校验、本地缓存路径及构建
+   元数据，不保留第二套默认 DerivedData 行为。
+
+### 验收标准
+
+- 在 feature worktree 运行打包脚本会在 Xcode 启动前明确拒绝；在主仓库运行时，
+  Xcode 命令中的 workspace、DerivedData、SourcePackages 和产物都在主仓库下。
+- 打包日志和产物不包含 `Gallager-worktrees`、已删 Stage 目录或其他 DerivedData 绝对路径。
+- Mac About 与 iOS Settings 显示完全相同的 `version (build) · timestamp · revision`；
+  未通过打包脚本构建时明确回退为标准 `version (build)`，不显示伪时间。
+- `AppBuildInfo` 聚焦测试覆盖完整元数据、缺少自定义字段及缺少标准版本字段。
+- 完整 Swift package 测试、macOS Release 打包、iOS 签名 IPA 打包、签名校验和两端
+  真机/本机界面验收通过。
