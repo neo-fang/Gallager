@@ -3,15 +3,15 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 1/6 tasks
+- **Progress**: 4/6 tasks
 - **Dependencies**: Stage 11 ✅, Stage 20 ✅
 
 ## Tasks
 
 - [x] 定位复制快照与系统粘贴的完整输入链路。
-- [ ] 使用 SwiftTerm 逻辑行导出替代逐行拼接。
-- [ ] 保留 bracketed-paste 起止序列及多行输入顺序。
-- [ ] 增加快照格式和输入解析聚焦测试。
+- [x] 使用 SwiftTerm 逻辑行导出替代逐行拼接。
+- [x] 保留 bracketed-paste 起止序列及多行输入顺序。
+- [x] 增加快照格式和输入解析聚焦测试。
 - [ ] 完成完整测试与 iOS device 构建。
 - [ ] 完成 iPhone 真机复制、粘贴验收。
 
@@ -30,3 +30,7 @@
 
 - 源码审计确认 SwiftTerm 粘贴会发送 bracketed-paste 起止序列；Gallager 当前将 200/201
   当作未知扩展键丢弃，正文中的 LF/CR 随后被解析为多个 `.enter`。
+- `TerminalTextSnapshotTests`：7 tests / 1 suite 通过，覆盖软换行、硬换行、空行、
+  scrollback、alternate buffer 和 Unicode。
+- `TmuxKeyCsiParsingTests`：16 tests / 1 suite 通过，确认 200/201 边界、多行正文与 Enter
+  顺序完整，其它未知 CSI 仍被丢弃。

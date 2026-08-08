@@ -32,6 +32,24 @@
             #expect(snapshot.text.contains("four"))
         }
 
+        @Test("Snapshot joins terminal-width soft wraps")
+        func softWraps() throws {
+            let (terminal, _) = makeTerminal(cols: 5, rows: 3)
+            terminal.feed(text: "abcdefgh")
+
+            let snapshot = try #require(TerminalTextSnapshot(terminal: terminal))
+            #expect(snapshot.text == "abcdefgh")
+        }
+
+        @Test("Snapshot preserves hard line breaks and blank lines")
+        func hardBreaksAndBlankLines() throws {
+            let (terminal, _) = makeTerminal(cols: 20, rows: 5)
+            terminal.feed(text: "one\r\n\r\nthree")
+
+            let snapshot = try #require(TerminalTextSnapshot(terminal: terminal))
+            #expect(snapshot.text == "one\n\nthree")
+        }
+
         @Test("Snapshot reads the active alternate buffer")
         func alternateBuffer() throws {
             let (terminal, _) = makeTerminal(cols: 20, rows: 3)
