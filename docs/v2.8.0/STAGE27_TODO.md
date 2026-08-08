@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 4/6 tasks
+- **Progress**: 5/6 tasks
 - **Dependencies**: Stage 26 ✅
 
 ## Tasks
@@ -12,7 +12,7 @@
 - [x] 提取并测试窗口选择/缺失状态决策。
 - [x] 将瞬时空 session 改为可取消的延迟确认。
 - [x] 让 App 内主动关闭 session 成功后显式返回。
-- [ ] 完成聚焦测试、完整测试和 iOS device build。
+- [x] 完成聚焦测试、完整测试和 iOS device build。
 - [ ] 安装真机验收，合入主仓库并清理 worktree。
 
 ## Root cause
@@ -28,3 +28,6 @@
 ## Verification
 
 - `WindowSelectionReconciliationTests`：6/6 通过。
+- Swift Package：1658 项测试、236 个测试集全部通过。
+- iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
+- `git diff --check`：通过。
