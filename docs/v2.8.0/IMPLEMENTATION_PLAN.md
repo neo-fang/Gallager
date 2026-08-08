@@ -733,3 +733,34 @@ terminal snapshot 恢复到最新状态，而不是永久回放已经过时的�
   多个独立提交。
 - 单行输入、Enter、方向键、鼠标 raw input、终端滚动和复制页焦点行为不回归。
 - 聚焦测试、完整 Swift package、`git diff --check` 与 iOS 构建通过，并完成真机验收。
+
+## Stage 23：iOS 终端双击宽字符选区
+
+### 目标
+
+修复 iOS 正常终端界面双击中文、Emoji 等双列字符时，触点落在字形右半格会命中续格，
+导致选区起点、范围或复制内容不准确的问题。保持现有滚动、链接、鼠标模式和复制页面
+行为不变。
+
+### 实施范围
+
+1. 在 SwiftTerm 的选择服务中识别双列字符的续格，将选词触点归一到其左侧字符本体；
+   不在 Gallager 手势层复制 SwiftTerm 的选词算法。
+2. 选词扫描读取续格时沿用所属双列字符，使连续中文仍按现有“字母/数字词”规则形成
+   一个范围；保留 ASCII、空白、括号表达式和拖动扩选语义。
+3. 不手工叠加内外 `UIScrollView` 的 `contentOffset`。UIKit 已把手势位置转换为终端内容
+   坐标，重复补偿会破坏滚动后的命中。
+4. 在 SwiftTerm fork 增加聚焦测试，覆盖点击双列字符左半格、右半续格、连续宽字符与
+   相邻 ASCII；更新 Gallager 的 SwiftTerm 固定 revision，并统一各入口的解析文件。
+5. 不新增手势识别器，不改变双击/三击映射，不修改 Relay、Host、tmux 或复制页面协议。
+6. 完成 SwiftTerm 聚焦测试、Gallager 完整 Swift package 测试、iOS device 构建和真机
+   双击验收。
+
+### 验收标准
+
+- 双击中文或其它双列字形的左右半边均命中同一个词，选区不再偏到续格或得到空文本。
+- 连续中文、中文与 ASCII 组合遵循现有选词规则；ASCII、空白和括号选区不回归。
+- 横向/纵向滚动后双击仍命中触点所在内容，链接单击、长按和 tmux mouse mode 不回归。
+- 复制页面、多行 bracketed paste、键盘显隐和终端输入行为不受影响。
+- SwiftTerm 聚焦测试、Gallager 完整测试、`git diff --check` 与 iOS device 构建通过，
+  并完成 iPhone 真机验收。
