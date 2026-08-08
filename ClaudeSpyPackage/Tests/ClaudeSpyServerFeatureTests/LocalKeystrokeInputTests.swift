@@ -237,9 +237,70 @@
 
             let sendKeysCalls = commands.value.filter { $0.contains("send-keys") }
             #expect(sendKeysCalls == [
-                ["send-keys", "-t", "%1", "-l", "choice"],
+                ["send-keys", "-t", "%1", "-l", "--", "choice"],
                 ["send-keys", "-t", "%1", "Enter"],
             ])
+        }
+
+        @Test("Process path terminates options before literal input")
+        func processPathTerminatesOptionsBeforeLiteralInput() async throws {
+            let commands = LockIsolated<[[String]]>([])
+            try await withDependencies {
+                $0[ProcessRunner.self].run = { @Sendable _, arguments, _, _ in
+                    commands.withValue { $0.append(arguments) }
+                    return ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
+                }
+            } operation: {
+                let tmux = TmuxService(tmuxPath: "/usr/bin/tmux")
+                let input = "sudo scutil --set HostName -n"
+                try await tmux.sendKeystrokes("%1", keys: TmuxKey.from(bytes: Data(input.utf8)))
+            }
+
+            let literalCalls = commands.value.filter { $0.contains("-l") }
+            #expect(literalCalls == [
+                ["send-keys", "-t", "%1", "-l", "--", "sudo"],
+                ["send-keys", "-t", "%1", "-l", "--", "scutil"],
+                ["send-keys", "-t", "%1", "-l", "--", "--set"],
+                ["send-keys", "-t", "%1", "-l", "--", "HostName"],
+                ["send-keys", "-t", "%1", "-l", "--", "-n"],
+            ])
+        }
+
+        @Test("Process path pastes leading hyphen arguments into an isolated tmux pane")
+        func processPathPastesLeadingHyphenArguments() async throws {
+            let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
+            let suffix = UUID().uuidString.lowercased()
+            let socketPath = "/tmp/gallager-paste-\(suffix.prefix(8)).sock"
+            let sessionName = "gallager-paste-\(suffix)"
+            defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+
+            try await withDependencies {
+                $0[ProcessRunner.self] = .liveValue
+            } operation: {
+                let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                let created = try await tmux.createSession(
+                    baseName: sessionName,
+                    width: 80,
+                    height: 24
+                )
+                let input = "sudo scutil --set HostName -n"
+
+                try await tmux.sendKeystrokes(
+                    created.paneId,
+                    keys: TmuxKey.from(bytes: Data(input.utf8))
+                )
+
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var content = ""
+                repeat {
+                    content = try await tmux.capturePaneText(created.paneId, scrollback: true)
+                    if content.contains(input) { break }
+                    await Task.yield()
+                } while ContinuousClock.now < deadline
+                #expect(content.contains(input))
+
+                try await tmux.killSession(created.sessionName)
+            }
         }
 
         private func killTmuxServer(tmuxPath: String, socketPath: String) {

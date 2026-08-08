@@ -1830,6 +1830,11 @@ final public class TmuxService {
         var args = ["send-keys", "-t", target]
         if literal {
             args.append("-l") // Disable key name lookup
+            // Literal input may itself begin with "-" (for example a pasted
+            // shell argument such as "--set"). Without an option terminator,
+            // tmux parses that user text as another send-keys flag and drops
+            // this and every later input batch after returning an error.
+            args.append("--")
         }
         args.append(escapeTmuxSemicolon(keys))
 
