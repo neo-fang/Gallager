@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 7/8 tasks
+- **Status**: ✅ Completed
+- **Progress**: 8/8 tasks
 - **Dependencies**: Stage 25 ✅
 
 ## Tasks
@@ -15,7 +15,7 @@
 - [x] 实现零参数 macOS DMG 与 iOS IPA 本地打包脚本。
 - [x] 将正式 macOS/TestFlight 脚本收敛到同一主仓库缓存和元数据路径。
 - [x] 完成聚焦测试、完整测试、shell 校验和两端构建。
-- [ ] 合入主仓库后从主仓库重新打包，完成本机 Mac 与 iPhone 验收。
+- [x] 合入主仓库后从主仓库重新打包，完成本机 Mac 与 iPhone 验收。
 
 ## Decisions
 
@@ -39,3 +39,9 @@
 - iOS generic device build 与 macOS signed Release build 均通过；两端产物中的构建
   时间戳和源码提交号均与构建参数一致。
 - 四个打包/发布入口在 Stage worktree 均于调用 Xcode 前正确拒绝执行。
+- 主仓库产物：`dist/Gallager-2.7-zengjice.dmg` 与
+  `dist/Gallager-2.7-zengjice.ipa`；两者签名和构建元数据校验均通过。
+- `.build-local` 全量文本扫描未发现旧 worktree 路径；SwiftPM workspace state
+  只引用主仓库和主仓库内的缓存目录。
+- 本机 Mac 已从新 DMG 升级并正常启动，升级前后 tmux session 集合一致。
+- 真机 iPhone 已成功安装 `com.zengjice.gallager.local`。
