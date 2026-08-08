@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/7 tasks
+- **Status**: ✅ Completed
+- **Progress**: 7/7 tasks
 - **Dependencies**: Stage 20 ✅, Stage 24 ✅
 
 ## Tasks
@@ -13,8 +13,8 @@
 - [x] 实现 actor 所有权内的 stdin close、TERM、bounded wait 与精确 PID KILL。
 - [x] 强化零参数安装脚本，保持 LaunchServices 启动和 tmux 非破坏边界。
 - [x] 完成隔离 tmux socket 的 session/pane/agent 身份不变集成测试。
-- [ ] 完成完整测试、macOS Release 构建、签名和本机更新验收。
-- [ ] 合入 `develop/v2.8.0`，更新固定名称 DMG 与公网安装文件。
+- [x] 完成完整测试、macOS Release 构建、签名和本机更新验收。
+- [x] 合入 `develop/v2.8.0`，更新固定名称 DMG 与公网安装文件。
 
 ## Decisions
 
@@ -41,3 +41,8 @@
 - 固定名称 `dist/Gallager-2.7-zengjice.dmg` CRC、只读挂载、Applications 链接、包内签名、
   metadata 和源产物哈希一致性通过；SHA-256 为
   `3afe6da3e8da6afb18daa66a7bafa571a8770193ab0b0c61cde2246decc5994e`。
+- 公网脚本与 DMG 流式下载哈希均和部署文件一致，Relay `/health` 返回 `{"status":"ok"}`。
+- 通过公网零参数脚本完成本机覆盖升级；更新前后三个 session/pane/pane PID 完全一致，
+  运行中的 Codex PID `62130` 未变化，CLI readiness 与 ping 通过。
+- 新 App 主进程 PPID 为 1，stdin/stdout/stderr 均为 `/dev/null`；安装后不存在 PPID 1 的
+  遗留 control client，已安装主程序哈希与 Release/DMG 产物一致。
