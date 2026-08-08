@@ -1,0 +1,33 @@
+# Stage 25 TODO：macOS 零中断更新与 control client 收敛
+
+## Stage Status
+
+- **Status**: 🟡 In Progress
+- **Progress**: 1/7 tasks
+- **Dependencies**: Stage 20 ✅, Stage 24 ✅
+
+## Tasks
+
+- [x] 审计 App 退出、tmux control client、安装脚本与 launchd 进程现场。
+- [ ] 增加 control client 确定性退出和进程身份竞态测试。
+- [ ] 实现 actor 所有权内的 stdin close、TERM、bounded wait 与精确 PID KILL。
+- [ ] 强化零参数安装脚本，保持 LaunchServices 启动和 tmux 非破坏边界。
+- [ ] 完成隔离 tmux socket 的 session/pane/agent 身份不变集成测试。
+- [ ] 完成完整测试、macOS Release 构建、签名和本机更新验收。
+- [ ] 合入 `develop/v2.8.0`，更新固定名称 DMG 与公网安装文件。
+
+## Decisions
+
+- tmux server/session/window/pane 及 pane 内 agent 不属于 App 子进程，任何退出与安装路径都
+  不得终止它们；只处理当前 `TmuxControlClient` actor 持有的精确 `Process`。
+- 不增加全局 `pkill tmux`、进程名扫尾、后台守护器或新配置项。进程终止以对象身份和有界
+  等待解决，避免 PID/连接代际竞态。
+- 退出期间 Viewer 可短暂断开；tmux 任务保持运行，新 App 通过既有发现与 capture 机制恢复。
+
+## Blockers
+
+- None.
+
+## Verification
+
+- Pending.

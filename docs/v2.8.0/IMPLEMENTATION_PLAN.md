@@ -809,3 +809,40 @@ Connecting 的问题。每次 Viewer 重连必须从干净的 stream 所有权�
   initial state 到达时立即呈现，不等待 command response 才显示。
 - 聚焦测试、完整 Swift package 测试、macOS Release 构建和 iOS device 构建通过；并发
   编译不引入 `Sendable`、actor isolation 或数据竞争告警。
+
+## Stage 25：macOS 零中断更新与 control client 收敛
+
+### 目标
+
+修复 Gallager 退出或脚本更新后，App 自己创建的 `tmux -C` control client 未完成退出而被
+reparent 给 launchd，进而让后续启动出现额外客户端、资源竞争或本地输入卡顿的问题。更新
+过程只能短暂断开 Viewer 和 App 的镜像链路，既有 tmux session、window、pane 及其中运行的
+agent 必须保持原身份和进程不变。
+
+### 实施范围
+
+1. `TmuxControlClient` 继续由 actor 独占 `Process`、stdin 和回调状态。断开时先停止读事件、
+   关闭 control stdin，再向该 actor 持有的精确子进程发送 `SIGTERM` 并有界等待；仅当同一
+   `Process` 仍存活时才对其 PID 发送 `SIGKILL`，不得使用进程名扫描或作用于 tmux server。
+2. termination handler 必须携带具体 `Process` 身份回到 actor。旧进程退出不得清空重连后
+   的新进程引用，不得重复完成命令 continuation 或触发错误连接的退出回调。
+3. App 总退出期限覆盖 pane pipe 清理和 control client 的有界退出，但保持硬上限；不以
+   无限等待、detached task、锁或第二套进程管理器掩盖生命周期缺陷。
+4. 公网零参数安装脚本继续通过 LaunchServices 启动 App，安装前优先请求正常退出。脚本
+   不执行 `tmux kill-server/kill-session/kill-window/kill-pane`，不修改用户 tmux 配置，也不
+   把关闭 tmux 会话作为失败恢复手段。
+5. 使用独立 tmux socket 做集成验收：记录 session ID、pane ID、pane PID 和 pane 内子进程
+   PID，断开 control client 及替换 App 后逐项比对；测试结束只销毁该测试 socket。
+6. 完成聚焦单元测试、完整 Swift package 测试、macOS Release 构建、签名 DMG 和公网安装
+   文件校验；发布前验证安装脚本与 DMG checksum 一致。
+
+### 验收标准
+
+- `disconnect()` 返回时其精确 control client 子进程已经退出；连续 connect/disconnect 不
+  遗留被 launchd 收养的 `tmux -C`，并且旧 termination handler 不破坏新连接。
+- App 正常退出、超时兜底和脚本升级均不调用任何 tmux 会话销毁命令；更新前后的 session
+  ID、pane ID、pane PID、agent PID 完全一致，pane 内容继续增长。
+- 更新完成后 App 由 LaunchServices 启动，stdio 不继承 `curl | bash` 管道；CLI readiness
+  与 ping 通过，本地 session 可立即输入。
+- 聚焦测试、完整 Swift package、`git diff --check`、macOS Release 构建、DMG 校验及公网
+  下载 checksum 全部通过；无新增 Swift 并发隔离或数据竞争告警。
