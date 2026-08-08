@@ -58,7 +58,6 @@
         var telemetry: SessionTelemetry?
 
         @Environment(ViewerRelayClient.self) private var relayClient
-        @Environment(\.dismiss) private var dismiss
         @State private var coordinator: StreamCoordinator
 
         /// Whether the terminal is in interactive mode (keyboard is showing)
@@ -226,8 +225,10 @@
                 // The slight state desync is preferable to breaking keyboard switching.
             }
             .onChange(of: coordinator.streamState) { _, newState in
-                if newState == .ended {
-                    dismiss()
+                if
+                    newState == .ended,
+                    coordinator.shouldRetryUnexpectedEnd(isConnected: isConnected) {
+                    streamRetryGeneration &+= 1
                 }
             }
             .onChange(of: coordinator.terminalTitle) { _, newTitle in
@@ -336,8 +337,7 @@
                 ProgressView("Connecting to terminal...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            case .streaming,
-                 .ended: // View auto-dismisses on stream end
+            case .streaming:
                 if let state = coordinator.terminalState {
                     // A presented copy sheet always wins over both toolbar and
                     // parent-controlled input. This prevents the underlying
@@ -361,6 +361,21 @@
                 } else {
                     ProgressView("Initializing terminal...")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+            case .ended:
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "Terminal Stream Ended",
+                        symbol: .exclamationmarkTriangle,
+                        description: "The pane still exists, but its terminal stream stopped."
+                    )
+
+                    Button("Reconnect") {
+                        streamRetryGeneration &+= 1
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isConnected)
                 }
 
             case .error:
@@ -544,6 +559,10 @@
 
         func nextStartMode() -> TerminalStreamRecoveryPolicy.StartMode {
             recoveryPolicy.nextStartMode()
+        }
+
+        func shouldRetryUnexpectedEnd(isConnected: Bool) -> Bool {
+            recoveryPolicy.shouldRetryUnexpectedEnd(isConnected: isConnected)
         }
 
         /// Starts a fresh attempt and invalidates callbacks from every earlier

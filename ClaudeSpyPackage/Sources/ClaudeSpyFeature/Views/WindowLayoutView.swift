@@ -10,8 +10,6 @@
     /// `LiveTerminalView` instances in the correct split arrangement,
     /// matching the macOS `WindowPaneLayoutView`.
     struct WindowLayoutView: View {
-        private static let missingSessionConfirmationDelay = Duration.seconds(2)
-
         let sessionName: String
         let hostId: String
         let relayClient: ViewerRelayClient
@@ -94,14 +92,6 @@
                     isActive: window.isWindowActive
                 )
             }
-        }
-
-        private var windowSelectionInput: WindowSelectionReconciliationInput {
-            WindowSelectionReconciliationInput(
-                candidates: windowSelectionCandidates,
-                isHostConnected: relayClient.isHostConnected,
-                hasReceivedState: sessionStore.hasReceivedState(for: hostId)
-            )
         }
 
         /// The current window data from the session store
@@ -371,8 +361,8 @@
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
-            .task(id: windowSelectionInput) {
-                await reconcileWindowSelection(input: windowSelectionInput)
+            .task(id: windowSelectionCandidates) {
+                reconcileWindowSelection(candidates: windowSelectionCandidates)
             }
             .onChange(of: activeService?.session?.state) {
                 if activeSessionHasBlockingForm {
@@ -406,13 +396,10 @@
             }
         }
 
-        @MainActor
-        private func reconcileWindowSelection(
-            input: WindowSelectionReconciliationInput
-        ) async {
+        private func reconcileWindowSelection(candidates: [WindowSelectionCandidate]) {
             let decision = WindowSelectionReconciliation.resolve(
                 selectedWindowId: selectedWindowId,
-                candidates: input.candidates
+                candidates: candidates
             )
 
             switch decision {
@@ -422,29 +409,6 @@
             case let .select(windowId, paneId):
                 selectedWindowId = windowId
                 activePaneId = paneId
-
-            case .confirmSessionMissing:
-                guard input.isHostConnected, input.hasReceivedState else { return }
-
-                do {
-                    // A create/select command can briefly publish an empty tmux
-                    // snapshot. Keep navigation stable until a subsequent
-                    // snapshot either restores the session or confirms its loss.
-                    try await Task.sleep(for: Self.missingSessionConfirmationDelay)
-                } catch {
-                    return
-                }
-
-                guard
-                    relayClient.isHostConnected,
-                    sessionStore.hasReceivedState(for: hostId),
-                    WindowSelectionReconciliation.resolve(
-                        selectedWindowId: selectedWindowId,
-                        candidates: windowSelectionCandidates
-                    ) == .confirmSessionMissing
-                else { return }
-
-                dismiss()
             }
         }
 

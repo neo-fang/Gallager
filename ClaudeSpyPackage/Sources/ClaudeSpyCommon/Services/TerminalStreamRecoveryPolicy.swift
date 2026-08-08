@@ -17,6 +17,7 @@ package struct TerminalStreamRecoveryPolicy: Equatable {
     }
 
     package private(set) var hasRequestedStream = false
+    package private(set) var hasRetriedUnexpectedEnd = false
 
     package init() { }
 
@@ -25,11 +26,25 @@ package struct TerminalStreamRecoveryPolicy: Equatable {
         return hasRequestedStream ? .replaceExisting : .initial
     }
 
+    /// Allows one automatic replacement when an established stream ends while
+    /// its viewer is still connected. Further ends require an explicit retry,
+    /// preventing a broken host from creating an unbounded command loop.
+    package mutating func shouldRetryUnexpectedEnd(isConnected: Bool) -> Bool {
+        guard isConnected, !hasRetriedUnexpectedEnd else { return false }
+        hasRetriedUnexpectedEnd = true
+        return true
+    }
+
     package static func resolveSuccessfulStart(
         hasInitialState: Bool,
         canRetry: Bool
     ) -> SuccessfulStartResolution {
-        if hasInitialState { return .ready }
-        return canRetry ? .retryReplacement : .failMissingInitialState
+        if hasInitialState {
+            return .ready
+        } else if canRetry {
+            return .retryReplacement
+        } else {
+            return .failMissingInitialState
+        }
     }
 }

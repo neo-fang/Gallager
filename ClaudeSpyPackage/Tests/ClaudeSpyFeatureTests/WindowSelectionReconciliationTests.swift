@@ -73,13 +73,13 @@ struct WindowSelectionReconciliationTests {
         )
     }
 
-    @Test("Empty state with a prior selection requires confirmation")
+    @Test("Empty state with a prior selection preserves navigation")
     func transientEmptyState() {
         #expect(
             WindowSelectionReconciliation.resolve(
                 selectedWindowId: "@1",
                 candidates: []
-            ) == .confirmSessionMissing
+            ) == .unchanged
         )
     }
 
