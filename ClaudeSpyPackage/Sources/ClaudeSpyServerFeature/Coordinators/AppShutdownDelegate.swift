@@ -41,7 +41,7 @@
         /// which doesn't see Swift default arguments — so we need an explicit
         /// zero-arg initializer.
         public override init() {
-            self.shutdownTimeout = .seconds(3)
+            self.shutdownTimeout = .seconds(5)
             super.init()
         }
 
