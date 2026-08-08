@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 19 ✅, Stage 22 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 修复续格归一与连续宽字符选词扫描。
 - [x] 更新并统一 Gallager 的 SwiftTerm 固定 revision。
 - [x] 完成聚焦测试、完整测试与 iOS device 构建。
-- [ ] 完成 iPhone 真机双击选区验收。
+- [x] 完成 iPhone 真机双击选区验收。
 
 ## Decisions
 
@@ -35,5 +35,6 @@
 - SwiftTerm fork commit `0a664be86b78d0d16bb1dbd5ae5020f6e353070c` 已推送，Gallager
   `Package.swift` 与三个 `Package.resolved` 已统一固定到该 revision。
 - SwiftTerm：457 tests / 39 suites 通过；Gallager：1,642 tests / 232 suites 通过。
-- iPhoneOS generic device 无签名构建通过，产物为 `Gallager.app`；真机当前在
-  `devicectl` 中显示 unavailable，待设备恢复连接后覆盖安装验收。
+- iPhoneOS generic device 无签名构建通过；随后使用个人开发团队证书完成真机
+  签名、深度签名校验及覆盖安装。iPhone 验收中文、Emoji、滚动后双击命中与既有
+  英文选词均通过。
