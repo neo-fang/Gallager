@@ -314,12 +314,25 @@ struct TmuxKeyCsiParsingTests {
         #expect(TmuxKey.from(bytes: data) == [.shiftEnter])
     }
 
+    @Test("Bracketed paste boundaries and multiline content retain order")
+    func bracketedPasteRetainsOrder() {
+        let input = "\u{1B}[200~first\nsecond\u{1B}[201~"
+        let keys = TmuxKey.from(bytes: Data(input.utf8))
+
+        #expect(keys == [
+            .text("\u{1B}[200~"),
+            .text("first"),
+            .enter,
+            .text("second"),
+            .text("\u{1B}[201~"),
+        ])
+    }
+
     @Test("Unknown CSI sequence produces no garbage output")
     func unknownCsiProducesNoGarbage() {
-        // ESC [ 200 ~ — bracketed paste start (unknown extended key)
-        let data = Data([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E])
-        let keys = TmuxKey.from(bytes: data)
-        #expect(keys.isEmpty)
+        // ESC [ 999 ~ — unsupported extended key
+        let data = Data([0x1B, 0x5B, 0x39, 0x39, 0x39, 0x7E])
+        #expect(TmuxKey.from(bytes: data).isEmpty)
     }
 
     @Test("Unrecognized CSI final byte produces no garbage")

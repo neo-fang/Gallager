@@ -316,6 +316,14 @@ private extension TmuxKey {
             case 3: return CsiParseResult(keys: [.delete], nextIndex: nextIndex)
             case 5: return CsiParseResult(keys: [.pageUp], nextIndex: nextIndex)
             case 6: return CsiParseResult(keys: [.pageDown], nextIndex: nextIndex)
+            // SwiftTerm emits these around a system paste when the target has
+            // enabled bracketed-paste mode. They are terminal input, not keys;
+            // preserve the exact bytes so newlines inside the paste are not
+            // interpreted as independent Enter submissions.
+            case 200 where params.count == 1:
+                return CsiParseResult(keys: [.text("\u{1B}[200~")], nextIndex: nextIndex)
+            case 201 where params.count == 1:
+                return CsiParseResult(keys: [.text("\u{1B}[201~")], nextIndex: nextIndex)
             default:
                 // Unknown extended key — consume the sequence silently
                 return CsiParseResult(keys: [], nextIndex: nextIndex)

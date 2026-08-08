@@ -12,18 +12,24 @@
 
         @MainActor
         init?(terminal: Terminal) {
-            var lines: [String] = []
+            var lineCount = 0
             var row = terminal.buffer.totalLinesTrimmed
 
-            while let line = terminal.getScrollInvariantLine(row: row) {
-                lines.append(line.translateToString(
-                    trimRight: true,
-                    skipNullCellsFollowingWide: true
-                ))
+            while terminal.getScrollInvariantLine(row: row) != nil {
+                lineCount += 1
                 row += 1
             }
 
-            var text = lines.joined(separator: "\n")
+            guard lineCount > 0 else { return nil }
+
+            // SwiftTerm's selection exporter already knows which buffer rows are
+            // soft-wrapped continuations. Reusing it preserves hard line breaks
+            // and blank lines without turning every terminal-width wrap into a
+            // newline or exposing BufferLine's internal isWrapped flag.
+            var text = terminal.getText(
+                start: Position(col: 0, row: 0),
+                end: Position(col: terminal.cols, row: lineCount - 1)
+            )
 
             while text.last?.isNewline == true {
                 text.removeLast()
