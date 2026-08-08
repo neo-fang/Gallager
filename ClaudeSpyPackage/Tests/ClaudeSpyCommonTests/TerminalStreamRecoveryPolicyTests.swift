@@ -19,4 +19,25 @@ struct TerminalStreamRecoveryPolicyTests {
         #expect(policy.nextStartMode() == .replaceExisting)
         #expect(policy.nextStartMode() == .replaceExisting)
     }
+
+    @Test("A successful start without initial state retries once")
+    func missingInitialStateRecoveryIsBounded() {
+        let first = TerminalStreamRecoveryPolicy.resolveSuccessfulStart(
+            hasInitialState: false,
+            canRetry: true
+        )
+        let second = TerminalStreamRecoveryPolicy.resolveSuccessfulStart(
+            hasInitialState: false,
+            canRetry: false
+        )
+
+        #expect(first == .retryReplacement)
+        #expect(second == .failMissingInitialState)
+        #expect(
+            TerminalStreamRecoveryPolicy.resolveSuccessfulStart(
+                hasInitialState: true,
+                canRetry: true
+            ) == .ready
+        )
+    }
 }

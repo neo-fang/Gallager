@@ -2977,6 +2977,9 @@
                 connectionManager: connectionManager,
                 paneStreamManager: paneStreamManager
             )
+            connectionManager.onViewerUnavailable = { [weak terminalStreamService] viewerId in
+                await terminalStreamService?.stopStreams(for: viewerId)
+            }
 
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
             let notificationService = terminalNotificationService

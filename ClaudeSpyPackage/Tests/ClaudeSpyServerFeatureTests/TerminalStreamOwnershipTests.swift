@@ -66,6 +66,34 @@
     @Suite("Terminal stream fixed-cadence batching")
     @MainActor
     struct TerminalStreamBatchingTests {
+        @Test("Disconnecting one viewer preserves other viewers and panes")
+        func viewerDisconnectOnlyReleasesItsOwnership() async {
+            let sender = CapturingTerminalStreamSender()
+            let shared = StreamContext(paneId: "%1", viewerId: "viewer-a")
+            shared.beginBootstrap(for: "viewer-b")
+            shared.finishBootstrap(for: "viewer-a")
+            shared.finishBootstrap(for: "viewer-b")
+            let exclusive = StreamContext(paneId: "%2", viewerId: "viewer-a")
+            exclusive.finishBootstrap(for: "viewer-a")
+            let unrelated = StreamContext(paneId: "%3", viewerId: "viewer-c")
+            unrelated.finishBootstrap(for: "viewer-c")
+            let service = TerminalStreamService(
+                streamSender: sender,
+                activeStreams: [
+                    "%1": shared,
+                    "%2": exclusive,
+                    "%3": unrelated,
+                ]
+            )
+
+            await service.stopStreams(for: "viewer-a")
+
+            #expect(Set(service.streamingPaneIds) == ["%1", "%3"])
+            #expect(!shared.ownership.contains("viewer-a"))
+            #expect(shared.ownership.contains("viewer-b"))
+            #expect(unrelated.ownership.contains("viewer-c"))
+        }
+
         @Test("Later chunks keep the first scheduled deadline")
         func continuousChunksDoNotReschedule() {
             let service = TerminalStreamService()
@@ -262,6 +290,33 @@
             #expect(sender.dataDeliveries[0].data == fresh)
             #expect(sender.dataDeliveries[0].recipients == ["viewer-a"])
             #expect(context.takeBootstrapData(for: "viewer-b") == fresh)
+        }
+
+        @Test("Only slow bootstraps cross the warning threshold")
+        func bootstrapTraceThreshold() {
+            let fast = TerminalBootstrapTrace(
+                paneId: "%1",
+                viewerId: "viewer-a",
+                captureMilliseconds: 120,
+                initialPayloadBytes: 42_000,
+                queueDepth: 0,
+                oldestQueueWaitMilliseconds: 0,
+                initialSendMilliseconds: 80,
+                totalMilliseconds: 240
+            )
+            let slow = TerminalBootstrapTrace(
+                paneId: "%1",
+                viewerId: "viewer-a",
+                captureMilliseconds: 120,
+                initialPayloadBytes: 42_000,
+                queueDepth: 3,
+                oldestQueueWaitMilliseconds: 900,
+                initialSendMilliseconds: 1_100,
+                totalMilliseconds: 1_350
+            )
+
+            #expect(!fast.isSlow)
+            #expect(slow.isSlow)
         }
 
     }

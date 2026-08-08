@@ -21,9 +21,48 @@ protocol TerminalStreamSending: AnyObject {
         _ streamMessage: TerminalStreamMessage,
         to viewerIds: Set<String>
     ) async
+
+    func terminalSendQueueSnapshot(for viewerId: String) -> TerminalSendQueueSnapshot
+}
+
+extension TerminalStreamSending {
+    func terminalSendQueueSnapshot(for viewerId: String) -> TerminalSendQueueSnapshot {
+        .empty
+    }
 }
 
 extension ConnectedViewerManager: TerminalStreamSending { }
+
+struct TerminalBootstrapTrace: Equatable, Sendable {
+    static let warningThresholdMilliseconds = 1_000
+
+    let paneId: String
+    let viewerId: String
+    let captureMilliseconds: Int
+    let initialPayloadBytes: Int
+    let queueDepth: Int
+    let oldestQueueWaitMilliseconds: Int
+    let initialSendMilliseconds: Int
+    let totalMilliseconds: Int
+
+    var isSlow: Bool {
+        totalMilliseconds >= Self.warningThresholdMilliseconds
+    }
+
+    func logIfSlow(to logger: Logger) {
+        guard isSlow else { return }
+        logger.warning("Slow terminal bootstrap", metadata: [
+            "paneId": "\(paneId)",
+            "viewerId": "\(viewerId)",
+            "captureMs": "\(captureMilliseconds)",
+            "initialBytes": "\(initialPayloadBytes)",
+            "queueDepth": "\(queueDepth)",
+            "oldestQueueWaitMs": "\(oldestQueueWaitMilliseconds)",
+            "initialSendMs": "\(initialSendMilliseconds)",
+            "totalMs": "\(totalMilliseconds)",
+        ])
+    }
+}
 
 // MARK: - Terminal Stream Service
 
@@ -79,8 +118,12 @@ final public class TerminalStreamService {
 
     public init() { }
 
-    init(streamSender: any TerminalStreamSending) {
+    init(
+        streamSender: any TerminalStreamSending,
+        activeStreams: [String: StreamContext] = [:]
+    ) {
         self.streamSender = streamSender
+        self.activeStreams = activeStreams
     }
 
     /// Configure the service with required dependencies for multi-device support.
@@ -124,6 +167,8 @@ final public class TerminalStreamService {
         target: String,
         viewerId: String
     ) async throws {
+        let bootstrapStart = ContinuousClock.now
+
         guard let streamSender else {
             logger.error("Connection manager not configured, cannot start streaming")
             throw StreamError.notConfigured
@@ -140,6 +185,7 @@ final public class TerminalStreamService {
         if let context = activeStreams[paneId] {
             context.beginBootstrap(for: viewerId)
 
+            let captureStart = ContinuousClock.now
             guard let current = await paneStreamManager.currentContent(for: paneId) else {
                 logger.error("Failed to capture content for existing stream", metadata: [
                     "paneId": "\(paneId)",
@@ -147,6 +193,9 @@ final public class TerminalStreamService {
                 await stopStreaming(paneId: paneId, force: true)
                 throw StreamError.paneNotAvailable
             }
+            let captureMilliseconds = Self.milliseconds(
+                captureStart.duration(to: ContinuousClock.now)
+            )
 
             guard let activeContext = activeStreams[paneId], activeContext === context else {
                 throw StreamError.paneNotAvailable
@@ -157,16 +206,31 @@ final public class TerminalStreamService {
                 "subscriberCount": "\(context.ownership.count)",
             ])
 
-            let initialMessage = await makeInitialStateMessage(
+            let initial = await makeInitialStateMessage(
                 paneId: paneId,
                 width: current.width,
                 height: current.height,
                 content: current.content,
                 paneStreamManager: paneStreamManager
             )
-            await streamSender.sendTerminalStream(initialMessage, to: [viewerId])
+            let queue = streamSender.terminalSendQueueSnapshot(for: viewerId)
+            let initialSendStart = ContinuousClock.now
+            await streamSender.sendTerminalStream(initial.message, to: [viewerId])
+            let initialSendMilliseconds = Self.milliseconds(
+                initialSendStart.duration(to: ContinuousClock.now)
+            )
 
             try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
+
+            logBootstrapIfSlow(
+                paneId: paneId,
+                viewerId: viewerId,
+                captureMilliseconds: captureMilliseconds,
+                initialPayloadBytes: initial.payloadBytes,
+                queue: queue,
+                initialSendMilliseconds: initialSendMilliseconds,
+                bootstrapStart: bootstrapStart
+            )
 
             // Live title callbacks exclude bootstrapping viewers. Send the
             // latest cached title after the viewer joins the ready set.
@@ -204,6 +268,7 @@ final public class TerminalStreamService {
 
         // Subscribe to PaneStreamManager for data
         // This returns initial content captured atomically with the subscription
+        let captureStart = ContinuousClock.now
         let result: PaneStreamManager.SubscriptionResult
         do {
             result = try await paneStreamManager.subscribe(
@@ -259,6 +324,9 @@ final public class TerminalStreamService {
             activeStreams.removeValue(forKey: paneId)
             throw error
         }
+        let captureMilliseconds = Self.milliseconds(
+            captureStart.duration(to: ContinuousClock.now)
+        )
 
         context.subscriptionId = result.subscriptionId
         if inputBuffer.isAwaitingSnapshot {
@@ -273,14 +341,19 @@ final public class TerminalStreamService {
 
         // Send the initial snapshot only to the requesting viewer. The ordered
         // consumer retains capture-time data in that viewer's bootstrap buffer.
-        let initialMessage = await makeInitialStateMessage(
+        let initial = await makeInitialStateMessage(
             paneId: paneId,
             width: result.width,
             height: result.height,
             content: result.initialContent,
             paneStreamManager: paneStreamManager
         )
-        await streamSender.sendTerminalStream(initialMessage, to: [viewerId])
+        let queue = streamSender.terminalSendQueueSnapshot(for: viewerId)
+        let initialSendStart = ContinuousClock.now
+        await streamSender.sendTerminalStream(initial.message, to: [viewerId])
+        let initialSendMilliseconds = Self.milliseconds(
+            initialSendStart.duration(to: ContinuousClock.now)
+        )
 
         guard let activeContext = activeStreams[paneId], activeContext === context else {
             inputBuffer.finish()
@@ -292,6 +365,16 @@ final public class TerminalStreamService {
         // command response emitted by AppCoordinator is therefore a real ready
         // acknowledgement rather than merely "initialState was queued".
         try await finishBootstrap(for: viewerId, context: context, paneId: paneId)
+
+        logBootstrapIfSlow(
+            paneId: paneId,
+            viewerId: viewerId,
+            captureMilliseconds: captureMilliseconds,
+            initialPayloadBytes: initial.payloadBytes,
+            queue: queue,
+            initialSendMilliseconds: initialSendMilliseconds,
+            bootstrapStart: bootstrapStart
+        )
 
         if let title = paneStreamManager.terminalTitle(for: paneId) {
             let titleMessage = TerminalStreamMessage.titleChange(paneId: paneId, title: title)
@@ -419,10 +502,43 @@ final public class TerminalStreamService {
         height: Int,
         content: Data,
         paneStreamManager: PaneStreamManager
-    ) async -> TerminalStreamMessage {
+    ) async -> (message: TerminalStreamMessage, payloadBytes: Int) {
         var payload = content
         payload.append(await paneStreamManager.mouseModeSequences(for: paneId))
-        return .initialState(paneId: paneId, width: width, height: height, content: payload)
+        return (
+            .initialState(paneId: paneId, width: width, height: height, content: payload),
+            payload.count
+        )
+    }
+
+    private func logBootstrapIfSlow(
+        paneId: String,
+        viewerId: String,
+        captureMilliseconds: Int,
+        initialPayloadBytes: Int,
+        queue: TerminalSendQueueSnapshot,
+        initialSendMilliseconds: Int,
+        bootstrapStart: ContinuousClock.Instant
+    ) {
+        TerminalBootstrapTrace(
+            paneId: paneId,
+            viewerId: viewerId,
+            captureMilliseconds: captureMilliseconds,
+            initialPayloadBytes: initialPayloadBytes,
+            queueDepth: queue.depth,
+            oldestQueueWaitMilliseconds: queue.oldestWaitMilliseconds,
+            initialSendMilliseconds: initialSendMilliseconds,
+            totalMilliseconds: Self.milliseconds(
+                bootstrapStart.duration(to: ContinuousClock.now)
+            )
+        ).logIfSlow(to: logger)
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Int {
+        let components = duration.components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        return max(0, Int(milliseconds))
     }
 
     /// Errors that can occur during streaming
@@ -509,6 +625,17 @@ final public class TerminalStreamService {
         guard let streamSender else { return }
         let endMessage = TerminalStreamMessage.streamEnd(paneId: paneId)
         await streamSender.sendTerminalStream(endMessage, to: endRecipients)
+    }
+
+    /// Releases every stream owned by one unavailable viewer without touching
+    /// subscriptions that still have another viewer.
+    public func stopStreams(for viewerId: String) async {
+        let paneIds = activeStreams.compactMap { paneId, context in
+            context.ownership.contains(viewerId) ? paneId : nil
+        }
+        for paneId in paneIds {
+            await stopStreaming(paneId: paneId, viewerId: viewerId)
+        }
     }
 
     /// Stop all active streams.

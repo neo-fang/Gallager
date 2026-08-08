@@ -71,6 +71,9 @@ final public class ConnectedViewerManager {
     /// `onViewerConnected` hook (spec §7.2).
     public var presentationsProvider: (@MainActor @Sendable () async -> [PluginPresentation])?
 
+    /// Called when one viewer becomes unavailable. Other viewers remain active.
+    public var onViewerUnavailable: (@MainActor @Sendable (String) async -> Void)?
+
     // MARK: - Computed Properties
 
     /// All active connections
@@ -301,11 +304,16 @@ final public class ConnectedViewerManager {
             for viewerId in viewerIds {
                 guard
                     let connection = connections[viewerId],
-                    connection.state.isConnected
+                    connection.state.isConnected,
+                    connection.isViewerConnected
                 else { continue }
                 group.addTask { await connection.sendTerminalStream(streamMessage) }
             }
         }
+    }
+
+    func terminalSendQueueSnapshot(for viewerId: String) -> TerminalSendQueueSnapshot {
+        connections[viewerId]?.terminalSendQueueSnapshot ?? .empty
     }
 
     /// Push session state to all connected viewers.
@@ -413,6 +421,10 @@ final public class ConnectedViewerManager {
             guard let self, let connection else { return }
             let presentations = await self.presentationsProvider?() ?? []
             await connection.sendPluginPresentations(presentations)
+        }
+
+        connection.onViewerUnavailable = { [weak self, viewerId] in
+            await self?.onViewerUnavailable?(viewerId)
         }
     }
 }
