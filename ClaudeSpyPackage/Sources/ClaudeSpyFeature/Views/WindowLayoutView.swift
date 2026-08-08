@@ -96,6 +96,14 @@
             }
         }
 
+        private var windowSelectionInput: WindowSelectionReconciliationInput {
+            WindowSelectionReconciliationInput(
+                candidates: windowSelectionCandidates,
+                isHostConnected: relayClient.isHostConnected,
+                hasReceivedState: sessionStore.hasReceivedState(for: hostId)
+            )
+        }
+
         /// The current window data from the session store
         private var window: TmuxWindow? {
             if let selectedWindowId {
@@ -363,8 +371,8 @@
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
-            .task(id: windowSelectionCandidates) {
-                await reconcileWindowSelection()
+            .task(id: windowSelectionInput) {
+                await reconcileWindowSelection(input: windowSelectionInput)
             }
             .onChange(of: activeService?.session?.state) {
                 if activeSessionHasBlockingForm {
@@ -399,10 +407,12 @@
         }
 
         @MainActor
-        private func reconcileWindowSelection() async {
+        private func reconcileWindowSelection(
+            input: WindowSelectionReconciliationInput
+        ) async {
             let decision = WindowSelectionReconciliation.resolve(
                 selectedWindowId: selectedWindowId,
-                candidates: windowSelectionCandidates
+                candidates: input.candidates
             )
 
             switch decision {
@@ -414,10 +424,7 @@
                 activePaneId = paneId
 
             case .confirmSessionMissing:
-                guard
-                    relayClient.isHostConnected,
-                    sessionStore.hasReceivedState(for: hostId)
-                else { return }
+                guard input.isHostConnected, input.hasReceivedState else { return }
 
                 do {
                     // A create/select command can briefly publish an empty tmux

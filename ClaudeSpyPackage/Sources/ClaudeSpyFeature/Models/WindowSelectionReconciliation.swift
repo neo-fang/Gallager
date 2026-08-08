@@ -4,6 +4,12 @@ struct WindowSelectionCandidate: Equatable, Hashable, Sendable {
     let isActive: Bool
 }
 
+struct WindowSelectionReconciliationInput: Equatable, Hashable, Sendable {
+    let candidates: [WindowSelectionCandidate]
+    let isHostConnected: Bool
+    let hasReceivedState: Bool
+}
+
 enum WindowSelectionReconciliation: Equatable, Sendable {
     case unchanged
     case select(windowId: String, paneId: String?)
