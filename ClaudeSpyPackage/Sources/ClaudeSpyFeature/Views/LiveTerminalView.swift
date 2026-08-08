@@ -67,6 +67,9 @@
         /// Tracks keyboard visibility to label the bottom input control and trigger layout updates
         @State private var keyboardVisible = false
 
+        /// Bottom system gesture inset before this view adds its keyboard bar.
+        @State private var bottomSafeAreaInset: CGFloat = 0
+
         /// Changes when the user manually retries a failed stream. Combined with
         /// `isConnected`, this gives the stream task a stable, explicit identity.
         @State private var streamRetryGeneration = 0
@@ -158,11 +161,17 @@
                         }
                     }
             }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.safeAreaInsets.bottom
+            } action: { newValue in
+                bottomSafeAreaInset = newValue
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if showKeyboardButton, settings.terminalKeyboardControlPosition == .bottomBar {
                     TerminalKeyboardBar(
                         keyboardVisible: keyboardVisible,
                         isEnabled: isConnected && coordinator.streamState == .streaming,
+                        bottomSafeAreaInset: bottomSafeAreaInset,
                         action: { isInteractive.toggle() }
                     )
                 }

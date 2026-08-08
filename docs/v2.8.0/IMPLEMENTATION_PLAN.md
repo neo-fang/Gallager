@@ -677,8 +677,9 @@ terminal snapshot 恢复到最新状态，而不是永久回放已经过时的�
 
 ### 目标
 
-将 iOS 终端页可选的底部键盘按钮栏从约 56pt 压缩到约 28pt，减少对终端可视区域的
-占用。保持按钮位置设置、键盘显隐、禁用状态及单 pane/多 pane 行为不变。
+将 iOS 终端页可选的底部键盘按钮栏从约 56pt 压缩到约 28pt，并回收 Home Indicator
+上方部分空白，减少对终端可视区域的占用。保持按钮位置设置、键盘显隐、禁用状态及
+单 pane/多 pane 行为不变。
 
 ### 实施范围
 
@@ -690,10 +691,14 @@ terminal snapshot 恢复到最新状态，而不是永久回放已经过时的�
    键盘上方，不手工计算键盘或安全区高度。
 5. 不修改 `terminalKeyboardControlPosition` 设置、relay/host 协议、输入状态机、复制
    sheet 或终端滚动逻辑。
+6. 键盘隐藏时根据实际 bottom safe-area inset 最多回收 16pt，同时至少保留一半系统
+   手势区；键盘显示时不回收，无 Home Indicator 的设备也不应用负 padding。
 
 ### 验收标准
 
 - `Bottom Bar` 模式的可见高度约 28pt，不超过原约 56pt 的一半。
 - `Input` 与 `Hide Keyboard` 状态切换、断线禁用及设置即时切换行为不回归。
 - 单 pane 与多 pane 页面呈现一致；`Top Right` 模式完全不受影响。
+- Home Indicator 设备的底部空白明显减少但按钮不压住系统手势区；键盘显示及无
+  Home Indicator 设备不发生下沉或裁切。
 - `git diff --check` 与 iOS 构建通过，并在真机确认按钮可点击且终端可视区域明显增加。
