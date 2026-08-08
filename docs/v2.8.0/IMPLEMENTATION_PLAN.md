@@ -764,3 +764,48 @@ terminal snapshot 恢复到最新状态，而不是永久回放已经过时的�
 - 复制页面、多行 bracketed paste、键盘显隐和终端输入行为不受影响。
 - SwiftTerm 聚焦测试、Gallager 完整测试、`git diff --check` 与 iOS device 构建通过，
   并完成 iPhone 真机验收。
+
+## Stage 24：Viewer 断线清理与终端首帧恢复
+
+### 目标
+
+修复 Viewer 断线、Host→Relay 连接重建或 WebSocket 发送失败后，Host 仍保留旧 terminal
+stream、旧发送 Task 越过重连边界继续工作，以及 iOS 在缺失 initial state 时永久停留在
+Connecting 的问题。每次 Viewer 重连必须从干净的 stream 所有权和发送代际开始，且慢首帧
+能够通过一次性诊断日志定位，不依赖扩大缓冲区或重排终端字节。
+
+### 实施范围
+
+1. 将 Viewer presence 断线和 Host→Relay 连接失效事件传递给
+   `TerminalStreamService`；增加按 viewer ID 清理所有 stream 的窄接口，只移除该 Viewer
+   的所有权，其他 Viewer 与 pane subscription 按现有引用语义保留。
+2. Host 仅在 Relay WebSocket 和目标 Viewer 均已完成 peer handshake 时发送 terminal
+   stream；离线阶段不得继续构造 Base64、E2EE payload 或 WebSocket frame。
+3. 为 `ConnectedViewer` 的加密发送队列和 fire-and-forget 命令链增加单调 connection
+   generation。连接或 Viewer presence 失效时推进代际并断开 chain head；旧 Task 在等待
+   前序任务后必须再次校验代际，禁止在新 WebSocket 上发送旧帧或执行旧输入。
+4. WebSocket send 失败必须立即使当前连接失效、取消 socket，并复用现有 receive-loop
+   重连流程；不得只记录错误后向上层表现为成功，也不得并行启动第二套重连任务。
+5. 为每次 terminal bootstrap 记录 capture、initial payload、发送队列深度与最老等待时间、
+   initial send 和总耗时。正常路径不写逐次日志；仅超过固定慢路径阈值时输出一条聚合
+   warning，热路径继续使用现有窗口指标。
+6. iOS 在 Start command 返回成功但当前 attempt 仍未收到 initial state 时，将该 attempt
+   判为失败并进入现有的一次 replacement retry；第二次仍失败则展示明确错误，不无限
+   停留在 Connecting。
+7. 保持现有 WebSocket/E2EE/terminal stream 消息格式、8KiB/16ms 实时批处理、snapshot
+   resync 和多 pane 行为；不增加发送优先级、无界缓冲、固定静默等待或新配置项。
+
+### 验收标准
+
+- 一个 Viewer 断线只清理它在所有 pane 上的 stream 所有权；其他 Viewer 继续收到原有
+  增量流，最后一个 Viewer 离开时底层 pane subscription 正常释放。
+- Viewer 离线期间 Host 不编码、加密或发送 terminal stream；重连后旧 generation 的
+  terminal frame 和 fire-and-forget 命令均不会进入新连接。
+- WebSocket send 失败使连接立即进入既有重连状态，不等待 ping watchdog 或 15 秒命令
+  超时才发现半开连接。
+- 正常 bootstrap 不增加日志噪声；慢路径 warning 在一行内包含 pane、viewer、首帧大小、
+  capture/queue/send/total 耗时与发送队列状态。
+- iOS 缺失 initial state 时最多执行一次 replacement retry，之后显示错误；正常首帧仍在
+  initial state 到达时立即呈现，不等待 command response 才显示。
+- 聚焦测试、完整 Swift package 测试、macOS Release 构建和 iOS device 构建通过；并发
+  编译不引入 `Sendable`、actor isolation 或数据竞争告警。
