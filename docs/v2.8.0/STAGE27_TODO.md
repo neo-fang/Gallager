@@ -3,17 +3,17 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 3/7 tasks
+- **Progress**: 6/7 tasks
 - **Dependencies**: Stage 26 ✅
 
 ## Tasks
 
 - [x] 定位窗口切换时自动返回 session 列表的导航触发路径。
 - [x] 提取并测试窗口选择/缺失状态决策。
-- [ ] 删除空 session 快照触发的隐式导航和固定延时。
-- [ ] 删除 pane `streamEnd` 对父导航的控制并增加一次有界恢复。
+- [x] 删除空 session 快照触发的隐式导航和固定延时。
+- [x] 删除 pane `streamEnd` 对父导航的控制并增加一次有界恢复。
 - [x] 让 App 内主动关闭 session 成功后显式返回。
-- [ ] 重新完成聚焦测试、完整测试和 iOS device build。
+- [x] 重新完成聚焦测试、完整测试和 iOS device build。
 - [ ] 重新安装真机验收，合入主仓库并清理 worktree。
 
 ## Root cause
@@ -35,3 +35,7 @@
 - 第一版 Swift Package：1658 项测试、236 个测试集全部通过，但真机验收失败。
 - 第一版 iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
 - 真机问题发生后 Gallager 进程仍存活，排除进程 crash。
+- 修正版聚焦测试：10/10 通过。
+- 修正版 Swift Package：1659 项测试、236 个测试集全部通过。
+- 修正版 iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
+- `git diff --check`：通过。
