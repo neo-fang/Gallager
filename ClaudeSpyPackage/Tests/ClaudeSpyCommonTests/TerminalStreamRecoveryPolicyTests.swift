@@ -20,6 +20,20 @@ struct TerminalStreamRecoveryPolicyTests {
         #expect(policy.nextStartMode() == .replaceExisting)
     }
 
+    @Test("An unexpected stream end retries at most once")
+    func unexpectedEndRecoveryIsBounded() {
+        var policy = TerminalStreamRecoveryPolicy()
+
+        let disconnected = policy.shouldRetryUnexpectedEnd(isConnected: false)
+        let firstConnected = policy.shouldRetryUnexpectedEnd(isConnected: true)
+        let secondConnected = policy.shouldRetryUnexpectedEnd(isConnected: true)
+
+        #expect(!disconnected)
+        #expect(firstConnected)
+        #expect(policy.hasRetriedUnexpectedEnd)
+        #expect(!secondConnected)
+    }
+
     @Test("A successful start without initial state retries once")
     func missingInitialStateRecoveryIsBounded() {
         let first = TerminalStreamRecoveryPolicy.resolveSuccessfulStart(

@@ -4,16 +4,9 @@ struct WindowSelectionCandidate: Equatable, Hashable, Sendable {
     let isActive: Bool
 }
 
-struct WindowSelectionReconciliationInput: Equatable, Hashable, Sendable {
-    let candidates: [WindowSelectionCandidate]
-    let isHostConnected: Bool
-    let hasReceivedState: Bool
-}
-
 enum WindowSelectionReconciliation: Equatable, Sendable {
     case unchanged
     case select(windowId: String, paneId: String?)
-    case confirmSessionMissing
 
     static func resolve(
         selectedWindowId: String?,
@@ -30,9 +23,7 @@ enum WindowSelectionReconciliation: Equatable, Sendable {
             return .unchanged
         }
 
-        guard let candidate = preferredCandidate(in: candidates) else {
-            return .confirmSessionMissing
-        }
+        guard let candidate = preferredCandidate(in: candidates) else { return .unchanged }
         return .select(windowId: candidate.windowId, paneId: candidate.paneId)
     }
 

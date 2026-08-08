@@ -3,23 +3,27 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Progress**: 6/7 tasks
 - **Dependencies**: Stage 26 ✅
 
 ## Tasks
 
 - [x] 定位窗口切换时自动返回 session 列表的导航触发路径。
 - [x] 提取并测试窗口选择/缺失状态决策。
-- [x] 将瞬时空 session 改为可取消的延迟确认。
+- [x] 删除空 session 快照触发的隐式导航和固定延时。
+- [x] 删除 pane `streamEnd` 对父导航的控制并增加一次有界恢复。
 - [x] 让 App 内主动关闭 session 成功后显式返回。
-- [x] 完成聚焦测试、完整测试和 iOS device build。
-- [ ] 安装真机验收，合入主仓库并清理 worktree。
+- [x] 重新完成聚焦测试、完整测试和 iOS device build。
+- [ ] 重新安装真机验收，合入主仓库并清理 worktree。
 
 ## Root cause
 
-`WindowLayoutView` 的窗口 ID 观察器在当前选择消失且 `sessionWindows` 瞬时为空时立即
-调用 `dismiss()`。新建/切换窗口会触发密集完整状态刷新，因此一次暂时不完整的快照就会
-被误判为 session 已结束；表现为终端页面“闪退”回列表，而非 iOS 进程崩溃。
+真机确认 App 进程没有退出，问题是导航 pop。存在两条错误的隐式导航路径：
+
+1. `WindowLayoutView` 根据空 session 快照推断 session 已关闭；第一版将其改为 2 秒确认，
+   但快照延迟没有时间上界，该推断仍不可靠。
+2. 每个 pane 的 `LiveTerminalView` 收到 `streamEnd` 都调用环境 `dismiss()`。新建/切换窗口
+   会停止旧流，延迟到达的结束帧因此可能把整个父 session 页面弹出。
 
 ## Blockers
 
@@ -28,6 +32,10 @@
 ## Verification
 
 - `WindowSelectionReconciliationTests`：6/6 通过。
-- Swift Package：1658 项测试、236 个测试集全部通过。
-- iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
+- 第一版 Swift Package：1658 项测试、236 个测试集全部通过，但真机验收失败。
+- 第一版 iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
+- 真机问题发生后 Gallager 进程仍存活，排除进程 crash。
+- 修正版聚焦测试：10/10 通过。
+- 修正版 Swift Package：1659 项测试、236 个测试集全部通过。
+- 修正版 iOS generic device Debug build：通过（`CODE_SIGNING_ALLOWED=NO`）。
 - `git diff --check`：通过。
