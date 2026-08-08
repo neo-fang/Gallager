@@ -38,6 +38,32 @@ get_build_number() {
     grep "^CURRENT_PROJECT_VERSION" "$CONFIG_FILE" | cut -d'=' -f2 | tr -d ' '
 }
 
+get_build_stamp() {
+    date -u '+%Y%m%d-%H%M%S'
+}
+
+get_source_revision() {
+    git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD
+}
+
+assert_primary_worktree() {
+    local primary_worktree project_root
+    primary_worktree=$(git -C "$PROJECT_ROOT" worktree list --porcelain \
+        | sed -n 's/^worktree //p' \
+        | head -1)
+    project_root=$(cd "$PROJECT_ROOT" && pwd -P)
+
+    if [ -z "$primary_worktree" ] || [ "$project_root" != "$primary_worktree" ]; then
+        log_error "Packaging must run from the primary worktree: ${primary_worktree:-unknown}"
+    fi
+}
+
+find_apple_development_identity() {
+    security find-identity -v -p codesigning \
+        | sed -n 's/^[[:space:]]*[0-9]*) \([0-9A-F]\{40\}\) "Apple Development:.*$/\1/p' \
+        | head -1
+}
+
 # =====================================================
 # Offer to edit generated notes in $VISUAL / $EDITOR
 # Sets the edited (or original) text in EDITED_NOTES.
