@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 15 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 保留键盘显隐、禁用状态、设置切换与无障碍语义。
 - [x] 完成代码检查和 iOS 构建验证。
 - [x] 自适应回收部分 Home Indicator 空白且不影响键盘和无 Home Indicator 设备。
-- [ ] 完成 iPhone 真机视觉与点击验收。
+- [x] 完成 iPhone 真机视觉与点击验收。
 
 ## Decisions
 
@@ -40,4 +40,4 @@
 - 单 pane 与多 pane 父视图均在插入底栏前读取真实 bottom safe-area inset；底栏在
   键盘隐藏时回收其一半、上限 16pt，键盘显示时回收 0。
 - 自适应安全区版本通过 iPhoneOS 真机签名构建、深度签名校验，并再次覆盖安装和启动；
-  等待底部留白与系统手势区的真机验收。
+  真机确认按钮栏高度、底部留白、按钮点击及 Home Indicator 手势均符合预期。
