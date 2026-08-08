@@ -281,7 +281,8 @@
                 let created = try await tmux.createSession(
                     baseName: sessionName,
                     width: 80,
-                    height: 24
+                    height: 24,
+                    runCommand: "cat"
                 )
                 let input = "sudo scutil --set HostName -n"
 
