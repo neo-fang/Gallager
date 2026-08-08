@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 11 ✅, Stage 20 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 保留 bracketed-paste 起止序列及多行输入顺序。
 - [x] 增加快照格式和输入解析聚焦测试。
 - [x] 完成完整测试与 iOS device 构建。
-- [ ] 完成 iPhone 真机复制、粘贴验收。
+- [x] 完成 iPhone 真机复制、粘贴验收。
 
 ## Decisions
 
@@ -37,3 +37,5 @@
 - 完整 Swift package：1,642 tests / 232 suites 通过。
 - iPhoneOS generic 无签名构建、个人开发团队真机签名构建及深度签名校验通过；已覆盖
   安装并启动到 `ZengJice iPhone`，Bundle ID 保持 `com.zengjice.gallager.local`。
+- iPhone 真机验收通过：复制页面格式符合预期，多行粘贴作为一次 bracketed paste
+  提交，不再被 Agent 误判为多次输入。
