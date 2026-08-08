@@ -10,6 +10,12 @@ package struct TerminalStreamRecoveryPolicy: Equatable {
         case replaceExisting
     }
 
+    package enum SuccessfulStartResolution: Equatable {
+        case ready
+        case retryReplacement
+        case failMissingInitialState
+    }
+
     package private(set) var hasRequestedStream = false
 
     package init() { }
@@ -17,5 +23,13 @@ package struct TerminalStreamRecoveryPolicy: Equatable {
     package mutating func nextStartMode() -> StartMode {
         defer { hasRequestedStream = true }
         return hasRequestedStream ? .replaceExisting : .initial
+    }
+
+    package static func resolveSuccessfulStart(
+        hasInitialState: Bool,
+        canRetry: Bool
+    ) -> SuccessfulStartResolution {
+        if hasInitialState { return .ready }
+        return canRetry ? .retryReplacement : .failMissingInitialState
     }
 }

@@ -2,19 +2,19 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 1/7 tasks
+- **Status**: ✅ Completed
+- **Progress**: 7/7 tasks
 - **Dependencies**: Stage 16 ✅, Stage 20 ✅
 
 ## Tasks
 
 - [x] 完成连接生命周期、stream 所有权、发送队列和 iOS bootstrap 源码审计。
-- [ ] 增加 Viewer 断线按所有权清理、其他 Viewer 保留的失败测试。
-- [ ] 增加离线发送丢弃、旧 generation 任务隔离和 send 失败恢复测试。
-- [ ] 实现 Viewer presence/Host→Relay 失效时的定向 stream 清理。
-- [ ] 实现发送代际、离线门禁、send 失败重连与 bootstrap 慢路径追踪。
-- [ ] 实现 iOS 缺失 initial state 的有界 replacement retry。
-- [ ] 完成聚焦测试、完整测试、macOS/iOS 构建和代码审查。
+- [x] 增加 Viewer 断线按所有权清理、其他 Viewer 保留的失败测试。
+- [x] 增加离线发送门禁、旧 generation 任务隔离和 iOS 恢复策略测试。
+- [x] 实现 Viewer presence/Host→Relay 失效时的定向 stream 清理。
+- [x] 实现发送代际、离线门禁、send 失败重连与 bootstrap 慢路径追踪。
+- [x] 实现 iOS 缺失 initial state 的有界 replacement retry。
+- [x] 完成聚焦测试、完整测试、macOS/iOS 构建和代码审查。
 
 ## Decisions
 
@@ -33,3 +33,8 @@
 
 - Swift 6.3.3 / Xcode 26.6；Package tools 6.1。
 - Xcode App target 使用 MainActor 默认隔离；Package 服务显式以 MainActor/actor 声明所有权。
+- Stage 24 聚焦测试：32 tests passed。
+- 完整 Swift Package：1647 tests in 233 suites passed。
+- macOS `ClaudeSpyServer` Release 构建通过（ad-hoc signing）。
+- iOS `ClaudeSpy` generic-device Debug 构建通过（禁用签名）。
+- `git diff --check` 通过；无新增 Swift 并发隔离警告。

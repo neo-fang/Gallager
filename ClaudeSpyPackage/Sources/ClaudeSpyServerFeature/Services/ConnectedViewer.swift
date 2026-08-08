@@ -5,6 +5,25 @@ import Dependencies
 import Foundation
 import Logging
 
+struct ConnectionGeneration: Equatable, Sendable {
+    private(set) var current: UInt64 = 0
+
+    mutating func invalidate() {
+        current &+= 1
+    }
+
+    func isCurrent(_ generation: UInt64) -> Bool {
+        current == generation
+    }
+}
+
+struct TerminalSendQueueSnapshot: Equatable, Sendable {
+    let depth: Int
+    let oldestWaitMilliseconds: Int
+
+    static let empty = TerminalSendQueueSnapshot(depth: 0, oldestWaitMilliseconds: 0)
+}
+
 /// Represents a connection to a single paired viewer.
 ///
 /// This wraps WebSocket communication with viewer-specific metadata and provides
@@ -147,8 +166,9 @@ final public class ConnectedViewer: Identifiable {
     /// pushes, which would otherwise race and leave `claudeSession` wiped on the
     /// viewer.
     private var pendingSend: Task<Void, Never>?
-    private var pendingSendCount = 0
     private var pendingSendBytes = 0
+    private var pendingSendEnqueuedAt: [UUID: ContinuousClock.Instant] = [:]
+    private var connectionGeneration = ConnectionGeneration()
 
     /// Partner's public key received during registration or connection (Base64-encoded)
     private var partnerPublicKey: String
@@ -196,6 +216,10 @@ final public class ConnectedViewer: Identifiable {
     /// uses this to push the current plugin presentations on connect (spec §7.2).
     public var onViewerConnected: (@MainActor @Sendable () async -> Void)?
 
+    /// Called once when this viewer becomes unavailable. The manager uses this
+    /// to release only this viewer's terminal stream ownership.
+    public var onViewerUnavailable: (@MainActor @Sendable () async -> Void)?
+
     // MARK: - Initialization
 
     /// Creates a new viewer connection.
@@ -209,6 +233,23 @@ final public class ConnectedViewer: Identifiable {
         self.e2eeService = e2eeService
         self.partnerPublicKey = pairedViewer.partnerPublicKey
         self.partnerPublicKeyId = pairedViewer.partnerPublicKeyId
+    }
+
+    nonisolated static func canSendTerminalStream(
+        relayConnected: Bool,
+        viewerConnected: Bool
+    ) -> Bool {
+        relayConnected && viewerConnected
+    }
+
+    var terminalSendQueueSnapshot: TerminalSendQueueSnapshot {
+        guard let oldest = pendingSendEnqueuedAt.values.min() else { return .empty }
+        return TerminalSendQueueSnapshot(
+            depth: pendingSendEnqueuedAt.count,
+            oldestWaitMilliseconds: Self.milliseconds(
+                oldest.duration(to: ContinuousClock.now)
+            )
+        )
     }
 
     // MARK: - Connection Management
@@ -447,8 +488,10 @@ final public class ConnectedViewer: Identifiable {
 
     /// Send terminal stream data to viewer (encrypted)
     public func sendTerminalStream(_ streamMessage: TerminalStreamMessage) async {
-        guard state.isConnected else {
-            logger.debug("Not connected to \(viewerName), cannot send terminal stream")
+        guard Self.canSendTerminalStream(
+            relayConnected: state.isConnected,
+            viewerConnected: isViewerConnected
+        ) else {
             return
         }
 
@@ -558,7 +601,7 @@ final public class ConnectedViewer: Identifiable {
         task.resume()
 
         receiveTask = Task { [weak self] in
-            await self?.receiveMessages()
+            await self?.receiveMessages(using: task)
         }
 
         // Send registration message
@@ -572,7 +615,9 @@ final public class ConnectedViewer: Identifiable {
                 username: username
             )
         )
-        await send(registerMessage)
+        guard await send(registerMessage) else { return }
+
+        let generation = connectionGeneration.current
 
         // Retry registration if the server's async WebSocket handler wasn't ready.
         // On localhost, the client can send registerHost before the server's
@@ -580,21 +625,25 @@ final public class ConnectedViewer: Identifiable {
         registrationRetryTask = Task { [weak self] in
             for attempt in 1...3 {
                 try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled else { return }
-                guard let self, self.state == .connecting else { return }
+                guard
+                    !Task.isCancelled,
+                    let self,
+                    self.connectionGeneration.isCurrent(generation),
+                    self.state == .connecting
+                else { return }
                 self.logger.info("Registration not confirmed, resending registerHost (attempt \(attempt))")
-                await self.send(registerMessage)
+                guard await self.send(registerMessage, generation: generation) else { return }
             }
         }
 
         pingTask = Task { [weak self] in
-            await self?.pingLoop()
+            await self?.pingLoop(using: task)
         }
     }
 
-    private func receiveMessages() async {
+    private func receiveMessages(using task: URLSessionWebSocketTask) async {
         while !Task.isCancelled {
-            guard let task = webSocketTask else { break }
+            guard webSocketTask === task else { break }
 
             do {
                 let message = try await task.receive()
@@ -602,7 +651,7 @@ final public class ConnectedViewer: Identifiable {
             } catch {
                 if !Task.isCancelled {
                     logger.error("WebSocket receive error for \(viewerName): \(error)")
-                    await handleDisconnection()
+                    await handleDisconnection(failedTask: task)
                 }
                 break
             }
@@ -700,8 +749,15 @@ final public class ConnectedViewer: Identifiable {
                     // TmuxCommandExecutor actor out of order, reordering keystrokes.
                     let handler = onCommand
                     let previous = pendingFireAndForget
-                    pendingFireAndForget = Task {
+                    let generation = connectionGeneration.current
+                    pendingFireAndForget = Task { [weak self] in
                         _ = await previous?.value
+                        guard
+                            !Task.isCancelled,
+                            let self,
+                            self.connectionGeneration.isCurrent(generation),
+                            self.isViewerConnected
+                        else { return }
                         _ = await handler(command)
                     }
                 }
@@ -763,8 +819,7 @@ final public class ConnectedViewer: Identifiable {
 
         case .viewerDisconnected:
             logger.info("Viewer device disconnected")
-            isViewerConnected = false
-            connectedViewerDeviceName = nil
+            await markViewerUnavailableAndInvalidateWork()
 
         case .unpaired:
             logger.info("Pairing removed by the other side")
@@ -872,52 +927,86 @@ final public class ConnectedViewer: Identifiable {
         }
     }
 
-    private func send(_ message: WebSocketMessage) async {
+    @discardableResult
+    private func send(_ message: WebSocketMessage) async -> Bool {
+        await send(message, generation: connectionGeneration.current)
+    }
+
+    @discardableResult
+    private func send(_ message: WebSocketMessage, generation: UInt64) async -> Bool {
+        guard connectionGeneration.isCurrent(generation) else { return false }
         guard let task = webSocketTask else {
             logger.debug("No WebSocket task, cannot send message")
-            return
+            return false
         }
 
+        let data: Data
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(message)
-            pendingSendBytes += data.count
-            recordSendQueue()
-            defer {
-                pendingSendBytes -= data.count
+            data = try encoder.encode(message)
+        } catch {
+            logger.error("Failed to encode WebSocket message: \(error)")
+            return false
+        }
+
+        guard connectionGeneration.isCurrent(generation), webSocketTask === task else {
+            return false
+        }
+
+        pendingSendBytes += data.count
+        recordSendQueue()
+        defer {
+            if connectionGeneration.isCurrent(generation) {
+                pendingSendBytes = max(0, pendingSendBytes - data.count)
                 recordSendQueue()
             }
-            let sendStart = ContinuousClock.now
-            defer {
-                TerminalTransportMetrics.shared.recordDuration(.webSocketSend, since: sendStart)
-            }
+        }
+
+        let sendStart = ContinuousClock.now
+        do {
             try await task.send(.data(data))
+            TerminalTransportMetrics.shared.recordDuration(.webSocketSend, since: sendStart)
+            return true
         } catch {
+            TerminalTransportMetrics.shared.recordDuration(.webSocketSend, since: sendStart)
             logger.error("Failed to send WebSocket message: \(error)")
+            await handleDisconnection(failedTask: task)
+            return false
         }
     }
 
     private func sendEncrypted(_ message: WebSocketMessage) async {
-        pendingSendCount += 1
+        let generation = connectionGeneration.current
+        let sendId = UUID()
+        pendingSendEnqueuedAt[sendId] = ContinuousClock.now
         recordSendQueue()
+
         let previous = pendingSend
         let task = Task { [weak self] in
-            guard let self else { return }
             _ = await previous?.value
-            await self.performEncryptedSend(message)
-            self.pendingSendCount = max(0, self.pendingSendCount - 1)
+            guard
+                !Task.isCancelled,
+                let self,
+                self.connectionGeneration.isCurrent(generation)
+            else { return }
+
+            await self.performEncryptedSend(message, generation: generation)
+            guard self.connectionGeneration.isCurrent(generation) else { return }
+            self.pendingSendEnqueuedAt.removeValue(forKey: sendId)
             self.recordSendQueue()
         }
         pendingSend = task
         await task.value
     }
 
-    private func performEncryptedSend(_ message: WebSocketMessage) async {
+    private func performEncryptedSend(_ message: WebSocketMessage, generation: UInt64) async {
+        guard connectionGeneration.isCurrent(generation), !Task.isCancelled else { return }
         guard await e2eeService.isSessionEstablished else {
             logger.error("E2EE session not established, refusing to send sensitive message")
             return
         }
+        guard connectionGeneration.isCurrent(generation), !Task.isCancelled else { return }
 
         do {
             let encryptionStart = ContinuousClock.now
@@ -925,7 +1014,8 @@ final public class ConnectedViewer: Identifiable {
                 TerminalTransportMetrics.shared.recordDuration(.encryption, since: encryptionStart)
             }
             let encryptedMessage = try await message.encrypt(using: e2eeService)
-            await send(encryptedMessage)
+            guard connectionGeneration.isCurrent(generation), !Task.isCancelled else { return }
+            await send(encryptedMessage, generation: generation)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
         }
@@ -935,39 +1025,35 @@ final public class ConnectedViewer: Identifiable {
         TerminalTransportMetrics.shared.recordQueue(
             .webSocketSend,
             id: "host:\(id)",
-            depth: pendingSendCount,
+            depth: pendingSendEnqueuedAt.count,
             bytes: pendingSendBytes
         )
     }
 
-    private func pingLoop() async {
-        while !Task.isCancelled, state.isConnected {
+    private func pingLoop(using task: URLSessionWebSocketTask) async {
+        while !Task.isCancelled, state.isConnected, webSocketTask === task {
             // Idle period between keep-alive pings.
             try? await Task.sleep(for: .seconds(pingIntervalSeconds))
-            guard !Task.isCancelled, state.isConnected else { break }
+            guard !Task.isCancelled, state.isConnected, webSocketTask === task else { break }
 
             awaitingPong = true
             await send(.ping)
 
             // Wait for the server's pong (or any other inbound frame) to clear the flag.
             try? await Task.sleep(for: .seconds(pongTimeoutSeconds))
-            guard !Task.isCancelled, state.isConnected else { break }
+            guard !Task.isCancelled, state.isConnected, webSocketTask === task else { break }
 
             if awaitingPong {
                 logger.warning("No pong within \(pongTimeoutSeconds)s for \(viewerName) — connection is half-open, forcing reconnect")
-                // Cancel the socket so receiveMessages() observes the failure and runs
-                // the standard disconnection/backoff path exactly once. Calling
-                // handleDisconnection() directly would race that loop and could spawn a
-                // second reconnect task.
-                webSocketTask?.cancel(with: .goingAway, reason: nil)
+                await handleDisconnection(failedTask: task)
                 break
             }
         }
     }
 
-    private func handleDisconnection() async {
-        isViewerConnected = false
-        connectedViewerDeviceName = nil
+    private func handleDisconnection(failedTask: URLSessionWebSocketTask) async {
+        // A delayed failure from an old socket must never tear down its replacement.
+        guard webSocketTask === failedTask else { return }
 
         await cleanupConnection()
 
@@ -998,6 +1084,11 @@ final public class ConnectedViewer: Identifiable {
     private func cleanupConnection() async {
         awaitingPong = false
 
+        invalidateConnectionWork()
+        let viewerWasConnected = isViewerConnected
+        isViewerConnected = false
+        connectedViewerDeviceName = nil
+
         receiveTask?.cancel()
         receiveTask = nil
 
@@ -1013,13 +1104,37 @@ final public class ConnectedViewer: Identifiable {
         urlSession?.invalidateAndCancel()
         urlSession = nil
 
-        // Drop the serial chain heads so a reconnect starts a fresh chain
-        // instead of waiting on stale in-flight encrypt tasks from the old
-        // socket. The trailing tasks aren't cancelled (they don't check
-        // `isCancelled`); they just finish as no-ops since `webSocketTask`
-        // is now nil.
+        if viewerWasConnected {
+            await onViewerUnavailable?()
+        }
+    }
+
+    private func markViewerUnavailableAndInvalidateWork() async {
+        let viewerWasConnected = isViewerConnected
+        isViewerConnected = false
+        connectedViewerDeviceName = nil
+        invalidateConnectionWork()
+        if viewerWasConnected {
+            await onViewerUnavailable?()
+        }
+    }
+
+    private func invalidateConnectionWork() {
+        connectionGeneration.invalidate()
+        pendingFireAndForget?.cancel()
         pendingFireAndForget = nil
+        pendingSend?.cancel()
         pendingSend = nil
+        pendingSendEnqueuedAt.removeAll(keepingCapacity: true)
+        pendingSendBytes = 0
+        recordSendQueue()
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Int {
+        let components = duration.components
+        let milliseconds = components.seconds * 1_000
+            + components.attoseconds / 1_000_000_000_000_000
+        return max(0, Int(milliseconds))
     }
 
     private func updateState(_ newState: ConnectionState) async {

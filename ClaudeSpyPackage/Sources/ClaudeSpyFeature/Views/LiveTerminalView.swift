@@ -441,8 +441,21 @@
                 switch result {
                 case .success:
                     // The initialState message transitions the coordinator to
-                    // `.streaming`; it is sent before this command response.
-                    return
+                    // `.streaming`; the relay receive loop is ordered, so it must
+                    // already have arrived before this command response.
+                    switch TerminalStreamRecoveryPolicy.resolveSuccessfulStart(
+                        hasInitialState: coordinator.streamState == .streaming,
+                        canRetry: attempt == 0
+                    ) {
+                    case .ready:
+                        return
+                    case .retryReplacement:
+                        startMode = .replaceExisting
+                        continue
+                    case .failMissingInitialState:
+                        coordinator.fail(MissingInitialStateError())
+                        return
+                    }
 
                 case let .failure(error):
                     guard !Task.isCancelled, relayClient.isHostConnected else {
@@ -462,6 +475,12 @@
 
                     coordinator.fail(error)
                 }
+            }
+        }
+
+        private struct MissingInitialStateError: LocalizedError {
+            var errorDescription: String? {
+                "The host accepted the terminal stream, but did not send its initial state."
             }
         }
 
