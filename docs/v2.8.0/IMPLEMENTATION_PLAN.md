@@ -961,3 +961,32 @@ Xcode 在打包时隐式升级依赖，使包内 source revision 能准确代表
 - 两个脚本保持零参数调用，shell 语法检查通过。
 - macOS DMG 构建、签名、映像和嵌入 source revision 校验通过。
 - 打包前后 Git worktree 保持干净。
+
+## Stage 30：macOS tmux window 快捷导航
+
+### 目标
+
+为 macOS 增加只在当前 session 的 tmux window 之间切换的原生快捷键，不把文件、Git、
+浏览器 tab 混入导航，也不从终端输入链路截获按键。本地 Host 与远程 Viewer 必须复用
+现有 window 点击选择语义。
+
+### 实施范围
+
+1. 在 macOS Window 菜单增加“上一个/下一个 Terminal Window”，默认使用 `⌥⌘←` 与
+   `⌥⌘→`；增加 `⌘1` 到 `⌘9` 直接选择当前 session 中第 1 到第 9 个可用 tmux window。
+2. 命令通过 scene-scoped `FocusedValue` 路由到当前 panes scene，不使用全局键盘 monitor、
+   `NSEvent` 拦截或终端输入回调，避免影响 tmux、TUI、Shell 和输入法。
+3. 导航顺序取统一 tab strip 的已协调视觉顺序，再过滤出当前左侧主区域的 window；跳过
+   文件、Git、浏览器以及分屏右侧固定内容，首尾循环，一个 window 时无操作。
+4. 本地选择复用 `TmuxService.selectWindow`，远程选择复用现有 `SelectTmuxWindow` 命令；
+   切回 terminal 时清除左侧非终端 tab 选择，不改变右侧选择。
+5. 提取纯导航决策并增加聚焦测试，覆盖顺序过滤、首尾循环、数字越界、右侧排除及空集合。
+6. 不增加可配置快捷键、第二套 window 排序、网络协议字段或 tmux 配置。
+
+### 验收标准
+
+- `⌥⌘←` / `⌥⌘→` 在当前 session 的左侧 tmux window 中循环，不经过文件、Git 或浏览器。
+- `⌘1` 到 `⌘9` 按视觉 window 顺序直达；不存在对应 window 时保持当前选择。
+- 本地与远程选择结果和点击 tab 一致，远程断开时不崩溃、不误改 UI 为不可用 window。
+- 分屏右侧内容保持不变，终端焦点和按键输入不被新命令监听器截获。
+- 聚焦测试、完整 Swift package 测试、`git diff --check` 与 macOS Debug 构建通过。

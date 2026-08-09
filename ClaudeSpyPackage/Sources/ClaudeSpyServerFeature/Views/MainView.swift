@@ -419,6 +419,7 @@ public struct MainView: View {
             markSelectedSessionsHandledIfActive()
         }
         .focusedSceneValue(\.closeCurrentTabAction, handleCloseCurrentTab)
+        .focusedSceneValue(\.terminalWindowNavigationActions, terminalWindowNavigationActions)
         .modifier(MenuCommandsModifier(
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
@@ -924,17 +925,7 @@ public struct MainView: View {
                             tabs?.selectedRight = payload
                             return
                         }
-                        selectedRemoteWindowId = newWindow.id
-                        // Switching back to a tmux window deselects any active
-                        // browser tab so the terminal pane is rendered again
-                        // even when a browser tab was previously focused.
-                        tabs?.selectedBrowserTabId = nil
-                        Task {
-                            _ = await connection.relayClient.sendCommand(
-                                SelectTmuxWindow(),
-                                paneId: newWindow.id
-                            )
-                        }
+                        selectTerminalWindow(id: newWindow.id)
                     },
                     onCloseWindow: { windowToClose in
                         requestCloseRemoteWindow(windowToClose, hostId: remote.hostId)
@@ -1069,14 +1060,7 @@ public struct MainView: View {
                                 tabs?.selectedRight = payload
                                 return
                             }
-                            fileBrowserActiveWindowIds.remove(window.id)
-                            gitActiveWindowIds.remove(window.id)
-                            tabs?.selectedFileTabId = nil
-                            tabs?.selectedBrowserTabId = nil
-                            selectedWindow = newWindow
-                            Task {
-                                try? await tmuxService.selectWindow(newWindow.id)
-                            }
+                            selectTerminalWindow(id: newWindow.id)
                         },
                         onCloseWindow: { windowToClose in
                             requestCloseWindow(windowToClose)
@@ -2516,6 +2500,99 @@ public struct MainView: View {
     }
 
     // MARK: - Menu Commands
+
+    /// Window ids eligible for the window-only menu shortcuts, in the same
+    /// visual order as the tab strip. A split's right side is intentionally
+    /// excluded: keyboard navigation controls the primary terminal surface
+    /// and never replaces content the user pinned on the right.
+    private var navigableTerminalWindowIDs: [String] {
+        if let remote = selectedRemoteSession {
+            let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            let tabs = remoteSessionTabsStates[key]
+            return TerminalWindowNavigation.orderedWindowIDs(
+                liveWindowIDs: selectedRemoteSessionWindows.map(\.id),
+                storedTabOrder: tabs?.tabOrder ?? [],
+                excludedWindowIDs: tabs?.rightSideWindowIds ?? []
+            )
+        }
+
+        guard let session = currentLocalSession() else { return [] }
+        let tabs = sessionFileTabsStates[session.sessionName]
+        return TerminalWindowNavigation.orderedWindowIDs(
+            liveWindowIDs: session.windows.map(\.id),
+            storedTabOrder: tabs?.tabOrder ?? [],
+            excludedWindowIDs: tabs?.rightSideWindowIds ?? []
+        )
+    }
+
+    /// Scene-scoped value consumed by the macOS Window menu. The closures
+    /// deliberately call the same local/remote selectors as tab clicks.
+    private var terminalWindowNavigationActions: TerminalWindowNavigationActions {
+        TerminalWindowNavigationActions(
+            windowCount: navigableTerminalWindowIDs.count,
+            selectPrevious: { selectAdjacentTerminalWindow(direction: -1) },
+            selectNext: { selectAdjacentTerminalWindow(direction: 1) },
+            selectAtIndex: { selectTerminalWindow(at: $0) }
+        )
+    }
+
+    private func selectAdjacentTerminalWindow(direction: Int) {
+        let orderedIDs = navigableTerminalWindowIDs
+        let currentID = selectedRemoteSession == nil ? selectedWindow?.id : selectedRemoteWindow?.id
+        guard let targetID = TerminalWindowNavigation.adjacentWindowID(
+            currentID: currentID,
+            orderedWindowIDs: orderedIDs,
+            direction: direction
+        ) else { return }
+        selectTerminalWindow(id: targetID)
+    }
+
+    private func selectTerminalWindow(at index: Int) {
+        guard let targetID = TerminalWindowNavigation.windowID(
+            at: index,
+            orderedWindowIDs: navigableTerminalWindowIDs
+        ) else { return }
+        selectTerminalWindow(id: targetID)
+    }
+
+    private func selectTerminalWindow(id: String) {
+        if let remote = selectedRemoteSession {
+            guard
+                let target = selectedRemoteSessionWindows.first(where: { $0.id == id }),
+                let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId)
+            else { return }
+            let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            let tabs = remoteSessionTabsStates[key]
+            guard tabs?.rightSide.contains(.window(target.id)) != true else { return }
+
+            tabs?.selectedBrowserTabId = nil
+            selectedRemoteWindowId = target.id
+            Task {
+                _ = await connection.relayClient.sendCommand(
+                    SelectTmuxWindow(),
+                    paneId: target.id
+                )
+            }
+            return
+        }
+
+        guard
+            let current = selectedWindow,
+            let session = currentLocalSession(),
+            let target = session.windows.first(where: { $0.id == id })
+        else { return }
+        let tabs = sessionFileTabsStates[session.sessionName]
+        guard tabs?.rightSide.contains(.window(target.id)) != true else { return }
+
+        fileBrowserActiveWindowIds.remove(current.id)
+        gitActiveWindowIds.remove(current.id)
+        tabs?.selectedFileTabId = nil
+        tabs?.selectedBrowserTabId = nil
+        selectedWindow = target
+        Task {
+            try? await tmuxService.selectWindow(target.id)
+        }
+    }
 
     /// Cmd-W handler exposed to the menu via `.focusedSceneValue` so other
     /// scenes (Settings, About, CLI API Reference) get the default
