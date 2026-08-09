@@ -16,3 +16,36 @@ public extension FocusedValues {
         set { self[CloseCurrentTabActionKey.self] = newValue }
     }
 }
+
+/// Scene-local terminal-window navigation exposed to the macOS Window menu.
+/// Keeping the actions in focused values makes menu shortcuts target only the
+/// active panes scene; terminal views never need to intercept the key events.
+public struct TerminalWindowNavigationActions {
+    public let windowCount: Int
+    public let selectPrevious: @MainActor () -> Void
+    public let selectNext: @MainActor () -> Void
+    public let selectAtIndex: @MainActor (Int) -> Void
+
+    public init(
+        windowCount: Int,
+        selectPrevious: @escaping @MainActor () -> Void,
+        selectNext: @escaping @MainActor () -> Void,
+        selectAtIndex: @escaping @MainActor (Int) -> Void
+    ) {
+        self.windowCount = windowCount
+        self.selectPrevious = selectPrevious
+        self.selectNext = selectNext
+        self.selectAtIndex = selectAtIndex
+    }
+}
+
+public struct TerminalWindowNavigationActionsKey: FocusedValueKey {
+    public typealias Value = TerminalWindowNavigationActions
+}
+
+public extension FocusedValues {
+    var terminalWindowNavigationActions: TerminalWindowNavigationActions? {
+        get { self[TerminalWindowNavigationActionsKey.self] }
+        set { self[TerminalWindowNavigationActionsKey.self] = newValue }
+    }
+}
