@@ -41,31 +41,106 @@
         func duplicateSubscribe() {
             var ownership = TerminalStreamOwnership(viewerId: "viewer-a")
 
-            #expect(ownership.subscribe("viewer-a") == false)
+            let inserted = ownership.subscribe("viewer-a")
+            #expect(inserted == false)
             #expect(ownership.count == 1)
         }
 
         @Test("The stream survives until its last viewer leaves")
         func multipleViewers() {
             var ownership = TerminalStreamOwnership(viewerId: "viewer-a")
-            #expect(ownership.subscribe("viewer-b") == true)
+            let inserted = ownership.subscribe("viewer-b")
+            let firstRemoval = ownership.unsubscribe("viewer-a")
+            let secondRemoval = ownership.unsubscribe("viewer-b")
 
-            #expect(ownership.unsubscribe("viewer-a") == .retained(1))
-            #expect(ownership.unsubscribe("viewer-b") == .empty)
+            #expect(inserted == true)
+            #expect(firstRemoval == .retained(1))
+            #expect(secondRemoval == .empty)
         }
 
         @Test("An unknown viewer cannot release another viewer's stream")
         func unknownViewer() {
             var ownership = TerminalStreamOwnership(viewerId: "viewer-a")
 
-            #expect(ownership.unsubscribe("viewer-b") == .notSubscribed)
+            let removal = ownership.unsubscribe("viewer-b")
+            #expect(removal == .notSubscribed)
             #expect(ownership.count == 1)
+        }
+
+        @Test("A stale lease cannot release a replacement subscription")
+        func staleLease() {
+            let oldLease = UUID()
+            let newLease = UUID()
+            var ownership = TerminalStreamOwnership(
+                viewerId: "viewer-a",
+                leaseId: oldLease
+            )
+
+            let replaced = ownership.subscribe("viewer-a", leaseId: newLease)
+            let staleRemoval = ownership.unsubscribe("viewer-a", leaseId: oldLease)
+            #expect(replaced)
+            #expect(staleRemoval == .staleLease)
+            #expect(ownership.contains("viewer-a"))
+            let currentRemoval = ownership.unsubscribe("viewer-a", leaseId: newLease)
+            #expect(currentRemoval == .empty)
+        }
+
+        @Test("A legacy stop cannot release a modern lease")
+        func legacyStopDoesNotReleaseModernLease() {
+            var ownership = TerminalStreamOwnership(
+                viewerId: "viewer-a",
+                leaseId: UUID()
+            )
+
+            let legacyRemoval = ownership.unsubscribe("viewer-a")
+            #expect(legacyRemoval == .staleLease)
+            #expect(ownership.contains("viewer-a"))
+            let disconnectRemoval = ownership.unsubscribeViewer("viewer-a")
+            #expect(disconnectRemoval == .empty)
         }
     }
 
     @Suite("Terminal stream fixed-cadence batching")
     @MainActor
     struct TerminalStreamBatchingTests {
+        @Test("Service ignores an old lease after the viewer starts a replacement")
+        func serviceIgnoresStaleLeaseStop() async {
+            let sender = CapturingTerminalStreamSender()
+            let oldLease = UUID()
+            let newLease = UUID()
+            let context = StreamContext(
+                paneId: "%1",
+                viewerId: "viewer-a",
+                leaseId: oldLease
+            )
+            context.beginBootstrap(for: "viewer-a", leaseId: newLease)
+            context.finishBootstrap(for: "viewer-a")
+            let service = TerminalStreamService(
+                streamSender: sender,
+                activeStreams: ["%1": context]
+            )
+
+            await service.stopStreaming(
+                paneId: "%1",
+                viewerId: "viewer-a",
+                leaseId: oldLease
+            )
+
+            #expect(service.streamingPaneIds == ["%1"])
+            #expect(sender.deliveries.isEmpty)
+
+            await service.stopStreaming(
+                paneId: "%1",
+                viewerId: "viewer-a",
+                leaseId: newLease
+            )
+
+            #expect(service.streamingPaneIds.isEmpty)
+            #expect(sender.deliveries.count == 1)
+            #expect(sender.deliveries[0].recipients == ["viewer-a"])
+            #expect(sender.deliveries[0].message.updateType == .streamEnd)
+        }
+
         @Test("Disconnecting one viewer preserves other viewers and panes")
         func viewerDisconnectOnlyReleasesItsOwnership() async {
             let sender = CapturingTerminalStreamSender()

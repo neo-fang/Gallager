@@ -1,3 +1,5 @@
+import Foundation
+
 /// Tracks whether a terminal view has already requested its host stream.
 ///
 /// The first request must not send `StopTerminalStream`: another viewer may be
@@ -5,6 +7,9 @@
 /// subscription with stop/start so reconnects refresh the complete screen and
 /// keep the host's subscriber count balanced.
 package struct TerminalStreamRecoveryPolicy: Equatable {
+    package static let unexpectedEndWindow: TimeInterval = 30
+    package static let maximumUnexpectedEndRetries = 2
+
     package enum StartMode: Equatable {
         case initial
         case replaceExisting
@@ -17,7 +22,7 @@ package struct TerminalStreamRecoveryPolicy: Equatable {
     }
 
     package private(set) var hasRequestedStream = false
-    package private(set) var hasRetriedUnexpectedEnd = false
+    package private(set) var unexpectedEndRetryDates: [Date] = []
 
     package init() { }
 
@@ -26,13 +31,26 @@ package struct TerminalStreamRecoveryPolicy: Equatable {
         return hasRequestedStream ? .replaceExisting : .initial
     }
 
-    /// Allows one automatic replacement when an established stream ends while
-    /// its viewer is still connected. Further ends require an explicit retry,
-    /// preventing a broken host from creating an unbounded command loop.
-    package mutating func shouldRetryUnexpectedEnd(isConnected: Bool) -> Bool {
-        guard isConnected, !hasRetriedUnexpectedEnd else { return false }
-        hasRetriedUnexpectedEnd = true
+    /// Allows isolated automatic replacements while bounding a tight failure
+    /// loop. A stable stream explicitly clears this rolling-window budget.
+    package mutating func shouldRetryUnexpectedEnd(
+        isConnected: Bool,
+        now: Date = Date()
+    ) -> Bool {
+        guard isConnected else { return false }
+        unexpectedEndRetryDates.removeAll { date in
+            let age = now.timeIntervalSince(date)
+            return age < 0 || age >= Self.unexpectedEndWindow
+        }
+        guard unexpectedEndRetryDates.count < Self.maximumUnexpectedEndRetries else {
+            return false
+        }
+        unexpectedEndRetryDates.append(now)
         return true
+    }
+
+    package mutating func markStreamingStable() {
+        unexpectedEndRetryDates.removeAll(keepingCapacity: true)
     }
 
     package static func resolveSuccessfulStart(

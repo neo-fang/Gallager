@@ -15,6 +15,35 @@ enum TerminalStreamInput {
     }
 }
 
+enum TerminalStreamStopReason {
+    case viewerRequested
+    case viewerUnavailable
+    case paneClosed
+    case resyncFailed(String)
+    case captureFailed
+    case shutdown
+
+    var label: String {
+        switch self {
+        case .viewerRequested: "viewer-requested"
+        case .viewerUnavailable: "viewer-unavailable"
+        case .paneClosed: "pane-closed"
+        case let .resyncFailed(error): "resync-failed: \(error)"
+        case .captureFailed: "capture-failed"
+        case .shutdown: "shutdown"
+        }
+    }
+
+    var isUnexpected: Bool {
+        switch self {
+        case .paneClosed, .resyncFailed, .captureFailed:
+            true
+        case .viewerRequested, .viewerUnavailable, .shutdown:
+            false
+        }
+    }
+}
+
 @MainActor
 protocol TerminalStreamSending: AnyObject {
     func sendTerminalStream(
@@ -165,7 +194,8 @@ final public class TerminalStreamService {
     public func startStreaming(
         paneId: String,
         target: String,
-        viewerId: String
+        viewerId: String,
+        leaseId: UUID? = nil
     ) async throws {
         let bootstrapStart = ContinuousClock.now
 
@@ -183,14 +213,15 @@ final public class TerminalStreamService {
         // subscription. Only the joining viewer is staged while the existing
         // viewers continue receiving live output.
         if let context = activeStreams[paneId] {
-            context.beginBootstrap(for: viewerId)
+            context.beginBootstrap(for: viewerId, leaseId: leaseId)
 
             let captureStart = ContinuousClock.now
             guard let current = await paneStreamManager.currentContent(for: paneId) else {
-                logger.error("Failed to capture content for existing stream", metadata: [
-                    "paneId": "\(paneId)",
-                ])
-                await stopStreaming(paneId: paneId, force: true)
+                await stopStreaming(
+                    paneId: paneId,
+                    force: true,
+                    reason: .captureFailed
+                )
                 throw StreamError.paneNotAvailable
             }
             let captureMilliseconds = Self.milliseconds(
@@ -247,7 +278,7 @@ final public class TerminalStreamService {
         ])
 
         // Create context for batching
-        let context = StreamContext(paneId: paneId, viewerId: viewerId)
+        let context = StreamContext(paneId: paneId, viewerId: viewerId, leaseId: leaseId)
 
         // Store context BEFORE subscribing so callbacks work immediately
         activeStreams[paneId] = context
@@ -424,11 +455,11 @@ final public class TerminalStreamService {
                         await self.applyReset(snapshot, context: context, paneId: paneId)
 
                     case let .resyncFailed(error):
-                        self.logger.error("Terminal stream resync failed", metadata: [
-                            "paneId": "\(paneId)",
-                            "error": "\(error)",
-                        ])
-                        await self.stopStreaming(paneId: paneId, force: true)
+                        await self.stopStreaming(
+                            paneId: paneId,
+                            force: true,
+                            reason: .resyncFailed(error.localizedDescription)
+                        )
                         return
                     }
                 }
@@ -554,11 +585,32 @@ final public class TerminalStreamService {
     ///
     /// - Parameters:
     ///   - paneId: The pane identifier
+    ///   - viewerId: Viewer releasing its ownership, or nil for forced cleanup
+    ///   - leaseId: Exact modern subscription lease; nil preserves legacy semantics
     ///   - force: If true, stop immediately regardless of subscriber count (used for system cleanup)
     public func stopStreaming(
         paneId: String,
         viewerId: String? = nil,
+        leaseId: UUID? = nil,
         force: Bool = false
+    ) async {
+        await stopStreaming(
+            paneId: paneId,
+            viewerId: viewerId,
+            leaseId: leaseId,
+            requireLeaseMatch: true,
+            force: force,
+            reason: .viewerRequested
+        )
+    }
+
+    private func stopStreaming(
+        paneId: String,
+        viewerId: String? = nil,
+        leaseId: UUID? = nil,
+        requireLeaseMatch: Bool = true,
+        force: Bool = false,
+        reason: TerminalStreamStopReason
     ) async {
         guard let context = activeStreams[paneId] else {
             logger.debug("No active stream for pane \(paneId)")
@@ -575,11 +627,22 @@ final public class TerminalStreamService {
                 return
             }
 
-            switch context.ownership.unsubscribe(viewerId) {
+            let removal = requireLeaseMatch
+                ? context.ownership.unsubscribe(viewerId, leaseId: leaseId)
+                : context.ownership.unsubscribeViewer(viewerId)
+            switch removal {
             case .notSubscribed:
                 logger.debug("Viewer was not subscribed to terminal stream", metadata: [
                     "paneId": "\(paneId)",
                     "viewerId": "\(viewerId)",
+                ])
+                return
+
+            case .staleLease:
+                logger.info("Ignoring stale terminal stream stop", metadata: [
+                    "paneId": "\(paneId)",
+                    "viewerId": "\(viewerId)",
+                    "leaseId": "\(leaseId?.uuidString ?? "legacy")",
                 ])
                 return
 
@@ -599,7 +662,15 @@ final public class TerminalStreamService {
 
         activeStreams.removeValue(forKey: paneId)
 
-        logger.info("Stopping terminal stream", metadata: ["paneId": "\(paneId)"])
+        let stopMetadata: Logger.Metadata = [
+            "paneId": "\(paneId)",
+            "reason": "\(reason.label)",
+        ]
+        if reason.isUnexpected {
+            logger.warning("Terminal stream ended unexpectedly", metadata: stopMetadata)
+        } else {
+            logger.info("Stopping terminal stream", metadata: stopMetadata)
+        }
 
         // Stop the ordered data consumer and stream
         dataConsumerTasks[paneId]?.cancel()
@@ -634,7 +705,12 @@ final public class TerminalStreamService {
             context.ownership.contains(viewerId) ? paneId : nil
         }
         for paneId in paneIds {
-            await stopStreaming(paneId: paneId, viewerId: viewerId)
+            await stopStreaming(
+                paneId: paneId,
+                viewerId: viewerId,
+                requireLeaseMatch: false,
+                reason: .viewerUnavailable
+            )
         }
     }
 
@@ -645,7 +721,7 @@ final public class TerminalStreamService {
     public func stopAllStreams() async {
         let paneIds = Array(activeStreams.keys)
         for paneId in paneIds {
-            await stopStreaming(paneId: paneId, force: true)
+            await stopStreaming(paneId: paneId, force: true, reason: .shutdown)
         }
     }
 
@@ -660,8 +736,7 @@ final public class TerminalStreamService {
         let streamsToStop = activeStreams.keys.filter { !existingPaneIds.contains($0) }
 
         for paneId in streamsToStop {
-            logger.info("Stopping stream for closed pane", metadata: ["paneId": "\(paneId)"])
-            await stopStreaming(paneId: paneId, force: true)
+            await stopStreaming(paneId: paneId, force: true, reason: .paneClosed)
         }
     }
 
@@ -1001,9 +1076,9 @@ final class StreamContext {
         max(pendingData.count, bootstrapData.values.map(\.count).max() ?? 0)
     }
 
-    init(paneId: String, viewerId: String) {
+    init(paneId: String, viewerId: String, leaseId: UUID? = nil) {
         self.paneId = paneId
-        self.ownership = TerminalStreamOwnership(viewerId: viewerId)
+        self.ownership = TerminalStreamOwnership(viewerId: viewerId, leaseId: leaseId)
         self.bootstrapData[viewerId] = Data()
         recordBufferedQueue()
     }
@@ -1012,8 +1087,8 @@ final class StreamContext {
         readyViewerIds
     }
 
-    func beginBootstrap(for viewerId: String) {
-        ownership.subscribe(viewerId)
+    func beginBootstrap(for viewerId: String, leaseId: UUID? = nil) {
+        ownership.subscribe(viewerId, leaseId: leaseId)
         readyViewerIds.remove(viewerId)
         bootstrapData[viewerId] = Data()
         recordBufferedQueue()

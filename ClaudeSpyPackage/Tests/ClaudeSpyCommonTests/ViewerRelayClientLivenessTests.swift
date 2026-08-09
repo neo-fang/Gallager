@@ -10,8 +10,8 @@ import Vapor
 /// client sat in `.connected` (green dot) forever while nothing flowed.
 ///
 /// The fix is a pong-timeout watchdog in `pingLoop`: each keep-alive ping sets an
-/// `awaitingPong` flag that any inbound frame clears; if nothing arrives within
-/// the timeout the socket is cancelled and the normal reconnection path runs.
+/// `awaitingPong` flag that any inbound frame clears. Two consecutive silent
+/// rounds confirm the socket is half-open before the normal reconnection path runs.
 ///
 /// This test models a half-open socket with a **mute** relay — it accepts the
 /// WebSocket upgrade and then sends nothing (no pong, no data), which is exactly
@@ -40,8 +40,8 @@ struct ViewerRelayClientLivenessTests {
             try await E2EEService()
         }
 
-        // 1s/1s intervals: watchdog cancels the mute socket ~2s in, then the
-        // backoff reconnect (~1s) opens the second socket.
+        // 1s/1s intervals: two silent rounds confirm the mute socket ~4s in,
+        // then the backoff reconnect (~1s) opens the second socket.
         let client = ViewerRelayClient(pingIntervalSeconds: 1, pongTimeoutSeconds: 1)
 
         await client.connect(
@@ -64,7 +64,7 @@ struct ViewerRelayClientLivenessTests {
 
         // The crux: a second upgrade means the watchdog detected the mute socket
         // and drove a reconnect. Without the fix this never happens.
-        let reconnected = await waitUntil(timeout: .seconds(8)) { upgrades.value >= 2 }
+        let reconnected = await waitUntil(timeout: .seconds(10)) { upgrades.value >= 2 }
         #expect(
             reconnected,
             "Half-open socket was never detected — the client never reconnected (only one upgrade seen)"

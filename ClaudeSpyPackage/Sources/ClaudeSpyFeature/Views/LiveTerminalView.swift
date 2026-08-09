@@ -418,21 +418,26 @@
                     return
                 }
 
-                let streamSessionId = coordinator.beginAttempt()
+                let previousLeaseId = coordinator.activeLeaseId
+                let leaseId = UUID()
+                let streamSessionId = coordinator.beginAttempt(leaseId: leaseId)
                 let currentCoordinator = coordinator
                 let currentPaneId = paneId
 
                 // Install the handler before sending commands. The host sends the
                 // initial state before its start response, so registering later can
                 // lose the only complete screen snapshot.
-                relayClient.setTerminalStreamHandler(for: currentPaneId) { message in
+                let handlerRegistrationId = relayClient.registerTerminalStreamHandler(
+                    for: currentPaneId
+                ) { message in
                     guard currentCoordinator.streamSessionId == streamSessionId else { return }
                     currentCoordinator.handleStreamMessage(message)
                 }
+                coordinator.setHandlerRegistrationId(handlerRegistrationId)
 
-                if startMode == .replaceExisting {
+                if startMode == .replaceExisting, let previousLeaseId {
                     _ = await relayClient.sendCommand(
-                        StopTerminalStream(),
+                        StopTerminalStream(leaseId: previousLeaseId),
                         paneId: paneId
                     )
 
@@ -447,7 +452,7 @@
                 }
 
                 let result = await relayClient.sendCommand(
-                    StartTerminalStream(),
+                    StartTerminalStream(leaseId: leaseId),
                     paneId: paneId
                 )
 
@@ -500,12 +505,17 @@
         }
 
         private func stopStreaming() async {
-            let shouldStopHostStream = coordinator.endStreaming()
-            relayClient.setTerminalStreamHandler(for: paneId, handler: nil)
+            let leaseId = coordinator.endStreaming()
+            if let registrationId = coordinator.takeHandlerRegistrationId() {
+                relayClient.unregisterTerminalStreamHandler(
+                    for: paneId,
+                    registrationId: registrationId
+                )
+            }
 
-            guard shouldStopHostStream, isConnected else { return }
+            guard let leaseId, isConnected else { return }
             _ = await relayClient.sendCommand(
-                StopTerminalStream(),
+                StopTerminalStream(leaseId: leaseId),
                 paneId: paneId
             )
         }
@@ -541,6 +551,15 @@
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
         var streamSessionId: UUID?
 
+        /// Lease currently authorized to own the host stream for this view.
+        private(set) var activeLeaseId: UUID?
+
+        /// Token proving ownership of the relay client's per-pane callback.
+        private var handlerRegistrationId: UUID?
+
+        @ObservationIgnored
+        private var stabilityTask: Task<Void, Never>?
+
         @ObservationIgnored
         private var keystrokeDebouncer: KeystrokeDebouncer?
 
@@ -568,10 +587,12 @@
         /// Starts a fresh attempt and invalidates callbacks from every earlier
         /// attempt. Old terminal contents are discarded because output emitted
         /// while disconnected cannot be safely replayed as incremental chunks.
-        func beginAttempt() -> UUID {
+        func beginAttempt(leaseId: UUID) -> UUID {
             cancelPendingKeys()
+            stabilityTask?.cancel()
             let id = UUID()
             streamSessionId = id
+            activeLeaseId = leaseId
             streamState = .connecting
             terminalState = nil
             error = nil
@@ -580,6 +601,7 @@
 
         func prepareForReconnect() {
             cancelPendingKeys()
+            stabilityTask?.cancel()
             streamSessionId = nil
             streamState = .connecting
             terminalState = nil
@@ -591,12 +613,22 @@
             self.error = error.localizedDescription
         }
 
-        /// Returns whether this view may own a host-side subscription that needs
-        /// balancing with a stop command.
-        func endStreaming() -> Bool {
+        /// Returns the exact lease this view may need to balance with a Stop.
+        func endStreaming() -> UUID? {
             cancelPendingKeys()
+            stabilityTask?.cancel()
             streamSessionId = nil
-            return recoveryPolicy.hasRequestedStream
+            defer { activeLeaseId = nil }
+            return recoveryPolicy.hasRequestedStream ? activeLeaseId : nil
+        }
+
+        func setHandlerRegistrationId(_ id: UUID) {
+            handlerRegistrationId = id
+        }
+
+        func takeHandlerRegistrationId() -> UUID? {
+            defer { handlerRegistrationId = nil }
+            return handlerRegistrationId
         }
 
         /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
@@ -637,6 +669,7 @@
                 state.feed(content)
                 terminalState = state
                 streamState = .streaming
+                scheduleStableRecoveryReset()
 
             case let .resetState(snapshot):
                 guard let content = snapshot.content else { return }
@@ -672,6 +705,24 @@
                 // stream arrives before our new initialState.
                 guard streamState == .streaming else { return }
                 streamState = .ended
+            }
+        }
+
+        private func scheduleStableRecoveryReset() {
+            stabilityTask?.cancel()
+            guard let streamSessionId else { return }
+            stabilityTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(15))
+                } catch {
+                    return
+                }
+                guard
+                    let self,
+                    self.streamSessionId == streamSessionId,
+                    self.streamState == .streaming
+                else { return }
+                self.recoveryPolicy.markStreamingStable()
             }
         }
     }

@@ -3,7 +3,7 @@
 ## 状态
 
 - **状态**：✅ 已完成
-- **进度**：13/13 stages
+- **进度**：31/31 stages
 
 ## Stage 1：Tmux Session 重命名
 
@@ -990,3 +990,43 @@ Xcode 在打包时隐式升级依赖，使包内 source revision 能准确代表
 - 本地与远程选择结果和点击 tab 一致，远程断开时不崩溃、不误改 UI 为不可用 window。
 - 分屏右侧内容保持不变，终端焦点和按键输入不被新命令监听器截获。
 - 聚焦测试、完整 Swift package 测试、`git diff --check` 与 macOS Debug 构建通过。
+
+## Stage 31：iOS Terminal Stream 租约与抗抖恢复
+
+### 目标
+
+修复 iOS 前台使用期间因 Viewer WebSocket 短暂重连、SwiftUI terminal view 重建或旧异步
+任务越过连接边界，导致新 terminal stream 被旧 `StopTerminalStream` 误停并停留在
+`Terminal Stream Ended` 的问题。网络抖动可以短暂延迟画面，但不得让旧连接或旧页面拥有
+终止新订阅的权限。
+
+### 实施范围
+
+1. Viewer Relay 连接增加单调 connection generation；receive、ping、加密发送和命令等待
+   都绑定创建它们的 WebSocket 与 generation。旧连接 Task 不得发送到新 socket，也不得
+   清理新连接；WebSocket send 失败立即使精确当前连接进入现有重连流程。
+2. `StartTerminalStream` / `StopTerminalStream` 增加可选 stream lease ID。新客户端每次 Start
+   使用新 lease，Stop 只能释放同一 viewer 当前匹配的 lease；旧客户端缺少 lease 时保留
+   兼容语义。
+3. iOS 每个 `LiveTerminalView` 独占当前 lease 和 handler registration token。旧 view 的
+   `onDisappear` 只能注销自己的 handler、停止自己的 lease，不能覆盖后继 view。
+4. unexpected stream end 使用有界时间窗恢复：孤立结束自动 replacement；短时间连续失败
+   达到阈值后显示人工 Reconnect。成功稳定 streaming 后恢复预算，避免“一生只自动恢复一次”。
+5. Viewer keepalive 只有连续两轮没有任何入站帧才判定半开，并给各连接首轮 ping 增加稳定
+   小抖动，避免同一 iPhone 上的多 Host 连接同时探测、同时断开。不增加用户配置项。
+6. Host terminal stream stop 路径记录内部 reason；只有 resync 失败、pane 确认关闭等意外
+   force stop 写 warning，正常 Viewer stop/disconnect 不制造日志噪声。
+7. 不改变 terminal 数据格式、E2EE 内容、Relay 密文转发、tmux pane 尺寸、输入批处理及
+   多 Viewer 共用底层 pane subscription 的现有语义。
+
+### 验收标准
+
+- 旧连接的 send/receive/ping Task 在 Viewer 重连后不能作用于新 WebSocket。
+- 新 lease Start 完成后，旧 view 或旧 attempt 的 Stop 被 Host 忽略；匹配 lease 的正常 Stop
+  仍释放所有权，最后一个 Viewer 离开时仍释放底层 subscription。
+- 旧 view 注销 handler 不会清除同 pane 新 view 的 handler。
+- 单次意外 stream end 自动恢复；稳定运行后再次发生孤立结束仍可自动恢复；短时间持续结束
+  不形成无限 stop/start 循环，并显示人工 Reconnect。
+- 一次 10 秒网络/主线程抖动不会同时断开所有 Host；真正半开连接在第二轮探测后进入既有重连。
+- 聚焦生命周期、lease、handler、恢复策略及 keepalive 测试通过；完整 Swift package、
+  `git diff --check`、macOS 与 iOS 构建通过，无新增并发隔离警告。
