@@ -3,14 +3,14 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 1/5 tasks
+- **Progress**: 3/5 tasks
 - **Dependencies**: Stage 28 ✅
 
 ## Tasks
 
 - [x] 复现 macOS 打包期间隐式更新锁定依赖并因网络失败。
-- [ ] 锁定 macOS 与 iOS 本地打包的 Package.resolved。
-- [ ] 完成 shell、解析模式及 Git 洁净性验证。
+- [x] 锁定 macOS 与 iOS 本地打包的 Package.resolved。
+- [x] 完成 shell、解析模式及 Git 洁净性验证。
 - [ ] 从主 worktree 构建并校验 macOS Release DMG。
 - [ ] 合入 `develop/v2.8.0` 并清理 worktree。
 
@@ -27,3 +27,5 @@
 
 - `xcodebuild -resolvePackageDependencies -onlyUsePackageVersionsFromResolvedFile` 已使用现有锁文件
   成功解析，未修改 Git worktree。
+- `bash -n scripts/package-local-macos.sh scripts/package-local-ios.sh` 通过。
+- `git diff --check` 通过。
