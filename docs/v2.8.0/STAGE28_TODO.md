@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 6/7 tasks
+- **Status**: ✅ Completed
+- **Progress**: 7/7 tasks
 - **Dependencies**: Stage 27 ✅
 
 ## Tasks
@@ -14,7 +14,7 @@
 - [x] 增加进程参数与独立 tmux socket 回归测试。
 - [x] 运行聚焦测试、完整测试和 macOS 构建。
 - [x] 更新并安装本机 Mac App。
-- [ ] 真机验收，合入主仓库并清理 worktree。
+- [x] 真机验收，合入主仓库并清理 worktree。
 
 ## Root cause
 
@@ -41,3 +41,4 @@ tmux 将 `--set` 继续解析为选项并返回 `command send-keys: invalid flag
 - 本机 Mac App 已覆盖为 Stage 28 验证版；替换前后 tmux session 列表一致。
 - `git diff --check` 通过。
 - 独立 tmux socket 集成测试确认 `sudo scutil --set HostName -n` 完整进入 pane。
+- iOS 真机粘贴 `sudo scutil --set HostName` 完整显示，验收通过。
