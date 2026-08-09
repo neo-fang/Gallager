@@ -1,5 +1,6 @@
 #if os(macOS)
     import Testing
+    @testable import ClaudeSpyCommon
     @testable import ClaudeSpyServerFeature
 
     @Suite("Connected viewer lifecycle")

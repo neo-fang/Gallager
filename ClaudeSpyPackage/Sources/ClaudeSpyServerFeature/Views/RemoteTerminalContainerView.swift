@@ -681,6 +681,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private weak var connection: ViewerConnection?
         private var streamSubscriptionId: UUID?
         private var streamAttemptId: UUID?
+        private var activeLeaseId: UUID?
         private var streamState: RemoteStreamState = .connecting
         private var columns = 80
         private var rows = 24
@@ -814,15 +815,20 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             // a request that may still own a host-side subscription.
             if
                 recoveryPolicy.hasRequestedStream,
+                let leaseId = activeLeaseId,
                 let connection,
                 connection.isHostConnected,
                 let paneId {
                 let relayClient = connection.relayClient
                 let id = paneId
                 Task {
-                    _ = await relayClient.sendCommand(StopTerminalStream(), paneId: id)
+                    _ = await relayClient.sendCommand(
+                        StopTerminalStream(leaseId: leaseId),
+                        paneId: id
+                    )
                 }
             }
+            activeLeaseId = nil
         }
 
         // MARK: - Stream Lifecycle
@@ -846,11 +852,13 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                     return
                 }
 
-                let attemptId = beginStreamAttempt()
+                let previousLeaseId = activeLeaseId
+                let leaseId = UUID()
+                let attemptId = beginStreamAttempt(leaseId: leaseId)
 
-                if startMode == .replaceExisting {
+                if startMode == .replaceExisting, let previousLeaseId {
                     _ = await connection.relayClient.sendCommand(
-                        StopTerminalStream(),
+                        StopTerminalStream(leaseId: previousLeaseId),
                         paneId: paneId,
                     )
 
@@ -867,7 +875,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 bootstrapPolicy.willSendStartRequest()
 
                 let result = await connection.relayClient.sendCommand(
-                    StartTerminalStream(),
+                    StartTerminalStream(leaseId: leaseId),
                     paneId: paneId,
                 )
 
@@ -903,7 +911,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             }
         }
 
-        private func beginStreamAttempt() -> UUID {
+        private func beginStreamAttempt(leaseId: UUID) -> UUID {
             keystrokeDebouncer?.cancelAll()
             keyCoalescer.reset()
             bootstrapPolicy.beginAttempt()
@@ -915,6 +923,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
             let id = UUID()
             streamAttemptId = id
+            activeLeaseId = leaseId
             updateState(.connecting)
             return id
         }

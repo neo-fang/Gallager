@@ -432,7 +432,13 @@ public struct CancelOperation: CommandSpec, Equatable {
 public struct StartTerminalStream: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    public init() { }
+    /// Identifies this specific viewer-side subscription attempt. Optional so
+    /// older peers that encode an empty command remain wire-compatible.
+    public let leaseId: UUID?
+
+    public init(leaseId: UUID? = nil) {
+        self.leaseId = leaseId
+    }
 
     public var commandType: CommandType {
         .startTerminalStream(self)
@@ -443,7 +449,13 @@ public struct StartTerminalStream: CommandSpec, Equatable {
 public struct StopTerminalStream: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    public init() { }
+    /// Only the matching lease may release a modern subscription. Nil retains
+    /// the legacy empty-command wire format and semantics for older peers.
+    public let leaseId: UUID?
+
+    public init(leaseId: UUID? = nil) {
+        self.leaseId = leaseId
+    }
 
     public var commandType: CommandType {
         .stopTerminalStream(self)

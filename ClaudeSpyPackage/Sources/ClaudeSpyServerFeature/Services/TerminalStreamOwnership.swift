@@ -1,3 +1,5 @@
+import Foundation
+
 /// Tracks which paired viewers own a terminal stream subscription.
 ///
 /// A viewer may retry `StartTerminalStream`; ownership must remain idempotent
@@ -5,37 +7,64 @@
 struct TerminalStreamOwnership: Equatable, Sendable {
     enum Removal: Equatable, Sendable {
         case notSubscribed
+        case staleLease
         case retained(Int)
         case empty
     }
 
-    private var viewerIds: Set<String>
+    private enum Lease: Equatable, Sendable {
+        case legacy
+        case identified(UUID)
 
-    init(viewerId: String) {
-        viewerIds = [viewerId]
+        init(_ id: UUID?) {
+            self = id.map(Lease.identified) ?? .legacy
+        }
+    }
+
+    private var viewerLeases: [String: Lease]
+
+    init(viewerId: String, leaseId: UUID? = nil) {
+        viewerLeases = [viewerId: Lease(leaseId)]
     }
 
     var count: Int {
-        viewerIds.count
+        viewerLeases.count
     }
 
     var subscribers: Set<String> {
-        viewerIds
+        Set(viewerLeases.keys)
     }
 
     func contains(_ viewerId: String) -> Bool {
-        viewerIds.contains(viewerId)
+        viewerLeases[viewerId] != nil
     }
 
+    /// Installs the viewer's latest lease. Returns true when ownership changed.
     @discardableResult
-    mutating func subscribe(_ viewerId: String) -> Bool {
-        viewerIds.insert(viewerId).inserted
+    mutating func subscribe(_ viewerId: String, leaseId: UUID? = nil) -> Bool {
+        let lease = Lease(leaseId)
+        let changed = viewerLeases[viewerId] != lease
+        viewerLeases[viewerId] = lease
+        return changed
     }
 
-    mutating func unsubscribe(_ viewerId: String) -> Removal {
-        guard viewerIds.remove(viewerId) != nil else {
+    /// Releases a user-requested subscription only when its lease still owns it.
+    mutating func unsubscribe(_ viewerId: String, leaseId: UUID? = nil) -> Removal {
+        guard let currentLease = viewerLeases[viewerId] else {
             return .notSubscribed
         }
-        return viewerIds.isEmpty ? .empty : .retained(viewerIds.count)
+        guard currentLease == Lease(leaseId) else { return .staleLease }
+        return removeViewer(viewerId)
+    }
+
+    /// Connection loss invalidates every lease owned by that viewer.
+    mutating func unsubscribeViewer(_ viewerId: String) -> Removal {
+        guard viewerLeases[viewerId] != nil else { return .notSubscribed }
+        return removeViewer(viewerId)
+    }
+
+    private mutating func removeViewer(_ viewerId: String) -> Removal {
+        viewerLeases.removeValue(forKey: viewerId)
+        return viewerLeases.isEmpty ? .empty : .retained(viewerLeases.count)
     }
 }

@@ -5,18 +5,6 @@ import Dependencies
 import Foundation
 import Logging
 
-struct ConnectionGeneration: Equatable, Sendable {
-    private(set) var current: UInt64 = 0
-
-    mutating func invalidate() {
-        current &+= 1
-    }
-
-    func isCurrent(_ generation: UInt64) -> Bool {
-        current == generation
-    }
-}
-
 struct TerminalSendQueueSnapshot: Equatable, Sendable {
     let depth: Int
     let oldestWaitMilliseconds: Int
