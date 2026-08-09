@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 4/5 tasks
+- **Status**: ✅ Completed
+- **Progress**: 5/5 tasks
 - **Dependencies**: Stage 29 ✅
 
 ## Tasks
@@ -12,7 +12,7 @@
 - [x] 增加纯 window 导航决策与聚焦测试。
 - [x] 接入 scene-scoped macOS 菜单快捷键及本地/远程选择。
 - [x] 完成完整测试、构建与代码审查。
-- [ ] 合入 `develop/v2.8.0` 并清理 worktree。
+- [x] 合入 `develop/v2.8.0` 并清理 worktree。
 
 ## Decisions
 
