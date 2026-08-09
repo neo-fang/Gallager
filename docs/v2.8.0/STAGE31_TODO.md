@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/7 tasks
+- **Status**: ✅ Completed
+- **Progress**: 7/7 tasks
 - **Dependencies**: Stage 30 ✅
 
 ## Tasks
@@ -13,8 +13,8 @@
 - [x] 增加 terminal stream lease 与向后兼容的 Host ownership 语义。
 - [x] 增加 iOS handler registration ownership 和有界稳定恢复策略。
 - [x] 调整多 Host keepalive 抗抖并增加异常 stop reason 诊断。
-- [ ] 完成聚焦测试、完整 Swift package 与 macOS/iOS 构建。
-- [ ] 完成代码审查、更新文档并合入 `develop/v2.8.0`。
+- [x] 完成聚焦验证与 macOS/iOS 构建，并记录完整 Swift package 的外部依赖失败。
+- [x] 完成代码审查、双端安装验收并合入 `develop/v2.8.0`。
 
 ## Decisions
 
@@ -25,9 +25,13 @@
 
 ## Blockers
 
-- 完整 Swift package 测试的依赖解析被 GitHub 连接多次 `early EOF` 中断；目标级构建、
-  测试源码 typecheck 和核心策略运行时断言均已完成，仍需在依赖可用时补跑全量测试。
-- iOS 真机前台稳定性验收和 `develop/v2.8.0` 合入尚未执行。
+- None.
+
+## Known verification gap
+
+- 完整 Swift package 测试的依赖解析被 GitHub 连接多次 `early EOF` 中断，未产生测试结果；
+  目标级构建、测试源码 typecheck 和核心策略运行时断言均已完成。用户在知悉该缺口后要求
+  合入收尾，后续依赖可用时应补跑全量测试。
 
 ## Verification
 
@@ -44,3 +48,10 @@
 - `git diff --check` 通过。
 - 完整 Swift package 测试未产生结果：HTTP/2 与 HTTP/1.1 两次依赖拉取均因 GitHub
   `RPC failed` / `early EOF` 失败，已停止重复下载。
+- macOS Release 使用 Apple Development 签名构建并覆盖安装；运行 revision 为
+  `1fdf353f698f`，CLI `wait-ready` / `ping` 通过，安装前后 tmux session/window/pane/PID
+  指纹一致。
+- iOS Debug device App 使用本地 provisioning profile 分层签名，覆盖安装并启动到
+  `ZengJice iPhone`；bundle ID 为 `com.zengjice.gallager.local`，运行 revision 为
+  `1fdf353f698f`。
+- 用户完成双端更新后要求合入主仓并收尾。

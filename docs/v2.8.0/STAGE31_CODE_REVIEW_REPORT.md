@@ -40,10 +40,11 @@
 - `git diff --check` 通过。
 - 完整 Swift package 测试受 GitHub 依赖拉取连续 `early EOF` 阻塞，未产生测试结果；这是合入前
   仍需补齐的验证，不视为测试通过。
-- iOS 真机前台多 Host/网络抖动验收尚未执行。
+- macOS Release 与 iOS device App 已签名、覆盖安装并启动；两端 source revision 均为
+  `1fdf353f698f`，Mac CLI 与 tmux 零中断检查通过。
 
 ## Assessment
 
-代码审查未发现可复现缺陷。实现保持单一 WebSocket/E2EE/terminal stream 架构，没有增加并行
-重连器、发送优先级系统或配置面。当前可进入真机验收；完整 Swift package 测试补跑和验收通过
-之前，不合入 `develop/v2.8.0`。
+Approved. 代码审查未发现可复现缺陷。实现保持单一 WebSocket/E2EE/terminal stream 架构，
+没有增加并行重连器、发送优先级系统或配置面。完整 Swift package 测试仍有明确记录的外部依赖
+下载缺口；用户在双端更新后要求合入收尾。
