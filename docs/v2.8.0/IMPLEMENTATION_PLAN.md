@@ -937,3 +937,27 @@ agent 必须保持原身份和进程不变。
 - 普通文字、空格、Enter、方向键、bracketed paste 和输入顺序不回归。
 - 不修改网络协议或 iOS UI；更新 Host 后旧 Viewer 仍兼容。
 - 聚焦测试、完整 Swift package、`git diff --check` 与 macOS 构建通过，并完成真机粘贴验收。
+
+## Stage 29：本地安装包依赖锁定
+
+### 目标
+
+确保 macOS DMG 与 iOS IPA 的零参数打包始终使用仓库已提交的 `Package.resolved`，禁止
+Xcode 在打包时隐式升级依赖，使包内 source revision 能准确代表实际源码与依赖图。
+
+### 实施范围
+
+1. macOS 与 iOS 本地打包脚本向 Xcode 明确传入
+   `-onlyUsePackageVersionsFromResolvedFile`。
+2. 保持现有主 worktree 限制、缓存目录、签名、构建 stamp、source revision、产物名称和
+   调用方式不变；不增加命令行参数或环境覆盖入口。
+3. 使用现有锁文件完成依赖解析，确认不会修改两个 `Package.resolved`；执行 shell 语法检查
+   并从主 worktree 完成一次 macOS Release DMG 构建。
+
+### 验收标准
+
+- 本地打包不会把 `swift-certificates`、`swift-log`、`swift-system` 等间接依赖升级到锁文件
+  之外的版本。
+- 两个脚本保持零参数调用，shell 语法检查通过。
+- macOS DMG 构建、签名、映像和嵌入 source revision 校验通过。
+- 打包前后 Git worktree 保持干净。

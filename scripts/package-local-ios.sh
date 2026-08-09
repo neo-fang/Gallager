@@ -40,6 +40,7 @@ log_info "Building Gallager $VERSION from $PROJECT_ROOT"
     -derivedDataPath "$DERIVED_DATA" \
     -clonedSourcePackagesDirPath "$SOURCE_PACKAGES" \
     -disablePackageRepositoryCache \
+    -onlyUsePackageVersionsFromResolvedFile \
     -skipMacroValidation \
     -skipPackagePluginValidation \
     GALLAGER_BUILD_STAMP="$BUILD_STAMP" \
