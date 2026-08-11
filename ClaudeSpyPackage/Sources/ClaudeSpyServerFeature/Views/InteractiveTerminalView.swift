@@ -478,11 +478,26 @@
         private var cachedCellSize: CGSize?
         private var lastMouseGridPosition: (col: Int, row: Int)?
 
+        private struct URLUnderlineLayoutSignature: Equatable {
+            let columns: Int
+            let rows: Int
+            let displayRow: Int
+            let cellSize: CGSize
+            let terminalFrame: CGRect
+            let boundsSize: CGSize
+            let horizontalOffset: CGFloat
+            let mouseModeActive: Bool
+        }
+
         /// OSC 8 hyperlink payload cache, mirrored from SwiftTerm cells before
         /// we clear them to suppress SwiftTerm's own dashed underline rendering.
         /// See `TerminalPayloadCache` for the full rationale.
         private let payloadCache = TerminalPayloadCache()
-        private var urlUnderlineUpdateScheduled = false
+        private static let urlUnderlineRefreshInterval = Duration.milliseconds(100)
+        private var urlContentGeneration: UInt64 = 0
+        private var renderedURLContentGeneration: UInt64?
+        private var renderedURLLayoutSignature: URLUnderlineLayoutSignature?
+        private var urlUnderlineUpdateTask: Task<Void, Never>?
 
         /// ANSI base colors used when copying terminal content as rich text.
         /// Updated together with SwiftTerm by `applyTheme(_:)`.
@@ -1459,7 +1474,15 @@
         /// next layout pass (`rangeChanged`/`scrolled`), unlike iOS which
         /// repaints immediately. In practice TUIs always redraw when toggling
         /// mouse tracking, so the latency isn't user-visible.
-        private func updateURLUnderlines() {
+        private func updateURLUnderlinesIfNeeded() {
+            let terminal = terminalView.getTerminal()
+            let signature = currentURLUnderlineLayoutSignature
+            let contentNeedsRefresh = renderedURLContentGeneration != urlContentGeneration
+            let layoutNeedsRefresh = renderedURLLayoutSignature != signature
+            guard contentNeedsRefresh || layoutNeedsRefresh else { return }
+            renderedURLContentGeneration = urlContentGeneration
+            renderedURLLayoutSignature = signature
+
             for layer in urlUnderlineLayers {
                 layer.removeFromSuperlayer()
             }
@@ -1467,7 +1490,6 @@
 
             if isMouseModeActive { return }
 
-            let terminal = terminalView.getTerminal()
             guard cellSize.width > 0, cellSize.height > 0 else { return }
             urlRowCache.retainViewportRows(in: 0..<terminal.rows)
 
@@ -1510,14 +1532,38 @@
         /// Terminal output changes link decorations, not view geometry. Scheduling
         /// the scan directly avoids turning every output chunk into a full AppKit /
         /// SwiftUI layout pass while still coalescing bursts on the main run loop.
-        private func scheduleURLUnderlineUpdate() {
-            guard !urlUnderlineUpdateScheduled else { return }
-            urlUnderlineUpdateScheduled = true
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.urlUnderlineUpdateScheduled = false
-                self.updateURLUnderlines()
+        private func scheduleURLUnderlineUpdate(contentChanged: Bool = false) {
+            if contentChanged {
+                urlContentGeneration &+= 1
             }
+            guard urlUnderlineUpdateTask == nil else { return }
+            let contentNeedsRefresh = renderedURLContentGeneration != urlContentGeneration
+            let layoutNeedsRefresh = renderedURLLayoutSignature != currentURLUnderlineLayoutSignature
+            guard contentNeedsRefresh || layoutNeedsRefresh else { return }
+            urlUnderlineUpdateTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: Self.urlUnderlineRefreshInterval)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                self.urlUnderlineUpdateTask = nil
+                self.updateURLUnderlinesIfNeeded()
+            }
+        }
+
+        private var currentURLUnderlineLayoutSignature: URLUnderlineLayoutSignature {
+            let terminal = terminalView.getTerminal()
+            return URLUnderlineLayoutSignature(
+                columns: terminal.cols,
+                rows: terminal.rows,
+                displayRow: terminal.buffer.yDisp,
+                cellSize: cellSize,
+                terminalFrame: terminalView.frame,
+                boundsSize: bounds.size,
+                horizontalOffset: horizontalOffset,
+                mouseModeActive: isMouseModeActive
+            )
         }
 
         // MARK: - Horizontal Scrolling
@@ -1554,6 +1600,7 @@
             var frame = terminalView.frame
             frame.origin.x = -horizontalOffset
             terminalView.frame = frame
+            scheduleURLUnderlineUpdate()
         }
 
         private func updateHorizontalScroller() {
@@ -1592,6 +1639,7 @@
                 updateTerminalPosition()
             }
             updateHorizontalScroller()
+            scheduleURLUnderlineUpdate()
         }
 
         // MARK: - Layout
@@ -1611,7 +1659,7 @@
                 terminalView.frame.origin.y = bounds.height - terminalView.frame.size.height
             }
             updateHorizontalScroller()
-            updateURLUnderlines()
+            scheduleURLUnderlineUpdate()
             onResize?(frame.size)
         }
 
@@ -1622,6 +1670,7 @@
             set {
                 terminalView.font = newValue
                 cachedCellSize = nil
+                scheduleURLUnderlineUpdate()
             }
         }
 
@@ -1685,7 +1734,7 @@
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
             extractAndClearPayloads(afterFeeding: byteArray)
-            scheduleURLUnderlineUpdate()
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -1699,7 +1748,7 @@
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
-            scheduleURLUnderlineUpdate()
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func scroll(toPosition position: Double) {
@@ -1796,7 +1845,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            scheduleURLUnderlineUpdate()
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {

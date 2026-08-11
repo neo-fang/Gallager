@@ -139,7 +139,8 @@
         func sendKeystrokesIfConnected(
             paneId: String,
             sessionName: String,
-            keys: [TmuxKey]
+            keys: [TmuxKey],
+            onFirstCommandWritten: (@Sendable () -> Void)? = nil
         ) async throws -> Bool {
             guard let commands = TmuxControlInputEncoder.commands(paneId: paneId, keys: keys) else {
                 return false
@@ -148,10 +149,13 @@
             guard let client = clients[sessionName], await client.isConnected else { return false }
 
             var completedCommand = false
-            for command in commands {
+            for (index, command) in commands.enumerated() {
                 let response: CommandResponse
                 do {
-                    response = try await client.sendCommand(command)
+                    response = try await client.sendCommand(
+                        command,
+                        onWritten: index == 0 ? onFirstCommandWritten : nil
+                    )
                 } catch TmuxControlError.notConnected where !completedCommand {
                     return false
                 } catch {

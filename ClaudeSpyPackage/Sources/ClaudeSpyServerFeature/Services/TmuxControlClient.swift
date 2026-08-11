@@ -326,7 +326,11 @@ actor TmuxControlClient {
     // MARK: - Command Execution
 
     /// Sends a command to tmux and waits for the response
-    func sendCommand(_ command: String, timeout: TimeInterval = 5) async throws -> CommandResponse {
+    func sendCommand(
+        _ command: String,
+        timeout: TimeInterval = 5,
+        onWritten: (@Sendable () -> Void)? = nil
+    ) async throws -> CommandResponse {
         guard let stdin else {
             throw TmuxControlError.notConnected
         }
@@ -337,6 +341,7 @@ actor TmuxControlClient {
         // Write command with newline
         let commandData = Data((command + "\n").utf8)
         try stdin.write(contentsOf: commandData)
+        onWritten?()
 
         // Create timeout task that we can cancel on success
         let timeoutTask = Task {

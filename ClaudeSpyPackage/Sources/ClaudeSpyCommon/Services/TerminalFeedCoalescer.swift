@@ -3,10 +3,13 @@ import Foundation
 /// Coalesces terminal bytes until the next MainActor turn and feeds SwiftTerm
 /// with a bounded amount of work before yielding again.
 @MainActor
-public final class TerminalFeedCoalescer {
+final public class TerminalFeedCoalescer {
     private let id: String
     private let maximumFeedBytes: Int
+    private let prioritizedFeedBytes: Int
+    private let maximumTurnDuration: Duration
     private let metrics: TerminalTransportMetrics
+    private let shouldPrioritizeInput: @MainActor () -> Bool
     private let feed: @MainActor (Data) -> Void
 
     private var chunks: [Data] = []
@@ -16,16 +19,28 @@ public final class TerminalFeedCoalescer {
     private var drainTask: Task<Void, Never>?
     private var drainToken: UUID?
 
+    /// Creates a feed coalescer.
+    ///
+    /// A zero `maximumTurnDuration` preserves the original one-batch-per-turn
+    /// behavior. Local terminals use a short time slice for bulk throughput.
     public init(
         id: String,
         maximumFeedBytes: Int = 32_768,
+        prioritizedFeedBytes: Int = 4_096,
+        maximumTurnDuration: Duration = .zero,
         metrics: TerminalTransportMetrics = .shared,
+        shouldPrioritizeInput: @escaping @MainActor () -> Bool = { false },
         feed: @escaping @MainActor (Data) -> Void
     ) {
         precondition(maximumFeedBytes > 0)
+        precondition(prioritizedFeedBytes > 0)
+        precondition(maximumTurnDuration >= .zero)
         self.id = id
         self.maximumFeedBytes = maximumFeedBytes
+        self.prioritizedFeedBytes = min(prioritizedFeedBytes, maximumFeedBytes)
+        self.maximumTurnDuration = maximumTurnDuration
         self.metrics = metrics
+        self.shouldPrioritizeInput = shouldPrioritizeInput
         self.feed = feed
     }
 
@@ -67,7 +82,7 @@ public final class TerminalFeedCoalescer {
         drainTask?.cancel()
         drainTask = nil
         drainToken = nil
-        while let data = takeNextBatch() {
+        while let data = takeNextBatch(byteLimit: currentFeedByteLimit) {
             feedNow(data)
         }
     }
@@ -79,11 +94,21 @@ public final class TerminalFeedCoalescer {
         drainTask = Task { @MainActor [weak self] in
             await Task.yield()
             guard let self else { return }
+            var turnStartedAt = ContinuousClock.now
 
-            while !Task.isCancelled, let data = self.takeNextBatch() {
+            while
+                !Task.isCancelled,
+                let data = self.takeNextBatch(byteLimit: self.currentFeedByteLimit) {
                 self.feedNow(data)
                 guard self.pendingBytes > 0 else { break }
-                await Task.yield()
+
+                let inputIsWaiting = self.shouldPrioritizeInput()
+                let turnExpired = self.maximumTurnDuration == .zero
+                    || ContinuousClock.now - turnStartedAt >= self.maximumTurnDuration
+                if inputIsWaiting || turnExpired {
+                    await Task.yield()
+                    turnStartedAt = .now
+                }
             }
 
             guard self.drainToken == token else { return }
@@ -95,9 +120,13 @@ public final class TerminalFeedCoalescer {
         }
     }
 
-    private func takeNextBatch() -> Data? {
+    private var currentFeedByteLimit: Int {
+        shouldPrioritizeInput() ? prioritizedFeedBytes : maximumFeedBytes
+    }
+
+    private func takeNextBatch(byteLimit: Int) -> Data? {
         guard pendingBytes > 0 else { return nil }
-        let byteCount = min(maximumFeedBytes, pendingBytes)
+        let byteCount = min(byteLimit, pendingBytes)
         var result = Data()
         result.reserveCapacity(byteCount)
 

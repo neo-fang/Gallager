@@ -698,9 +698,10 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var onTitleChange: (@MainActor (String) -> Void)?
 
         private var keystrokeDebouncer: KeystrokeDebouncer?
-        private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] keys in
-            self?.enqueueKeySend(keys: keys)
+        private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
+            self?.enqueueKeySend(keys: batch.keys)
         }
+
         private lazy var feedCoalescer = TerminalFeedCoalescer(
             id: "mac-remote:\(paneId ?? "unknown")"
         ) { [weak self] data in

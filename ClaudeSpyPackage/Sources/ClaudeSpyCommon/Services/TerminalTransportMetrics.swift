@@ -7,8 +7,9 @@ import os.lock
 /// Every mutation is an in-memory lock update. A compact debug record is emitted
 /// at most once per interval, so observing a busy terminal does not add a log
 /// write for every pipe read, encrypted frame, or SwiftTerm feed.
-public final class TerminalTransportMetrics: Sendable {
+final public class TerminalTransportMetrics: Sendable {
     public enum QueueKind: String, CaseIterable, Hashable, Sendable {
+        case localInput
         case pipeIngress
         case streamIngress
         case webSocketSend
@@ -19,6 +20,24 @@ public final class TerminalTransportMetrics: Sendable {
         case encryption
         case webSocketSend
         case terminalFeed
+        case localInputToFlush
+        case localInputToSend
+        case localInputToWrite
+        case localInputToAcknowledgement
+        case localInputToOutput
+        case localInputToFeed
+    }
+
+    public enum LocalInputStage: UInt8, Hashable, Sendable {
+        case sendStarted = 0
+        case tmuxWrite = 1
+        case tmuxAcknowledged = 2
+    }
+
+    /// Opaque identifier for one coalesced local keyboard-input batch.
+    public struct LocalInputToken: Hashable, Sendable {
+        fileprivate let id: UInt64
+        fileprivate let paneId: String
     }
 
     public struct QueueSnapshot: Equatable, Sendable {
@@ -41,6 +60,9 @@ public final class TerminalTransportMetrics: Sendable {
         public let totalBatchBytes: Int
         public let maximumBatchBytes: Int
         public let resyncCount: Int
+        public let pendingLocalInputCount: Int
+        public let failedLocalInputCount: Int
+        public let expiredLocalInputCount: Int
     }
 
     public static let shared = TerminalTransportMetrics(label: "app")
@@ -63,6 +85,14 @@ public final class TerminalTransportMetrics: Sendable {
         var maximumMicroseconds: Int64 = 0
     }
 
+    private struct LocalInputTrace: Sendable {
+        let paneId: String
+        let acceptedAt: ContinuousClock.Instant
+        var recordedStageMask: UInt8 = 0
+        var observedOutput = false
+        var observedFeed = false
+    }
+
     private struct State: Sendable {
         var queues: [QueueKey: QueueState] = [:]
         var timings: [TimingKind: TimingState] = [:]
@@ -70,8 +100,15 @@ public final class TerminalTransportMetrics: Sendable {
         var totalBatchBytes = 0
         var maximumBatchBytes = 0
         var resyncCount = 0
+        var nextLocalInputId: UInt64 = 0
+        var localInputs: [UInt64: LocalInputTrace] = [:]
+        var failedLocalInputCount = 0
+        var expiredLocalInputCount = 0
         var nextEmission: ContinuousClock.Instant?
     }
+
+    private static let maximumPendingLocalInputs = 256
+    private static let localInputLifetime = Duration.seconds(5)
 
     private let label: String
     private let emissionInterval: Duration
@@ -116,18 +153,139 @@ public final class TerminalTransportMetrics: Sendable {
     }
 
     public func recordDuration(_ kind: TimingKind, since start: ContinuousClock.Instant) {
-        let duration = ContinuousClock.now - start
-        let components = duration.components
-        let microseconds = max(
-            0,
-            components.seconds * 1_000_000 + components.attoseconds / 1_000_000_000_000
-        )
+        let microseconds = Self.microseconds(since: start, until: .now)
         mutate { state in
-            var timing = state.timings[kind] ?? TimingState()
-            timing.count += 1
-            timing.totalMicroseconds += microseconds
-            timing.maximumMicroseconds = max(timing.maximumMicroseconds, microseconds)
-            state.timings[kind] = timing
+            Self.addTiming(kind, microseconds: microseconds, to: &state)
+        }
+    }
+
+    /// Starts one best-effort local input trace. The trace is correlated with
+    /// the first later pipe output and terminal feed for the same pane. It is
+    /// intentionally batch-based and bounded so diagnostics remain cheap while
+    /// a terminal is busy.
+    public func beginLocalInput(
+        paneId: String,
+        acceptedAt: ContinuousClock.Instant
+    ) -> LocalInputToken {
+        let now = ContinuousClock.now
+        return mutate { state in
+            Self.expireLocalInputs(in: &state, now: now)
+            while
+                state.localInputs.count >= Self.maximumPendingLocalInputs,
+                let oldest = state.localInputs.min(by: { $0.value.acceptedAt < $1.value.acceptedAt })?.key {
+                state.localInputs.removeValue(forKey: oldest)
+                state.expiredLocalInputCount += 1
+            }
+
+            state.nextLocalInputId &+= 1
+            let token = LocalInputToken(id: state.nextLocalInputId, paneId: paneId)
+            state.localInputs[token.id] = LocalInputTrace(
+                paneId: paneId,
+                acceptedAt: acceptedAt
+            )
+            Self.addTiming(
+                .localInputToFlush,
+                microseconds: Self.microseconds(since: acceptedAt, until: now),
+                to: &state
+            )
+            return token
+        }
+    }
+
+    public func recordLocalInput(_ token: LocalInputToken, stage: LocalInputStage) {
+        let now = ContinuousClock.now
+        mutate { state in
+            Self.expireLocalInputs(in: &state, now: now)
+            guard var trace = state.localInputs[token.id], trace.paneId == token.paneId else { return }
+            let stageBit = UInt8(1) << stage.rawValue
+            guard trace.recordedStageMask & stageBit == 0 else { return }
+            trace.recordedStageMask |= stageBit
+
+            let kind: TimingKind = switch stage {
+            case .sendStarted: .localInputToSend
+            case .tmuxWrite: .localInputToWrite
+            case .tmuxAcknowledged: .localInputToAcknowledgement
+            }
+            Self.addTiming(
+                kind,
+                microseconds: Self.microseconds(since: trace.acceptedAt, until: now),
+                to: &state
+            )
+            if stage == .tmuxAcknowledged, trace.observedFeed {
+                state.localInputs.removeValue(forKey: token.id)
+            } else {
+                state.localInputs[token.id] = trace
+            }
+        }
+    }
+
+    /// Marks all unobserved input batches for this pane. Pipe output is a byte
+    /// stream without command IDs, so exact one-to-one correlation is impossible;
+    /// batching all waiting inputs against the first later output is deterministic
+    /// and avoids retaining per-keystroke state.
+    public func recordLocalOutput(paneId: String) {
+        let now = ContinuousClock.now
+        mutate { state in
+            guard !state.localInputs.isEmpty else { return }
+            Self.expireLocalInputs(in: &state, now: now)
+            guard !state.localInputs.isEmpty else { return }
+            let writtenBit = UInt8(1) << LocalInputStage.tmuxWrite.rawValue
+            for id in Array(state.localInputs.keys) {
+                guard var trace = state.localInputs[id] else { continue }
+                guard
+                    trace.paneId == paneId,
+                    !trace.observedOutput,
+                    trace.recordedStageMask & writtenBit != 0
+                else { continue }
+                trace.observedOutput = true
+                state.localInputs[id] = trace
+                Self.addTiming(
+                    .localInputToOutput,
+                    microseconds: Self.microseconds(since: trace.acceptedAt, until: now),
+                    to: &state
+                )
+            }
+        }
+    }
+
+    /// Completes traces whose corresponding pane output has reached SwiftTerm.
+    public func recordLocalFeed(paneId: String) {
+        let now = ContinuousClock.now
+        mutate { state in
+            guard !state.localInputs.isEmpty else { return }
+            Self.expireLocalInputs(in: &state, now: now)
+            guard !state.localInputs.isEmpty else { return }
+            for id in Array(state.localInputs.keys) {
+                guard var trace = state.localInputs[id] else { continue }
+                guard trace.paneId == paneId, trace.observedOutput, !trace.observedFeed else { continue }
+                trace.observedFeed = true
+                Self.addTiming(
+                    .localInputToFeed,
+                    microseconds: Self.microseconds(since: trace.acceptedAt, until: now),
+                    to: &state
+                )
+                let acknowledgedBit = UInt8(1) << LocalInputStage.tmuxAcknowledged.rawValue
+                if trace.recordedStageMask & acknowledgedBit != 0 {
+                    state.localInputs.removeValue(forKey: id)
+                } else {
+                    state.localInputs[id] = trace
+                }
+            }
+        }
+    }
+
+    public func failLocalInput(_ token: LocalInputToken) {
+        mutate { state in
+            guard state.localInputs.removeValue(forKey: token.id) != nil else { return }
+            state.failedLocalInputCount += 1
+        }
+    }
+
+    /// Removes input abandoned by normal view teardown without reporting a
+    /// transport failure.
+    public func discardLocalInput(_ token: LocalInputToken) {
+        mutate { state in
+            state.localInputs.removeValue(forKey: token.id)
         }
     }
 
@@ -136,25 +294,32 @@ public final class TerminalTransportMetrics: Sendable {
     }
 
     public func snapshot() -> Snapshot {
-        state.withLock { makeSnapshot(from: $0) }
+        let now = ContinuousClock.now
+        return state.withLock { state in
+            Self.expireLocalInputs(in: &state, now: now)
+            return makeSnapshot(from: state)
+        }
     }
 
-    private func mutate(_ operation: @Sendable (inout State) -> Void) {
+    @discardableResult
+    private func mutate<Result: Sendable>(
+        _ operation: @Sendable (inout State) -> Result
+    ) -> Result {
         let now = ContinuousClock.now
-        let report = state.withLock { state -> Snapshot? in
-            operation(&state)
+        let (result, report) = state.withLock { state -> (Result, Snapshot?) in
+            let result = operation(&state)
             guard let next = state.nextEmission else {
                 state.nextEmission = now.advanced(by: emissionInterval)
-                return nil
+                return (result, nil)
             }
-            guard now >= next else { return nil }
+            guard now >= next else { return (result, nil) }
             state.nextEmission = now.advanced(by: emissionInterval)
             let snapshot = makeSnapshot(from: state)
             resetWindow(&state)
-            return snapshot
+            return (result, snapshot)
         }
 
-        guard let report else { return }
+        guard let report else { return result }
         logger.debug(
             "Terminal transport metrics",
             metadata: [
@@ -165,8 +330,12 @@ public final class TerminalTransportMetrics: Sendable {
                 "batchBytesMax": "\(report.maximumBatchBytes)",
                 "timings": "\(formatTimings(report.timings))",
                 "resyncs": "\(report.resyncCount)",
+                "localInputPending": "\(report.pendingLocalInputCount)",
+                "localInputFailed": "\(report.failedLocalInputCount)",
+                "localInputExpired": "\(report.expiredLocalInputCount)",
             ]
         )
+        return result
     }
 
     private func makeSnapshot(from state: State) -> Snapshot {
@@ -197,7 +366,10 @@ public final class TerminalTransportMetrics: Sendable {
             batchCount: state.batchCount,
             totalBatchBytes: state.totalBatchBytes,
             maximumBatchBytes: state.maximumBatchBytes,
-            resyncCount: state.resyncCount
+            resyncCount: state.resyncCount,
+            pendingLocalInputCount: state.localInputs.count,
+            failedLocalInputCount: state.failedLocalInputCount,
+            expiredLocalInputCount: state.expiredLocalInputCount
         )
     }
 
@@ -219,6 +391,8 @@ public final class TerminalTransportMetrics: Sendable {
         state.totalBatchBytes = 0
         state.maximumBatchBytes = 0
         state.resyncCount = 0
+        state.failedLocalInputCount = 0
+        state.expiredLocalInputCount = 0
     }
 
     private func formatQueues(_ queues: [QueueKind: QueueSnapshot]) -> String {
@@ -238,5 +412,40 @@ public final class TerminalTransportMetrics: Sendable {
             let value = timings[kind] ?? TimingSnapshot(count: 0, totalMicroseconds: 0, maximumMicroseconds: 0)
             return "\(kind.rawValue)=\(value.count)/\(value.totalMicroseconds)us,max:\(value.maximumMicroseconds)us"
         }.joined(separator: ",")
+    }
+
+    private static func addTiming(
+        _ kind: TimingKind,
+        microseconds: Int64,
+        to state: inout State
+    ) {
+        var timing = state.timings[kind] ?? TimingState()
+        timing.count += 1
+        timing.totalMicroseconds += microseconds
+        timing.maximumMicroseconds = max(timing.maximumMicroseconds, microseconds)
+        state.timings[kind] = timing
+    }
+
+    private static func microseconds(
+        since start: ContinuousClock.Instant,
+        until end: ContinuousClock.Instant
+    ) -> Int64 {
+        let components = (end - start).components
+        return max(
+            0,
+            components.seconds * 1_000_000 + components.attoseconds / 1_000_000_000_000
+        )
+    }
+
+    private static func expireLocalInputs(in state: inout State, now: ContinuousClock.Instant) {
+        guard !state.localInputs.isEmpty else { return }
+        let expired = state.localInputs.compactMap { entry in
+            now - entry.value.acceptedAt >= localInputLifetime ? entry.key : nil
+        }
+        guard !expired.isEmpty else { return }
+        for id in expired {
+            state.localInputs.removeValue(forKey: id)
+        }
+        state.expiredLocalInputCount += expired.count
     }
 }

@@ -34,6 +34,47 @@ struct TerminalFeedCoalescerTests {
         #expect(combined == Data("abcdefghij".utf8))
     }
 
+    @Test("Pending input switches terminal feed to smaller batches")
+    func prioritizesInputWithSmallerBatches() {
+        var deliveries: [Data] = []
+        let inputIsPending = true
+        let coalescer = TerminalFeedCoalescer(
+            id: "test",
+            maximumFeedBytes: 8,
+            prioritizedFeedBytes: 3,
+            shouldPrioritizeInput: { inputIsPending }
+        ) { deliveries.append($0) }
+
+        coalescer.enqueue(Data("abcdefgh".utf8))
+        coalescer.flushPendingNow()
+
+        #expect(deliveries.map(\.count) == [3, 3, 2])
+        let combined = deliveries.reduce(into: Data()) { $0.append($1) }
+        #expect(combined == Data("abcdefgh".utf8))
+    }
+
+    @Test("Feed batch size reacts between deliveries")
+    func dynamicallyPrioritizesInput() {
+        var deliveries: [Data] = []
+        var inputIsPending = false
+        let coalescer = TerminalFeedCoalescer(
+            id: "test",
+            maximumFeedBytes: 8,
+            prioritizedFeedBytes: 3,
+            shouldPrioritizeInput: { inputIsPending }
+        ) { data in
+            deliveries.append(data)
+            inputIsPending = true
+        }
+
+        coalescer.enqueue(Data("abcdefghijkl".utf8))
+        coalescer.flushPendingNow()
+
+        #expect(deliveries.map(\.count) == [8, 3, 1])
+        let combined = deliveries.reduce(into: Data()) { $0.append($1) }
+        #expect(combined == Data("abcdefghijkl".utf8))
+    }
+
     @Test("Snapshot replacement discards obsolete increments")
     func snapshotReplacement() {
         var events: [String] = []
