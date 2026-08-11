@@ -49,10 +49,10 @@
 
 - pipe output 是无 command ID 的字节流，input→output/feed 指标只能做同 pane、write 之后的
   best-effort 关联；该限制已明确记录，不能用更多状态伪装成精确因果链。
-- 自动化测试证明调度、顺序与边界；高输出 Agent TUI 的体感和 CPU 前后差异仍需在相同本机现场
-  验收后再合入 `develop/v2.9.0`。
+- 自动化测试证明调度、顺序与边界；本 Stage 未补做受控的同场景前后 profiling，用户在签名
+  Release 覆盖安装后明确要求合入，本文不把缺失的运行时样本描述成已验证结论。
 
 ## Assessment
 
-Approved for runtime acceptance。未发现 P3 及以上遗留问题。实现没有增加协议、配置面或并行输入
-架构；剩余工作仅为真实高输出现场验收和 Stage merge。
+Approved and merged。未发现 P3 及以上遗留问题。实现没有增加协议、配置面或并行输入架构；
+Stage 4 已按用户明确指令合入 `develop/v2.9.0`。

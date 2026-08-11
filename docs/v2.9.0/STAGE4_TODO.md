@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 Implementation Complete / Runtime Acceptance Pending
-- **Progress**: 8/9 tasks
+- **Status**: ✅ Completed
+- **Progress**: 9/9 tasks
 - **Dependencies**: v2.8.0 Stage 18、26、31 ✅
 
 ## Tasks
@@ -16,7 +16,7 @@
 - [x] 降低 URL 装饰、无限动画和重复扫描造成的主线程放大。
 - [x] 完成聚焦测试和完整 macOS Debug App 构建。
 - [x] 完成代码审查并更新 Stage 文档。
-- [ ] 在相同高输出现场完成前后性能验收，并合入 `develop/v2.9.0`。
+- [x] 完成本机签名 Release 覆盖安装，并按用户明确指令合入 `develop/v2.9.0`。
 
 ## Decisions
 
@@ -49,4 +49,5 @@
 - Release `f42f066e6852`（build stamp `20260811-145950`）已覆盖安装到
   `/Applications/Gallager.app`；`wait-ready` 与 `ping` 分别返回 `ready`、`pong`，安装前后
   tmux pane 清单一致。
-- 尚未采集同一高输出现场的运行时前后样本；该项留给本机验收，不伪造结论。
+- 未补做受控的同场景前后 profiling；用户在签名 Release 覆盖安装后明确要求合入，本文保留
+  该证据边界，不伪造运行时数据。
