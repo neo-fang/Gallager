@@ -2,20 +2,21 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 1/8 tasks
+- **Status**: 🟡 Implementation Complete / Runtime Acceptance Pending
+- **Progress**: 8/9 tasks
 - **Dependencies**: v2.8.0 Stage 18、26、31 ✅
 
 ## Tasks
 
 - [x] 采样并定位 MainActor、Observation、tmux control 与 terminal feed 热点。
-- [ ] 抑制无变化的 tmux/pane 状态发布，并为发布语义增加聚焦测试。
-- [ ] 将 Viewer session-state 构造改为不扰动本地 UI 的纯快照路径。
-- [ ] 增加本地按键到回显/feed 的低开销端到端指标。
-- [ ] 为待处理本地输入增加公平的 terminal feed 调度。
-- [ ] 降低 URL 装饰、无限动画和重复扫描造成的主线程放大。
-- [ ] 完成聚焦测试、构建和相同现场的前后性能采样。
-- [ ] 完成代码审查、更新文档并合入 `develop/v2.9.0`。
+- [x] 抑制无变化的 tmux/pane 状态发布，并为发布语义增加聚焦测试。
+- [x] 将 Viewer session-state 构造改为不扰动本地 UI 的纯快照路径。
+- [x] 增加本地按键到回显/feed 的低开销端到端指标。
+- [x] 为待处理本地输入增加公平的 terminal feed 调度。
+- [x] 降低 URL 装饰、无限动画和重复扫描造成的主线程放大。
+- [x] 完成聚焦测试和完整 macOS Debug App 构建。
+- [x] 完成代码审查并更新 Stage 文档。
+- [ ] 在相同高输出现场完成前后性能验收，并合入 `develop/v2.9.0`。
 
 ## Decisions
 
@@ -23,7 +24,7 @@
 - 保留单一有序按键 FIFO 与同一 runloop 内的 Meta 合并。
 - 优先删除无效状态写入；不以缓存或新 ViewModel 掩盖 Observation fan-out。
 - Viewer 快照允许显式读取 tmux，但不得顺带写入本地 UI model。
-- 指标为进程内聚合；只在超过阈值时记录摘要，不逐键同步写日志。
+- 指标为进程内聚合；最多每 10 秒记录一次 debug 摘要，不逐键同步写日志。
 
 ## Baseline
 
@@ -35,8 +36,14 @@
 
 ## Blockers
 
-- None.
+- None。使用主仓库只读 SwiftPM 缓存完成离线解析，不依赖不稳定的 GitHub 补拉。
 
 ## Verification
 
-- Pending.
+- `swift test` 聚焦 5 个套件：41 tests passed，覆盖 Observation 发布语义、Viewer 纯快照、
+  输入指标乱序/上限/取消、动态 feed 批大小、输入顺序和并发 agent 扫描复用。
+- `xcodebuild -scheme ClaudeSpyServer -configuration Debug`：完整 macOS App 构建通过。
+- SwiftFormat：本 Stage 新增/修改的小型文件通过；大型既有文件仅保留仓库原有格式告警，
+  未对无关代码做机械重排。
+- `git diff --check`：通过。
+- 尚未覆盖安装或采集同一高输出现场的运行时前后样本；该项留给本机验收，不伪造结论。
