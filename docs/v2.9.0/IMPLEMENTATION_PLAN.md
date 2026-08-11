@@ -1,9 +1,9 @@
-# Gallager 2.9.0 实施计划：iOS 可配置终端快捷栏
+# Gallager 2.9.0 实施计划：终端交互体验
 
 ## 状态
 
 - **状态**：🟡 规划完成，等待实施
-- **进度**：0/3 stages
+- **进度**：0/4 stages
 - **开发分支**：`develop/v2.9.0`
 - **前置依赖**：v2.8.0 Stage 21、22、31 ✅
 
@@ -11,6 +11,9 @@
 
 在不增加 Relay 协议、不改变 Host tmux 输入语义的前提下，为 iOS 终端增加紧凑、可排序、
 可显示/隐藏的快捷按钮栏。
+
+同时修复 macOS 本地 tmux 镜像在高频终端输出下的输入延迟：无变化的 tmux 元数据不得触发
+SwiftUI 全树更新，Viewer 快照不得反向扰动 Host UI，输入调度必须优先于可延后的终端装饰工作。
 
 首轮覆盖高频终端按键，随后复用现有本地复制、系统粘贴和键盘控制，最后增加明确标识、
 不会自动执行命令的可信文本宏。
@@ -62,7 +65,8 @@
 - 图片粘贴、文件上传或剪贴板后台监听。
 - 将所有 Agent 操作直接暴露成快捷按钮。
 - 改变 iOS terminal resize、scrollback、复制页面或 terminal stream 协议。
-- 修改 macOS 快捷键、Mac terminal toolbar 或 Relay 部署。
+- 修改 macOS 快捷键、Mac terminal toolbar 或 Relay 部署；Stage 4 仅优化既有本地输入、
+  状态发布和终端绘制链路，不增加任何 Mac UI 或 Relay 协议。
 
 Agent 动作必须等待统一 Action Catalog 落地后复用同一动作实现；本版本不能在移动端快捷栏
 内创建第二份 Approve、Yolo、Reply 或 Cancel 业务逻辑。Ctrl-C 只作为标准终端按键处理。
@@ -389,6 +393,29 @@ struct TrustedTerminalTextMacro: Codable, Equatable, Identifiable, Sendable {
 - 宏不出现在 Relay frame、Host 配置或配对数据中。
 - 聚焦测试、iPhoneOS build 和 iPhone 真机通过。
 
+### Stage 4：macOS 本地终端输入延迟
+
+#### 范围
+
+1. 为 `TmuxService` 和 `MirrorWindowManager` 增加无变化抑制；后台刷新不得发布无意义的
+   `isRefreshing`、错误、attached session 或 pane state 变更。
+2. 将 Host→Viewer session-state 构造改成纯快照路径；远端读取不能为更新网络快照而修改本地
+   SwiftUI 可观察状态。
+3. 增加按键进入、合批、tmux control 写入/确认、pipe echo 和 SwiftTerm feed 的低开销指标。
+4. 保持按键严格有序和 Meta 合并，在终端输出积压时优先执行已排队输入；feed 使用有界时间片，
+   不能用 speculative local echo 掩盖真实延迟。
+5. 将 URL 装饰限定到内容/viewport 变更，降低无限动画刷新频率，并合并重复的 pane/agent 扫描。
+
+#### 验收标准
+
+- 相同 pane snapshot 的后台刷新不发布任何 `panes` 或 `paneStates` Observation 变更。
+- Viewer session-state 请求不修改 Host 的 `TmuxService` / `MirrorWindowManager` 可观察状态。
+- 本地输入指标可以串联同一批按键的 enqueue、flush、tmux ack、pipe echo 和 terminal feed。
+- 普通 zsh 与持续输出的 Agent TUI 中，按键顺序、Option/Meta、raw mouse input 均无回归。
+- 持续输出时输入不会被 32KB feed 批次或 URL 全屏扫描长期饿死。
+- 5 秒/10 秒后台扫描不再制造无变化的 SwiftUI 刷新尖峰。
+- macOS 聚焦测试、完整 Debug/Release-like 构建和本机运行时采样通过。
+
 ## 11. 预计文件范围
 
 ### 新增
@@ -411,8 +438,14 @@ struct TrustedTerminalTextMacro: Codable, Equatable, Identifiable, Sendable {
 - `ClaudeSpyPackage/Sources/ClaudeSpyFeature/Views/InteractiveTerminalView.swift`
 - `ClaudeSpyPackage/Sources/ClaudeSpyFeature/Views/TerminalKeyboardBar.swift`
 - `ClaudeSpyPackage/Sources/ClaudeSpyCommon/UI/Symbols.swift`（仅新增实际使用的 symbol）。
+- `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Services/TmuxService.swift`
+- `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Managers/MirrorWindowManager.swift`
+- `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Views/TerminalContainerView.swift`
+- `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Views/InteractiveTerminalView.swift`
+- `ClaudeSpyPackage/Sources/ClaudeSpyCommon/Services/TerminalFeedCoalescer.swift`
+- `ClaudeSpyPackage/Sources/ClaudeSpyCommon/Services/TerminalTransportMetrics.swift`
 
-### 原则上不修改
+### Stage 1–3 原则上不修改
 
 - `ClaudeSpyNetworking` command/wire model。
 - `ClaudeSpyExternalServer` 和 Relay Docker 部署。
@@ -461,6 +494,15 @@ struct TrustedTerminalTextMacro: Codable, Equatable, Identifiable, Sendable {
 - 单 pane、多 pane、不同 window 和远程 Host。
 - 终端高吞吐期间点击按键仍及时发送且 UI 不重连。
 
+### 12.5 macOS 本地输入性能
+
+- 相同/变化 pane snapshot 的 Observation 发布次数。
+- Viewer snapshot 生成前后本地可观察状态一致性。
+- typed key、Meta、raw input 的 FIFO 与取消语义。
+- 终端 feed 有/无待处理输入时的公平调度。
+- URL 装饰只在内容、scroll 或 geometry 实际变化时更新。
+- 普通 zsh、Agent idle、Agent 高频输出三个现场的 CPU、主线程样本和 input-to-echo 延迟。
+
 不要求为本功能重新引入 Simulator 人工验收；聚焦逻辑测试、无签名 iPhoneOS 构建和已连接
 iPhone 真机是最终证据。
 
@@ -473,6 +515,8 @@ iPhone 真机是最终证据。
 - v2.8.x Mac Host 和 Relay 与 v2.9.0 iOS 保持兼容，因为 wire model 不变。
 - v2.9.0 iOS 连接旧 Host 时，按键语义仍由现有 `SendKeystroke` 执行。
 - 配置只属于 iOS Viewer，降级 App 无法理解时必须忽略该独立 key，不影响配对和其他设置。
+- Stage 4 不改变 wire model、tmux session、pane FIFO 或 E2EE；新旧 Viewer 与 Relay 保持兼容。
+- Stage 4 指标只做内存聚合和阈值日志，不为每个字节或按键同步写日志。
 
 ## 14. 回滚边界
 
@@ -481,11 +525,12 @@ iPhone 真机是最终证据。
 - Stage 1 回滚后恢复原 Keyboard-only bar；新增 preference key 可安全留存但不读取。
 - Stage 2 回滚只移除 Copy/Paste Catalog 项，不改变 typed input endpoint。
 - Stage 3 回滚只停止解析和展示宏；宏配置留在独立 envelope，不发送到任何外部系统。
+- Stage 4 可整体回滚到旧状态发布/调度路径；不迁移 tmux、配置或 Relay 数据。
 - 任一 Stage 不得要求 Relay 数据迁移、Host 降级或 tmux session 重建。
 
 ## 15. 完成定义
 
-- 三个 Stage 分别有 `STAGE{N}_TODO.md`、聚焦测试、构建和真机证据。
+- 四个 Stage 分别有 `STAGE{N}_TODO.md`、聚焦测试、构建和对应设备证据。
 - 所有 terminal-bound 动作都通过当前 pane 的唯一 FIFO。
 - 没有新增 Relay 协议或 Host 特例。
 - 设置损坏不会导致崩溃或失去键盘入口。
@@ -493,3 +538,4 @@ iPhone 真机是最终证据。
 - Paste 不拆分多行，Copy 和其他快捷动作不制造键盘副作用。
 - 文本宏本机保存、明确标识、不包含控制字符且不会自动执行。
 - v2.8.0 已有 terminal stream、复制、键盘位置和紧凑底栏行为无回归。
+- Mac 本地 terminal 在 Agent 高频输出期间仍保持有序、可测且及时的按键回显。
