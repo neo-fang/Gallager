@@ -92,7 +92,8 @@ final public class MirrorWindowManager {
     /// guards in `TmuxService.refreshPanes()` only set `panes = []` on
     /// confident server-down paths, so we trust them here. Surprising wipes
     /// are still observable via the warnings below and the producer-side logs.
-    public func updatePaneStates(from panes: [PaneInfo]) {
+    @discardableResult
+    public func updatePaneStates(from panes: [PaneInfo]) -> Bool {
         if panes.isEmpty && !paneStates.isEmpty {
             logger.warning("updatePaneStates clearing non-empty state from empty panes", metadata: [
                 "existingPaneCount": "\(paneStates.count)",
@@ -101,14 +102,19 @@ final public class MirrorWindowManager {
         }
 
         let currentPaneIds = Set(panes.map(\.paneId))
+        var updatedStates = paneStates
+        var changed = false
 
         // Update or create entries for current panes
         for pane in panes {
-            if var state = paneStates[pane.paneId] {
-                pane.updateMetadata(of: &state)
-                paneStates[pane.paneId] = state
+            if var state = updatedStates[pane.paneId] {
+                if pane.updateMetadata(of: &state) {
+                    updatedStates[pane.paneId] = state
+                    changed = true
+                }
             } else {
-                paneStates[pane.paneId] = pane.makePaneState()
+                updatedStates[pane.paneId] = pane.makePaneState()
+                changed = true
             }
         }
 
@@ -125,12 +131,18 @@ final public class MirrorWindowManager {
         // session name. The next refresh that does see the pane confirms it; if the
         // pane truly never appears in tmux a follow-up hook with the same paneId
         // updates in place rather than accumulating.
-        let stalePaneIds = paneStates.keys.filter { paneId in
+        let stalePaneIds = updatedStates.keys.filter { paneId in
             guard !currentPaneIds.contains(paneId) else { return false }
-            return paneStates[paneId]?.sessionName.isEmpty == false
+            return updatedStates[paneId]?.sessionName.isEmpty == false
         }
         for paneId in stalePaneIds {
-            removeStaleState(paneId: paneId)
+            processDetectedPaneIds.remove(paneId)
+            processDetectionSuppressedPaneIds.remove(paneId)
+            updatedStates.removeValue(forKey: paneId)
+            changed = true
+        }
+        if changed {
+            paneStates = updatedStates
         }
         // Pruning can lower the pending count — e.g. `tmux kill-session` on a
         // pinned-Waiting terminal-only session, which has no SessionEnd hook of
@@ -140,6 +152,7 @@ final public class MirrorWindowManager {
         if !stalePaneIds.isEmpty {
             Task { await onPaneStatesPruned?() }
         }
+        return changed
     }
 
     // MARK: - Periodic Session Validation
@@ -731,7 +744,10 @@ final public class MirrorWindowManager {
             panesForPath[path, default: []].append(paneId)
         }
 
-        await withTaskGroup(of: (String, String?).self) { group in
+        let branchesByPath = await withTaskGroup(
+            of: (String, String?).self,
+            returning: [(String, String?)].self
+        ) { group in
             for path in panesForPath.keys {
                 group.addTask { [processRunner] in
                     let branch = await Self.detectGitBranch(at: path, processRunner: processRunner)
@@ -739,11 +755,26 @@ final public class MirrorWindowManager {
                 }
             }
 
+            var result: [(String, String?)] = []
             for await (path, branch) in group {
-                for paneId in panesForPath[path] ?? [] {
-                    paneStates[paneId]?.gitBranch = branch
-                }
+                result.append((path, branch))
             }
+            return result
+        }
+
+        // Re-read after the task group: this actor was re-entrant while git ran,
+        // so starting from the pre-await dictionary could overwrite newer agent
+        // or terminal state. Publish once, and only when a branch really changed.
+        var updatedStates = paneStates
+        var changed = false
+        for (path, branch) in branchesByPath {
+            for paneId in panesForPath[path] ?? [] where updatedStates[paneId]?.gitBranch != branch {
+                updatedStates[paneId]?.gitBranch = branch
+                changed = true
+            }
+        }
+        if changed {
+            paneStates = updatedStates
         }
     }
 
@@ -772,14 +803,6 @@ final public class MirrorWindowManager {
         return branch
     }
 
-    // MARK: - State Cleanup
-
-    /// Removes state for a pane that no longer exists.
-    private func removeStaleState(paneId: String) {
-        processDetectedPaneIds.remove(paneId)
-        processDetectionSuppressedPaneIds.remove(paneId)
-        paneStates.removeValue(forKey: paneId)
-    }
 }
 
 #if DEBUG

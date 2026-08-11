@@ -326,6 +326,16 @@ final public class TmuxService {
     /// Whether a refresh is currently in progress
     public private(set) var isRefreshing = false
 
+    /// Serializes refreshes without publishing every background poll into the
+    /// SwiftUI observation graph. `isRefreshing` is UI state; this is I/O state.
+    @ObservationIgnored
+    private var refreshInFlight = false
+
+    /// The loading indicator is only for the first snapshot after configuration,
+    /// not for the permanent discovery poll (including a legitimately empty tmux).
+    @ObservationIgnored
+    private var hasCompletedInitialRefresh = false
+
     /// Sessions that currently have terminal clients attached (resize is controlled by the client)
     public private(set) var attachedSessionNames: Set<String> = []
 
@@ -353,6 +363,7 @@ final public class TmuxService {
     public func configure(tmuxPath: String, socketPath: String?) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath?.isEmpty == true ? nil : socketPath
+        hasCompletedInitialRefresh = false
     }
 
     /// Sets a handler to be called when the pane list changes.
@@ -391,14 +402,21 @@ final public class TmuxService {
     /// - Returns: The refreshed list of panes.
     @discardableResult
     public func refreshPanes() async -> [PaneInfo] {
-        guard !isRefreshing else { return panes }
+        guard !refreshInFlight else { return panes }
 
-        isRefreshing = true
-        lastError = nil
+        refreshInFlight = true
+        let reportsInitialLoading = !hasCompletedInitialRefresh
+        if reportsInitialLoading {
+            isRefreshing = true
+        }
         let oldPanes = panes
 
         defer {
-            isRefreshing = false
+            refreshInFlight = false
+            hasCompletedInitialRefresh = true
+            if reportsInitialLoading {
+                isRefreshing = false
+            }
 
             // Notify if panes changed (compare sets to ignore order)
             if Set(panes) != Set(oldPanes), let handler = onPanesChanged {
@@ -409,23 +427,31 @@ final public class TmuxService {
         }
 
         guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
+            if lastError != nil {
+                lastError = nil
+            }
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
                     "reason": "tmux binary not found at \(tmuxPath)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            panes = []
+            publishPanesIfChanged([])
             return panes
         }
 
         // Get sessions with attached clients to prefer them during deduplication
         let attachedSessions = await getAttachedSessionNames()
-        attachedSessionNames = attachedSessions
+        if attachedSessionNames != attachedSessions {
+            attachedSessionNames = attachedSessions
+        }
 
         switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
         case let .assign(newPanes):
-            panes = newPanes
+            if lastError != nil {
+                lastError = nil
+            }
+            publishPanesIfChanged(newPanes)
             // When the override is active, type `export VISUAL=…` into any new
             // shell pane (issue #591 §5). Fired detached so it never blocks the
             // refresh; the per-pane dedup set keeps it idempotent.
@@ -433,13 +459,16 @@ final public class TmuxService {
                 Task { await injectOverrideIntoEligibleShellPanes() }
             }
         case let .empty(reason):
+            if lastError != nil {
+                lastError = nil
+            }
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
                     "reason": "\(reason)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            panes = []
+            publishPanesIfChanged([])
         case let .keep(reason, err):
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: keeping old panes", metadata: [
@@ -447,11 +476,21 @@ final public class TmuxService {
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            lastError = err
+            if lastError != err {
+                lastError = err
+            }
             // panes intentionally untouched — observers see no change
         }
 
         return panes
+    }
+
+    /// Observation emits on assignment, not semantic change. tmux output order
+    /// is not UI state, so compare as sets and preserve the current ordering when
+    /// the snapshot contains the same pane metadata.
+    private func publishPanesIfChanged(_ newPanes: [PaneInfo]) {
+        guard Set(panes) != Set(newPanes) else { return }
+        panes = newPanes
     }
 
     /// Queries tmux and folds every signal into a single `RefreshOutcome`.

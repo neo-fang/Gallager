@@ -3328,20 +3328,17 @@
 
             // Set up session state handler
             connectionManager.onSessionStateRequest = {
-                [weak self, weak windowManager, tmuxService, editorManager] in
+                [weak self, weak windowManager, editorManager] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", paneStates: [:])
                 }
-                // Refresh panes to ensure metadata is current
-                let allPanes = await tmuxService.refreshPanes()
-                await windowManager.updatePaneStates(from: allPanes)
-                var paneStates = await windowManager.paneStates
-
-                // Inject active editor sessions into pane states.
-                for (paneId, var state) in paneStates {
-                    state.editorSession = await editorManager.editorSessionInfo(for: paneId)
-                    paneStates[paneId] = state
-                }
+                // A Viewer snapshot is a read path. Periodic/control-event
+                // discovery keeps these models current; refreshing and writing
+                // them here made every remote read invalidate the Host UI.
+                let paneStates = await HostSessionStateSnapshot.make(
+                    windowManager: windowManager,
+                    editorManager: editorManager
+                )
 
                 // The merged per-plugin project list (the cores own scanning now).
                 let agentProjects = await self?.currentAgentProjects() ?? []

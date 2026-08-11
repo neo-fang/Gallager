@@ -189,7 +189,26 @@ public extension PaneInfo {
 
     /// Updates the tmux metadata fields of an existing PaneState, preserving
     /// Claude session, terminal title, yolo mode, and other runtime state.
-    func updateMetadata(of state: inout PaneState) {
+    @discardableResult
+    func updateMetadata(of state: inout PaneState) -> Bool {
+        guard
+            state.target != target
+            || state.sessionName != sessionName
+            || state.windowIndex != windowIndex
+            || state.paneIndex != paneIndex
+            || state.command != command
+            || state.currentPath != currentPath
+            || state.width != width
+            || state.height != height
+            || state.isActive != isActive
+            || state.windowLayout != windowLayout
+            || state.windowName != windowName
+            || state.isWindowActive != isWindowActive
+            || state.customDescription != customDescription
+            || state.customColor != customColor
+            || state.customEmoji != customEmoji
+        else { return false }
+
         state.target = target
         state.sessionName = sessionName
         state.windowIndex = windowIndex
@@ -205,5 +224,6 @@ public extension PaneInfo {
         state.customDescription = customDescription
         state.customColor = customColor
         state.customEmoji = customEmoji
+        return true
     }
 }
