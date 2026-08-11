@@ -768,8 +768,14 @@ final public class MirrorWindowManager {
         var updatedStates = paneStates
         var changed = false
         for (path, branch) in branchesByPath {
-            for paneId in panesForPath[path] ?? [] where updatedStates[paneId]?.gitBranch != branch {
-                updatedStates[paneId]?.gitBranch = branch
+            for paneId in panesForPath[path] ?? [] {
+                guard
+                    var state = updatedStates[paneId],
+                    state.currentPath == path,
+                    state.gitBranch != branch
+                else { continue }
+                state.gitBranch = branch
+                updatedStates[paneId] = state
                 changed = true
             }
         }

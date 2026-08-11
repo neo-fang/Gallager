@@ -2387,7 +2387,7 @@
                     var newPane: PaneInfo?
                     for attempt in 0..<PaneSurfaceRetry.attempts {
                         let panes = await tmux.refreshPanes()
-                        await MainActor.run { winManager.updatePaneStates(from: panes) }
+                        await MainActor.run { _ = winManager.updatePaneStates(from: panes) }
                         if let found = panes.first(where: { $0.paneId == newPaneId }) {
                             // Keep the latest snapshot even if it's still settling,
                             // so we return the pane rather than throwing if the cwd

@@ -1,4 +1,5 @@
 import ClaudeSpyNetworking
+import Foundation
 import SwiftUI
 
 /// Visual indicator for an agent session's current state:
@@ -42,13 +43,30 @@ public struct SessionStatusIndicator: View {
                 Symbols.bellBadgeFill.image
                     .foregroundStyle(.orange)
             case .working:
-                ProgressView()
-                    .controlSize(.small)
+                WorkingSpinner()
             case .idle:
                 Symbols.moonFill.image
                     .foregroundStyle(.secondary)
             }
         }
         .accessibilityLabel(label)
+    }
+}
+
+private struct WorkingSpinner: View {
+    private static let refreshInterval: TimeInterval = 1.0 / 12.0
+    private static let cycleDuration: TimeInterval = 1.0
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: Self.refreshInterval)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: Self.cycleDuration)
+                / Self.cycleDuration
+            Circle()
+                .trim(from: 0.12, to: 0.82)
+                .stroke(.secondary, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                .rotationEffect(.degrees(phase * 360))
+        }
+        .frame(width: 12, height: 12)
     }
 }

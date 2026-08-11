@@ -1,6 +1,7 @@
 #if os(macOS)
     import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import ConcurrencyExtras
     import Dependencies
     import Foundation
     import Testing
@@ -52,6 +53,45 @@
         @Test("agent process reconciliation runs every ten seconds")
         func reconciliationInterval() {
             #expect(MirrorWindowManager.agentReconciliationInterval == .seconds(10))
+        }
+
+        @Test("Concurrent agent detection shares one process snapshot")
+        func sharedProcessSnapshot() async {
+            let calls = LockIsolated<[String: Int]>([:])
+            await withDependencies {
+                $0[ProcessRunner.self].run = { @Sendable executable, arguments, _, _ in
+                    if executable == "/bin/ps" {
+                        calls.withValue { $0["ps", default: 0] += 1 }
+                        return ProcessResult(
+                            exitCode: 0,
+                            stdout: Data("100 1 zsh\n101 100 codex\n".utf8),
+                            stderr: Data()
+                        )
+                    }
+                    if arguments.contains("list-panes") {
+                        calls.withValue { $0["tmux", default: 0] += 1 }
+                        try await Task.sleep(for: .milliseconds(10))
+                        let separator = String(PaneInfo.fieldSeparator)
+                        return ProcessResult(
+                            exitCode: 0,
+                            stdout: Data("%1\(separator)100\(separator)/tmp/project\n".utf8),
+                            stderr: Data()
+                        )
+                    }
+                    return ProcessResult(exitCode: 1, stdout: Data(), stderr: Data("unexpected".utf8))
+                }
+            } operation: {
+                let tmux = TmuxService(tmuxPath: "/usr/bin/tmux")
+                async let first = tmux.detectAgentPanes(processNamesByPlugin: ["codex": ["codex"]])
+                async let second = tmux.detectAgentPanes(processNamesByPlugin: ["other": ["codex"]])
+                let results = await (first, second)
+
+                #expect(results.0["%1"]?.pluginID == "codex")
+                #expect(results.1["%1"]?.pluginID == "other")
+            }
+
+            #expect(calls.value["tmux"] == 1)
+            #expect(calls.value["ps"] == 1)
         }
 
         @Test("process detection creates, updates, and removes its own session")

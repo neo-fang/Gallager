@@ -101,42 +101,44 @@
             #expect(invalidations.value == 0)
         }
 
-        @Test("Unchanged live tmux refresh does not publish observable state")
-        func unchangedLiveRefreshIsNoop() async throws {
-            let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
-            let suffix = UUID().uuidString.lowercased()
-            let socketPath = "/tmp/gallager-publish-\(suffix.prefix(8)).sock"
-            let sessionName = "gallager-publish-\(suffix)"
+        @Test("Unchanged tmux refresh does not publish observable state")
+        func unchangedRefreshIsNoop() async {
+            let separator = String(PaneInfo.fieldSeparator)
+            let paneLine = [
+                "%5", "work", "0", "0", "zsh", "/tmp", "80", "24",
+                "1", "zsh", "layout", "terminal 1", "1", "", "", "",
+            ].joined(separator: separator)
 
-            try await withDependencies {
-                $0[ProcessRunner.self] = .liveValue
-            } operation: {
-                let service = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
-                let created = try await service.createSession(
-                    baseName: sessionName,
-                    width: 80,
-                    height: 24
-                )
-                do {
-                    _ = await service.refreshPanes()
-                    let invalidations = LockIsolated(0)
-                    withObservationTracking {
-                        _ = service.panes
-                        _ = service.attachedSessionNames
-                        _ = service.isRefreshing
-                        _ = service.lastError
-                    } onChange: {
-                        invalidations.withValue { $0 += 1 }
+            await withDependencies {
+                $0[ProcessRunner.self].run = { @Sendable _, arguments, _, _ in
+                    if arguments.contains("list-clients") {
+                        return ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
                     }
-
-                    _ = await service.refreshPanes()
-                    await Task.megaYield()
-                    #expect(invalidations.value == 0)
-                    try await service.killSession(created.sessionName)
-                } catch {
-                    try? await service.killSession(created.sessionName)
-                    throw error
+                    if arguments.contains("list-panes") {
+                        return ProcessResult(
+                            exitCode: 0,
+                            stdout: Data("\(paneLine)\n".utf8),
+                            stderr: Data()
+                        )
+                    }
+                    return ProcessResult(exitCode: 1, stdout: Data(), stderr: Data("unexpected".utf8))
                 }
+            } operation: {
+                let service = TmuxService(tmuxPath: "/usr/bin/true")
+                _ = await service.refreshPanes()
+                let invalidations = LockIsolated(0)
+                withObservationTracking {
+                    _ = service.panes
+                    _ = service.attachedSessionNames
+                    _ = service.isRefreshing
+                    _ = service.lastError
+                } onChange: {
+                    invalidations.withValue { $0 += 1 }
+                }
+
+                _ = await service.refreshPanes()
+                await Task.megaYield()
+                #expect(invalidations.value == 0)
             }
         }
 

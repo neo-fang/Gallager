@@ -323,18 +323,24 @@ final public class TmuxService {
     /// Error from the last refresh attempt, if any
     public private(set) var lastError: String?
 
-    /// Whether a refresh is currently in progress
+    /// Whether the initial pane discovery is in progress. Permanent background
+    /// polling is deliberately kept out of the SwiftUI observation graph.
     public private(set) var isRefreshing = false
 
     /// Serializes refreshes without publishing every background poll into the
     /// SwiftUI observation graph. `isRefreshing` is UI state; this is I/O state.
-    @ObservationIgnored
-    private var refreshInFlight = false
+    @ObservationIgnored private var refreshInFlight = false
 
     /// The loading indicator is only for the first snapshot after configuration,
     /// not for the permanent discovery poll (including a legitimately empty tmux).
-    @ObservationIgnored
-    private var hasCompletedInitialRefresh = false
+    @ObservationIgnored private var hasCompletedInitialRefresh = false
+
+    /// Both the app-wide reconciler and agent plugins inspect the same process
+    /// tree. Share one short-lived snapshot so coincident 5s/10s polls do not
+    /// launch duplicate `tmux list-panes` and `ps` processes.
+    @ObservationIgnored private var cachedAgentProcessSnapshot: AgentProcessSnapshot?
+    @ObservationIgnored private var agentProcessSnapshotTask: Task<AgentProcessSnapshot?, Error>?
+    @ObservationIgnored private var agentProcessSnapshotGeneration: UInt64 = 0
 
     /// Sessions that currently have terminal clients attached (resize is controlled by the client)
     public private(set) var attachedSessionNames: Set<String> = []
@@ -364,6 +370,10 @@ final public class TmuxService {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath?.isEmpty == true ? nil : socketPath
         hasCompletedInitialRefresh = false
+        cachedAgentProcessSnapshot = nil
+        agentProcessSnapshotTask?.cancel()
+        agentProcessSnapshotTask = nil
+        agentProcessSnapshotGeneration &+= 1
     }
 
     /// Sets a handler to be called when the pane list changes.
@@ -606,6 +616,14 @@ final public class TmuxService {
         public let pluginID: String
     }
 
+    private struct AgentProcessSnapshot: Sendable {
+        let capturedAt: ContinuousClock.Instant
+        let paneInfo: [String: (pid: String, path: String)]
+        let processTree: ProcessTree?
+    }
+
+    private static let agentProcessSnapshotLifetime = Duration.seconds(1)
+
     /// Gets each pane's shell PID and current path via tmux, then walks the process tree
     /// from `ps` output to find any descendant process whose name is one of an enabled
     /// plugin's manifest `process_names`. This handles cases where the agent CLI is
@@ -642,27 +660,10 @@ final public class TmuxService {
         guard !pluginByProcessName.isEmpty else { return [:] }
 
         do {
-            // Get pane IDs, shell PIDs, and current paths in one tmux call.
-            // Joined with U+001F so a `|` in a working-directory path can't
-            // shift fields — see `PaneInfo.fieldSeparator`.
-            let sep = String(PaneInfo.fieldSeparator)
-            let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
-            ])
-            guard result.isSuccess else { return nil }
-
-            // Build paneId -> (panePid, currentPath) mapping
-            var paneInfo: [String: (pid: String, path: String)] = [:]
-            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
-                guard parts.count == 3 else { continue }
-                paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
-            }
-
+            guard let snapshot = try await agentProcessSnapshot() else { return nil }
+            let paneInfo = snapshot.paneInfo
             guard !paneInfo.isEmpty else { return [:] }
-
-            let tree = try await processTree()
-            guard let tree else { return nil }
+            guard let tree = snapshot.processTree else { return nil }
 
             // Walk the subtree of each pane shell, collecting every descendant
             // whose process name a plugin claims. A pane can match more than one
@@ -688,10 +689,68 @@ final public class TmuxService {
             }
 
             return detected
+        } catch is CancellationError {
+            return nil
         } catch {
             logger.warning("detectAgentPanes failed: \(error)")
             return nil
         }
+    }
+
+    private func agentProcessSnapshot() async throws -> AgentProcessSnapshot? {
+        if
+            let cachedAgentProcessSnapshot,
+            ContinuousClock.now - cachedAgentProcessSnapshot.capturedAt < Self.agentProcessSnapshotLifetime {
+            return cachedAgentProcessSnapshot
+        }
+        if let agentProcessSnapshotTask {
+            return try await agentProcessSnapshotTask.value
+        }
+
+        let generation = agentProcessSnapshotGeneration
+        let task = Task { @MainActor [weak self] () throws -> AgentProcessSnapshot? in
+            try await self?.captureAgentProcessSnapshot()
+        }
+        agentProcessSnapshotTask = task
+        do {
+            let snapshot = try await task.value
+            guard agentProcessSnapshotGeneration == generation else {
+                throw CancellationError()
+            }
+            agentProcessSnapshotTask = nil
+            cachedAgentProcessSnapshot = snapshot
+            return snapshot
+        } catch {
+            if agentProcessSnapshotGeneration == generation {
+                agentProcessSnapshotTask = nil
+            }
+            throw error
+        }
+    }
+
+    private func captureAgentProcessSnapshot() async throws -> AgentProcessSnapshot? {
+        // Get pane IDs, shell PIDs, and current paths in one tmux call. Joined
+        // with U+001F so a `|` in a path cannot shift fields.
+        let sep = String(PaneInfo.fieldSeparator)
+        let result = try await runTmuxCommand([
+            "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
+        ])
+        guard result.isSuccess else { return nil }
+
+        var paneInfo: [String: (pid: String, path: String)] = [:]
+        for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+            let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
+            guard parts.count == 3 else { continue }
+            paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
+        }
+
+        let tree = paneInfo.isEmpty ? nil : try await processTree()
+        guard paneInfo.isEmpty || tree != nil else { return nil }
+        return AgentProcessSnapshot(
+            capturedAt: .now,
+            paneInfo: paneInfo,
+            processTree: tree
+        )
     }
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
@@ -2605,7 +2664,7 @@ final public class TmuxService {
 
     /// Snapshot of the system process tree, built from `ps` output.
     /// Shared by `detectClaudePanes` and `runningProcesses`.
-    private struct ProcessTree {
+    private struct ProcessTree: Sendable {
         private let childrenOf: [String: [String]]
         private let names: [String: String]
 
