@@ -130,8 +130,8 @@
         func coalescesSameTurnEnqueues() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 // SwiftTerm emits Option-Backspace as two synchronous callbacks.
@@ -147,8 +147,8 @@
         func separateTurnsFlushSeparately() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 coalescer.enqueue([.text("a")])
@@ -165,8 +165,8 @@
         func flushPendingDrainsImmediately() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 // A key buffered earlier in this turn must flush before a
@@ -188,8 +188,8 @@
         func flushPendingNoopWhenEmpty() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 coalescer.flushPending()

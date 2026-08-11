@@ -176,12 +176,17 @@
         /// Sends local interactive input through the pane's existing control client.
         /// Returns `false` when the reader or connection is not ready so the caller
         /// can safely use the process-based tmux fallback.
-        func sendKeystrokesIfConnected(paneId: String, keys: [TmuxKey]) async throws -> Bool {
+        func sendKeystrokesIfConnected(
+            paneId: String,
+            keys: [TmuxKey],
+            onFirstCommandWritten: (@Sendable () -> Void)? = nil
+        ) async throws -> Bool {
             guard let context = readers[paneId] else { return false }
             return try await controlClientManager.sendKeystrokesIfConnected(
                 paneId: paneId,
                 sessionName: context.sessionName,
-                keys: keys
+                keys: keys,
+                onFirstCommandWritten: onFirstCommandWritten
             )
         }
 
@@ -820,6 +825,7 @@
         // MARK: - PipePaneReaderDelegate
 
         public func pipePaneReader(_ paneId: String, didReceiveData data: Data) {
+            TerminalTransportMetrics.shared.recordLocalOutput(paneId: paneId)
             forwardData(paneId: paneId, data: data)
         }
 
