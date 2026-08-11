@@ -42,8 +42,11 @@
 
 - `swift test` 聚焦 5 个套件：41 tests passed，覆盖 Observation 发布语义、Viewer 纯快照、
   输入指标乱序/上限/取消、动态 feed 批大小、输入顺序和并发 agent 扫描复用。
-- `xcodebuild -scheme ClaudeSpyServer -configuration Debug`：完整 macOS App 构建通过。
+- `xcodebuild -scheme ClaudeSpyServer`：完整 macOS Debug 与签名 Release App 构建通过。
 - SwiftFormat：本 Stage 新增/修改的小型文件通过；大型既有文件仅保留仓库原有格式告警，
   未对无关代码做机械重排。
 - `git diff --check`：通过。
-- 尚未覆盖安装或采集同一高输出现场的运行时前后样本；该项留给本机验收，不伪造结论。
+- Release `f42f066e6852`（build stamp `20260811-145950`）已覆盖安装到
+  `/Applications/Gallager.app`；`wait-ready` 与 `ping` 分别返回 `ready`、`pong`，安装前后
+  tmux pane 清单一致。
+- 尚未采集同一高输出现场的运行时前后样本；该项留给本机验收，不伪造结论。
