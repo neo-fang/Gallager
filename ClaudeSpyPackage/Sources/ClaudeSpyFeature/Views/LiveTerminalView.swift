@@ -883,6 +883,7 @@
 
             // Let our mouse-mode pan win over tall-terminal vertical scrolling.
             terminalView.attachOuterScrollPanGesture(scrollView.panGestureRecognizer)
+            terminalView.attachInputProxy(to: scrollView)
 
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             widthConstraint.priority = .defaultHigh

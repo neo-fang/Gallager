@@ -43,6 +43,29 @@
         /// Use `activateInput()` and `deactivateInput()` to control this.
         var inputEnabled = false
 
+        /// UIKit keyboard/IME state belongs to a native shadow editor. The
+        /// terminal remains the renderer and byte encoder; the editor retains
+        /// the context third-party keyboards expect and forwards only its delta.
+        private lazy var inputProxy: TerminalInputProxyView = {
+            let proxy = TerminalInputProxyView(frame: .zero)
+            proxy.onInsertText = { [weak self] text in
+                self?.insertText(text)
+            }
+            proxy.onDeleteBackward = { [weak self] in
+                self?.deleteBackward()
+            }
+            proxy.onFocusChange = { [weak self] focused in
+                self?.getTerminal().setTerminalFocus(focused)
+            }
+            proxy.inputAccessoryViewProvider = { [weak self] in
+                self?.inputAccessoryView
+            }
+            proxy.inputViewProvider = { [weak self] in
+                self?.inputView
+            }
+            return proxy
+        }()
+
         /// When true, blocks all contentOffset changes to preserve scroll position
         private var blockScrollChanges = false
 
@@ -101,7 +124,24 @@
         }
 
         override var canBecomeFirstResponder: Bool {
-            inputEnabled
+            false
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if inputEnabled, window != nil, !inputProxy.isFirstResponder {
+                _ = inputProxy.becomeFirstResponder()
+            }
+        }
+
+        /// SwiftTerm's accessory toggles its custom input view through the
+        /// terminal renderer. The proxy is the actual first responder, so relay
+        /// that reload request to it as well.
+        override func reloadInputViews() {
+            super.reloadInputViews()
+            if inputProxy.isFirstResponder {
+                inputProxy.reloadInputViews()
+            }
         }
 
         /// Block contentOffset changes while preserving scroll position
@@ -161,13 +201,17 @@
         /// Call to enable input and show the keyboard
         func activateInput() {
             inputEnabled = true
-            _ = becomeFirstResponder()
+            inputProxy.inputEnabled = true
+            guard !inputProxy.isFirstResponder else { return }
+            _ = inputProxy.becomeFirstResponder()
         }
 
         /// Call to hide the keyboard and disable input
         func deactivateInput() {
-            _ = resignFirstResponder()
             inputEnabled = false
+            inputProxy.inputEnabled = false
+            guard inputProxy.isFirstResponder else { return }
+            _ = inputProxy.resignFirstResponder()
         }
 
         // MARK: - URL Detection
@@ -239,6 +283,22 @@
             if let mouseModePanGesture {
                 pan.require(toFail: mouseModePanGesture)
             }
+        }
+
+        /// Installs the native shadow editor as a fixed overlay of the outer
+        /// viewport. Keeping it outside both terminal scroll views prevents
+        /// UIKit's first-responder caret scrolling from moving terminal history.
+        func attachInputProxy(to viewport: UIScrollView) {
+            inputProxy.removeFromSuperview()
+            inputProxy.forwardedNextResponder = self
+            inputProxy.translatesAutoresizingMaskIntoConstraints = false
+            viewport.addSubview(inputProxy)
+            NSLayoutConstraint.activate([
+                inputProxy.leadingAnchor.constraint(equalTo: viewport.frameLayoutGuide.leadingAnchor),
+                inputProxy.trailingAnchor.constraint(equalTo: viewport.frameLayoutGuide.trailingAnchor),
+                inputProxy.topAnchor.constraint(equalTo: viewport.frameLayoutGuide.topAnchor),
+                inputProxy.bottomAnchor.constraint(equalTo: viewport.frameLayoutGuide.bottomAnchor),
+            ])
         }
 
         /// Intercepts Shift+Return before SwiftTerm collapses the modifier.
