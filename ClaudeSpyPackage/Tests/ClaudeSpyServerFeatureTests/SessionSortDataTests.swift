@@ -17,6 +17,7 @@
                 customDescription: "Description",
                 projectName: "Project",
                 sessionName: "renamed-session",
+                windowName: "terminal 1",
                 terminalTitle: "Terminal",
                 command: "codex",
                 currentPath: "/tmp/project"
@@ -25,12 +26,21 @@
         }
 
         private func makePane(
-            _ paneId: String, session: String, window: Int = 0, pane: Int = 0
+            _ paneId: String,
+            session: String,
+            window: Int = 0,
+            pane: Int = 0,
+            command: String = "zsh",
+            currentPath: String = "/tmp/dir",
+            isActive: Bool = true,
+            windowName: String = "",
+            isWindowActive: Bool = false
         ) -> PaneInfo {
             PaneInfo(
                 paneId: paneId, target: "\(session):\(window).\(pane)", sessionName: session,
-                windowIndex: window, paneIndex: pane, command: "zsh", currentPath: "/tmp/dir",
-                width: 80, height: 24, isActive: true
+                windowIndex: window, paneIndex: pane, command: command, currentPath: currentPath,
+                width: 80, height: 24, isActive: isActive,
+                windowName: windowName, isWindowActive: isWindowActive
             )
         }
 
@@ -155,6 +165,99 @@
             #expect(data.primaryLabel == "/tmp/dir")
             #expect(data.statusPriority == 3)
             #expect(data.latestEventTimestamp == newer)
+        }
+
+        @Test("Local labels use only the active window and pane metadata")
+        func localLabelsUseActiveWindow() {
+            let session = makeSession([
+                makePane(
+                    "%1", session: "scratch", window: 0,
+                    command: "inactive-command", currentPath: "/inactive",
+                    windowName: "inactive-window"
+                ),
+                makePane(
+                    "%2", session: "scratch", window: 1,
+                    command: "active-command", currentPath: "/active",
+                    windowName: "active-window", isWindowActive: true
+                ),
+            ])
+            let states = [
+                "%1": PaneState(
+                    paneId: "%1", sessionName: "scratch",
+                    terminalTitle: "Inactive OSC Title", gitBranch: "inactive-branch"
+                ),
+                "%2": PaneState(
+                    paneId: "%2", sessionName: "scratch",
+                    terminalTitle: "Active OSC Title", gitBranch: "active-branch"
+                ),
+            ]
+
+            let metadata = session.activeWindowMetadata(paneStates: states)
+            #expect(metadata.windowName == "active-window")
+            #expect(metadata.terminalTitle == "Active OSC Title")
+            #expect(metadata.command == "active-command")
+            #expect(metadata.currentPath == "/active")
+            #expect(metadata.gitBranch == "active-branch")
+
+            let windowNameData = SessionSortData.forLocalSession(
+                session,
+                paneStates: states,
+                lastActivity: { _ in nil },
+                sidebarFields: sidebarFields,
+                sidebarTerminalFields: [.windowName]
+            )
+            #expect(windowNameData.primaryLabel == "active-window")
+
+            let titleData = SessionSortData.forLocalSession(
+                session,
+                paneStates: states,
+                lastActivity: { _ in nil },
+                sidebarFields: sidebarFields,
+                sidebarTerminalFields: [.terminalTitle]
+            )
+            #expect(titleData.primaryLabel == "Active OSC Title")
+        }
+
+        @Test("Remote labels use only the active window and pane metadata")
+        func remoteLabelsUseActiveWindow() {
+            let panes = [
+                PaneState(
+                    paneId: "%1", sessionName: "remote", windowIndex: 0,
+                    command: "inactive-command", currentPath: "/inactive", isActive: true,
+                    windowName: "inactive-window", terminalTitle: "Inactive OSC Title"
+                ),
+                PaneState(
+                    paneId: "%2", sessionName: "remote", windowIndex: 1,
+                    command: "active-command", currentPath: "/active", isActive: true,
+                    windowName: "active-window", isWindowActive: true,
+                    terminalTitle: "Active OSC Title", gitBranch: "active-branch"
+                ),
+            ]
+            let session = TmuxSession.groupWindows(TmuxWindow.groupPanes(panes))[0]
+
+            #expect(session.activeWindowMetadata == ActiveWindowMetadata(
+                windowName: "active-window",
+                terminalTitle: "Active OSC Title",
+                command: "active-command",
+                currentPath: "/active",
+                gitBranch: "active-branch"
+            ))
+
+            let windowNameData = SessionSortData.forRemoteSession(
+                session,
+                sidebarFields: sidebarFields,
+                sidebarTerminalFields: [.windowName],
+                homeDirectory: nil
+            )
+            #expect(windowNameData.primaryLabel == "active-window")
+
+            let titleData = SessionSortData.forRemoteSession(
+                session,
+                sidebarFields: sidebarFields,
+                sidebarTerminalFields: [.terminalTitle],
+                homeDirectory: nil
+            )
+            #expect(titleData.primaryLabel == "Active OSC Title")
         }
     }
 #endif

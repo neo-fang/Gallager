@@ -36,6 +36,10 @@ struct SessionSidebarRow: View {
         return windowManager.paneStates[pane.paneId]
     }
 
+    private var activeWindowMetadata: ActiveWindowMetadata {
+        session.activeWindowMetadata(paneStates: windowManager.paneStates)
+    }
+
     /// The first pane state in any window backing an agent session, if any. Also
     /// the source of its OTEL telemetry / permission mode (#597).
     private var primaryAgentPaneState: PaneState? {
@@ -66,18 +70,6 @@ struct SessionSidebarRow: View {
         return nil
     }
 
-    /// The first non-empty terminal title found across all windows
-    private var terminalTitle: String? {
-        for window in session.windows {
-            for pane in window.panes {
-                if let title = windowManager.paneStates[pane.paneId]?.terminalTitle, !title.isEmpty {
-                    return title
-                }
-            }
-        }
-        return nil
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             SessionStatusBadge(
@@ -92,10 +84,11 @@ struct SessionSidebarRow: View {
                     customDescription: primaryPaneState?.customDescription,
                     projectName: claudeSession?.displayName,
                     sessionName: session.sessionName,
-                    terminalTitle: terminalTitle,
-                    command: primaryPane?.command,
-                    currentPath: primaryPane?.currentPath,
-                    gitBranch: primaryPaneState?.gitBranch,
+                    windowName: activeWindowMetadata.windowName,
+                    terminalTitle: activeWindowMetadata.terminalTitle,
+                    command: activeWindowMetadata.command,
+                    currentPath: activeWindowMetadata.currentPath,
+                    gitBranch: activeWindowMetadata.gitBranch,
                     // The plugin model dropped the per-event buffer (spec §16),
                     // so there's no "latest event" subtitle to surface.
                     latestEvent: nil

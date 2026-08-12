@@ -67,6 +67,7 @@ public struct SessionSortData {
         customDescription: String?,
         projectName: String?,
         sessionName: String,
+        windowName: String? = nil,
         terminalTitle: String?,
         command: String?,
         currentPath: String?,
@@ -78,6 +79,7 @@ public struct SessionSortData {
             case .customDescription: customDescription
             case .projectName: projectName
             case .sessionName: sessionName
+            case .windowName: windowName
             case .terminalTitle: terminalTitle
             case .command: command
             case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
@@ -100,18 +102,18 @@ public struct SessionSortData {
         homeDirectory: String?
     ) -> SessionSortData {
         let claudeSession = session.windows.flatMap(\.panes).compactMap(\.agentSession).first
-        let activePane = session.activeWindow?.activePane
-        let terminalTitle = session.windows.flatMap(\.panes).compactMap(\.terminalTitle).first { !$0.isEmpty }
+        let metadata = session.activeWindowMetadata
         let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
         let label = primaryLabel(
             fields: fields,
             customDescription: session.customDescription,
             projectName: claudeSession?.displayName,
             sessionName: session.sessionName,
-            terminalTitle: terminalTitle,
-            command: activePane?.command,
-            currentPath: activePane?.currentPath,
-            gitBranch: activePane?.gitBranch,
+            windowName: metadata.windowName,
+            terminalTitle: metadata.terminalTitle,
+            command: metadata.command,
+            currentPath: metadata.currentPath,
+            gitBranch: metadata.gitBranch,
             homeDirectory: homeDirectory
         )
         return SessionSortData(
