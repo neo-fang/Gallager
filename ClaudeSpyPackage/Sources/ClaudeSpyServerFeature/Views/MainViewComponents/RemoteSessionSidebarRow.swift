@@ -30,6 +30,10 @@ struct RemoteSessionSidebarRow: View {
         session.windows.flatMap(\.panes).effectiveProgress
     }
 
+    private var activeWindowMetadata: ActiveWindowMetadata {
+        session.activeWindowMetadata
+    }
+
     var body: some View {
         rowContent
             .overlay(alignment: .leading) {
@@ -57,10 +61,11 @@ struct RemoteSessionSidebarRow: View {
                 customDescription: session.customDescription,
                 projectName: claudeSession?.displayName,
                 sessionName: session.sessionName,
-                terminalTitle: session.activeWindow?.activePane?.terminalTitle,
-                command: session.activeWindow?.activePane?.command,
-                currentPath: session.activeWindow?.activePane?.currentPath,
-                gitBranch: session.activeWindow?.activePane?.gitBranch,
+                windowName: activeWindowMetadata.windowName,
+                terminalTitle: activeWindowMetadata.terminalTitle,
+                command: activeWindowMetadata.command,
+                currentPath: activeWindowMetadata.currentPath,
+                gitBranch: activeWindowMetadata.gitBranch,
                 latestEvent: latestEventSubtitle,
                 homeDirectory: homeDirectory
             )

@@ -34,6 +34,9 @@
         func sessionNameLeadsDefaultLayouts() {
             #expect(SidebarField.defaultFields.first == .sessionName)
             #expect(SidebarField.defaultTerminalFields.first == .sessionName)
+            #expect(SidebarField.terminalFields.contains(.windowName))
+            #expect(!SidebarField.defaultFields.contains(.windowName))
+            #expect(!SidebarField.defaultTerminalFields.contains(.windowName))
         }
 
         @Test("Exact legacy defaults migrate and persist")

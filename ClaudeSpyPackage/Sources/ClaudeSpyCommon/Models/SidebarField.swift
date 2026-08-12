@@ -31,6 +31,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
     case customDescription
     case projectName
     case sessionName
+    case windowName
     case terminalTitle
     case command
     case currentPath
@@ -46,6 +47,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
         case .customDescription: "Custom Description"
         case .projectName: "Project Name"
         case .sessionName: "Tmux Session Name"
+        case .windowName: "Tmux Window Name"
         case .terminalTitle: "Terminal Title"
         case .command: "Current Command"
         case .currentPath: "Current Path"
@@ -64,6 +66,7 @@ public enum SidebarField: String, Codable, Sendable, CaseIterable, Identifiable 
              .tokenUsage: false
         case .customDescription,
              .sessionName,
+             .windowName,
              .terminalTitle,
              .command,
              .currentPath,

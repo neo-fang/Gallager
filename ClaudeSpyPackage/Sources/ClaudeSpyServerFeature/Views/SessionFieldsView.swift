@@ -11,6 +11,7 @@ struct SessionFieldsView: View {
     let customDescription: String?
     let projectName: String?
     let sessionName: String
+    let windowName: String?
     let terminalTitle: String?
     let command: String?
     let currentPath: String?
@@ -57,6 +58,7 @@ struct SessionFieldsView: View {
             customDescription: customDescription,
             projectName: projectName,
             sessionName: sessionName,
+            windowName: windowName,
             terminalTitle: terminalTitle,
             command: command,
             currentPath: currentPath,
@@ -70,6 +72,7 @@ struct SessionFieldsView: View {
         case .customDescription: customDescription
         case .projectName: projectName
         case .sessionName: sessionName
+        case .windowName: windowName
         case .terminalTitle: terminalTitle
         case .command: command
         case .currentPath: currentPath?.abbreviatedPath(home: homeDirectory)
@@ -91,8 +94,8 @@ extension SessionSortData {
     /// states. Shared by the sidebar (`MainView`) and the menu bar dropdown so
     /// both surfaces order sessions identically — the menu's "same order as
     /// the sidebar" guarantee is this single builder plus the shared
-    /// `SidebarSortMode.sorted`. Scans the full session (all windows) to match
-    /// the session-level sidebar row, not the selected window.
+    /// `SidebarSortMode.sorted`. Session-level state scans all windows while
+    /// window- and pane-level fields come only from the active terminal.
     static func forLocalSession(
         _ session: LocalTmuxSession,
         paneStates: [String: PaneState],
@@ -114,14 +117,9 @@ extension SessionSortData {
             .first
         let displayed = CLISessionState.displayed(override: stateOverride, agentState: claudeSession?.state)
 
+        let metadata = session.activeWindowMetadata(paneStates: paneStates)
         let primaryPane = session.activeWindow?.activePane
         let paneState = primaryPane.flatMap { paneStates[$0.paneId] }
-
-        // Scan all windows for terminal title (matches SessionSidebarRow.terminalTitle)
-        let terminalTitle: String? = session.windows.lazy
-            .flatMap(\.panes)
-            .compactMap { paneStates[$0.paneId]?.terminalTitle }
-            .first { !$0.isEmpty }
 
         let fields = claudeSession != nil ? sidebarFields : sidebarTerminalFields
 
@@ -130,10 +128,11 @@ extension SessionSortData {
             customDescription: paneState?.customDescription,
             projectName: claudeSession?.displayName,
             sessionName: session.sessionName,
-            terminalTitle: terminalTitle,
-            command: primaryPane?.command,
-            currentPath: primaryPane?.currentPath,
-            gitBranch: paneState?.gitBranch
+            windowName: metadata.windowName,
+            terminalTitle: metadata.terminalTitle,
+            command: metadata.command,
+            currentPath: metadata.currentPath,
+            gitBranch: metadata.gitBranch
         )
 
         // Recency = the latest plugin-status arrival across the session's panes.
