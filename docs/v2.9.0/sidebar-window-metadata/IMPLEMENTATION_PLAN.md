@@ -2,7 +2,7 @@
 
 ## 状态
 
-- **状态**：🟡 实施中
+- **状态**：✅ 已完成
 - **开发分支**：`feature/sidebar-active-window-fields`
 - **前置依赖**：`develop/v2.9.0` @ `8c7120f` ✅
 
