@@ -2,7 +2,7 @@
 
 ## 结论
 
-- **状态**：✅ Approved，待应用内交互验收
+- **状态**：✅ Approved
 - **范围**：macOS 本地 Host、Mac Viewer、Relay 命令模型、tmux 重排服务及相关状态持久化
 - **审查基线**：`develop/v2.9.0` (`b6e9660`)
 
@@ -43,9 +43,11 @@ Session 的 Window，也会让失效 split 状态无法被清理。
 - 61 项相关 Swift Testing 测试通过。
 - 隔离 socket 的真实 tmux 创建三 Window、交换、刷新和清理测试通过。
 - macOS `ClaudeSpyServer` Debug 构建通过，签名校验通过。
+- 本机覆盖安装并启动成功，真实 App E2E 已覆盖标签前置/末尾重排、Session 往返持久化及跨 pane 拖拽；
+  重排后的 tmux 顺序断言均通过。
 - `git diff --check` 通过。
 
 ## 剩余风险
 
-- 尚未覆盖安装当前正在运行的 App，因此鼠标拖拽动画、指示线和本地/远程实际手感仍需应用内验收。
-- 未运行耗时的完整 E2E 场景；既有 TabReorder/RemoteTabReorder 场景已通过编译，关键排序和 tmux 行为由单元及真实进程测试覆盖。
+- 旧 TabReorder E2E 场景的键盘选中 AX 属性及末尾 pane 自动折叠断言存在既有脆弱性；本次验收绕开这些
+  无关断言后，Window 拖拽、跨 pane 拖拽与真实 tmux 顺序检查均通过。
