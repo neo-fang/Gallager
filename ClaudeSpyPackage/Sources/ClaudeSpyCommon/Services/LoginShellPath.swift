@@ -18,7 +18,7 @@
     extension LoginShellPath {
         /// Marker prefixing the PATH in the resolution command's stdout, so the
         /// value survives any noise an interactive `.zshrc` writes to stdout.
-        static let marker = "__GALLAGER_PATH__:"
+        static let marker = "__CTRLX_PATH__:"
 
         /// The user's login shell: `$SHELL`, else the passwd entry, else `/bin/sh`.
         /// Mirrors `TmuxService.userShellPath` (kept local to avoid a cross-module

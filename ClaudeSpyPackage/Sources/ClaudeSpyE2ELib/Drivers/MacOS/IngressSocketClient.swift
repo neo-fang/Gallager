@@ -8,7 +8,7 @@ import Logging
 ///
 /// This replaces the deleted HTTP hook POST path: instead of POSTing a hook body
 /// to `HookServerService`, the E2E driver connects to the per-scenario ingress
-/// socket (`<gallager-state-root>/ingress.sock`), writes a single
+/// socket (`<ctrlx-state-root>/ingress.sock`), writes a single
 /// `4-byte big-endian length + JSON body` frame carrying `plugin_id`, the
 /// harvested `context` env (`TMUX_PANE`, `CLAUDE_PROJECT_DIR`), and the raw
 /// host-agent `payload`, then closes — exactly what a real hook bridge does
@@ -126,7 +126,7 @@ enum IngressClientError: Error, LocalizedError {
             "Ingress socket path exceeds the maximum length: \(path)"
         case let .connectFailed(path, reason):
             "Failed to connect to ingress socket \(path): \(reason) "
-                + "(is the app running with --gallager-state-root pointing here?)"
+                + "(is the app running with --ctrlx-state-root pointing here?)"
         case let .writeFailed(reason):
             "Failed to write the ingress frame: \(reason)"
         }

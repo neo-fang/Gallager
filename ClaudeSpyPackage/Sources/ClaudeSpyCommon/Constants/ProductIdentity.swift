@@ -12,4 +12,15 @@ public enum ProductIdentity {
     public static let licenseURL = sourceURL.appending(path: "blob/main/LICENSE")
     public static let forkCommit = "919c7772928531d4d0bb266bdf275691d361901e"
     public static let forkDate = "2026-08-14"
+
+    public static func sourceURL(for revision: String?) -> URL {
+        guard
+            let revision,
+            revision.count == 40 || revision.count == 64,
+            revision.allSatisfy(\.isHexDigit)
+        else {
+            return sourceURL
+        }
+        return sourceURL.appending(path: "tree/\(revision)")
+    }
 }

@@ -1,0 +1,15 @@
+# Required Caddy environment: CTRLX_RELAY_HOST
+{$CTRLX_RELAY_HOST} {
+    reverse_proxy {$CTRLX_RELAY_UPSTREAM:127.0.0.1:8080}
+    encode gzip
+
+    log {
+        output file /var/log/caddy/ctrlx-relay-access.log
+        format json
+    }
+
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+    }
+}

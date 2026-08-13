@@ -25,7 +25,7 @@ set -eo pipefail
 # =====================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
+E2E_TMPDIR="${TMPDIR:-/tmp}/ctrlx-e2e"
 SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
 RESULTS_REPO="gpambrozio/ClaudeSpyTestResults"
 RELEASE_TAG="e2e-videos"

@@ -6,7 +6,7 @@ import Foundation
 /// `<root>/<tmux_pane>.json` containing the Codex session id (plus cwd and
 /// timestamp for diagnostics), so a later event that only carries a session id
 /// can be resolved back to its pane. The default root is
-/// `~/.claudespy/codex-sessions/`. This is core-internal — the app never reads
+/// `~/.ctrlx/codex-sessions/`. This is core-internal — the app never reads
 /// it.
 ///
 /// Trap-free per spec §13: all reads/decodes tolerate missing or malformed
@@ -14,7 +14,7 @@ import Foundation
 /// against a temp directory.
 struct CodexSessionCorrelation: Sendable {
     /// Directory holding the per-pane correlation files. Defaults to
-    /// `~/.claudespy/codex-sessions/`.
+    /// `~/.ctrlx/codex-sessions/`.
     let root: URL
 
     /// `FileManager.default` is used inline (not stored) so the value stays a
@@ -22,13 +22,13 @@ struct CodexSessionCorrelation: Sendable {
     /// also held by the test, so it must cross isolation safely.
     private var fileManager: FileManager { .default }
 
-    /// The default store rooted at `~/.claudespy/codex-sessions/`.
+    /// The default store rooted at `~/.ctrlx/codex-sessions/`.
     static func live(
         home: URL = FileManager.default.homeDirectoryForCurrentUser
     ) -> CodexSessionCorrelation {
         CodexSessionCorrelation(
             root: home
-                .appendingPathComponent(".claudespy")
+                .appendingPathComponent(".ctrlx")
                 .appendingPathComponent("codex-sessions")
         )
     }

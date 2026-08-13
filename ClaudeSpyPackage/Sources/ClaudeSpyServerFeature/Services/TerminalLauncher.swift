@@ -42,7 +42,7 @@ public enum TerminalApp: String, CaseIterable, Sendable {
 final public class TerminalLauncher {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.terminallauncher")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.terminallauncher")
     private let settings: AppSettings
 
     // MARK: - Initialization

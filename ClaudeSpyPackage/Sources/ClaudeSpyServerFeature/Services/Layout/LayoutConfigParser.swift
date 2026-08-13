@@ -2,7 +2,7 @@
     import ClaudeSpyNetworking
     import Foundation
 
-    /// Validation error raised while parsing a `gallager apply` config.
+    /// Validation error raised while parsing a `ctrlx apply` config.
     public struct LayoutConfigError: Error, LocalizedError, Sendable, Equatable {
         public let path: String
         public let message: String

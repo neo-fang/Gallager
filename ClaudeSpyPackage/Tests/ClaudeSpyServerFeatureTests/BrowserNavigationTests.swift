@@ -174,7 +174,7 @@ struct BrowserDownloadsLocationWipeTests {
     @Test("Paths inside the temp directory may be wiped")
     func tempPathsAreSafe() {
         #expect(BrowserDownloadsLocation.isSafeToWipe(
-            "/private/var/folders/ab/T/claudespy-e2e-downloads-0",
+            "/private/var/folders/ab/T/ctrlx-e2e-downloads-0",
             temporaryDirectory: tempRoot
         ))
     }

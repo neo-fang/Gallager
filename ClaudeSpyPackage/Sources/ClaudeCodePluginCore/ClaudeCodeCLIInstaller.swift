@@ -2,7 +2,7 @@ import ClaudeSpyCommon
 import Foundation
 import GallagerPluginProtocol
 
-/// Installs the Gallager Claude Code plugin through Claude's own CLI
+/// Installs the CtrlX Claude Code plugin through Claude's own CLI
 /// (`claude plugin …`), scoped to a `CLAUDE_CONFIG_DIR`. The app never edits
 /// Claude's settings files directly (spec §1–2). All invocations are wrapped in
 /// `/usr/bin/env <command> …` so PATH resolution works and a missing binary
@@ -14,11 +14,11 @@ struct ClaudeCodeCLIInstaller: Sendable {
     /// Bundled marketplace dir (`<app>/Contents/Resources/plugin`).
     let marketplaceSource: URL
 
-    static let pluginName = "gallager"
+    static let pluginName = "ctrlx"
     /// Fully-qualified plugin id (`<name>@<marketplace>`) as it appears in
-    /// `claude plugin list --json`. Matching this — not a bare "gallager"
+    /// `claude plugin list --json`. Matching this — not a bare "ctrlx"
     /// substring — scopes status detection to our plugin.
-    static let pluginRef = "gallager@gallager"
+    static let pluginRef = "ctrlx@ctrlx"
 
     private func env(for configRoot: String?) -> [String: String]? {
         configRoot.map { ["CLAUDE_CONFIG_DIR": $0] }
@@ -49,7 +49,7 @@ struct ClaudeCodeCLIInstaller: Sendable {
 
     func installStatus(configRoot: String?) async -> PluginInstallStatus {
         // `--json` yields a machine-readable array of installed plugins, so we can
-        // match our exact id instead of grepping for a "gallager" substring (which
+        // match our exact id instead of grepping for a "ctrlx" substring (which
         // a marketplace header or another plugin could spuriously satisfy).
         guard let result = try? await run(["plugin", "list", "--json"], configRoot: configRoot, timeout: 30) else {
             return .agentUnavailable
@@ -60,7 +60,7 @@ struct ClaudeCodeCLIInstaller: Sendable {
     }
 
     /// Parses `claude plugin list --json` output (an array of installed-plugin
-    /// objects). Our plugin is the entry whose `id` equals `gallager@gallager`;
+    /// objects). Our plugin is the entry whose `id` equals `ctrlx@ctrlx`;
     /// its `version` field is authoritative. `claude plugin list` lists only
     /// *installed* plugins, so a present entry ⇒ installed. Absent id, malformed
     /// JSON, or an empty array ⇒ `.notInstalled`.

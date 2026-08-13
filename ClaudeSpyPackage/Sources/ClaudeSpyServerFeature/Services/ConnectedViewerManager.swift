@@ -14,7 +14,7 @@ import Logging
 final public class ConnectedViewerManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.connectedviewermanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.connectedviewermanager")
 
     /// Active connections keyed by pairId
     private var connections: [String: ConnectedViewer] = [:]

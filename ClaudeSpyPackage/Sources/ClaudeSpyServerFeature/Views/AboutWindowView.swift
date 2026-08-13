@@ -67,7 +67,7 @@
         @ViewBuilder
         private var linksSection: some View {
             HStack(spacing: 16) {
-                Link(destination: ProductIdentity.sourceURL) {
+                Link(destination: AppBuildInfo.current.correspondingSourceURL) {
                     Label("CtrlX Source", symbol: .linkCircle)
                 }
 

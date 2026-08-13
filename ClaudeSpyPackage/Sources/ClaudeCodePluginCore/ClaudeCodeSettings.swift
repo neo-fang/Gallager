@@ -2,7 +2,7 @@ import Foundation
 import GallagerPluginProtocol
 
 /// Typed, Codable settings for the Claude Code plugin core. Persisted to
-/// `~/.gallager/state/plugins/claude-code/settings.json` with snake_case keys
+/// `~/.ctrlx/state/plugins/claude-code/settings.json` with snake_case keys
 /// (spec §11). The Mac renders these via a hand-written `PluginSettingsForm`
 /// switching on plugin id; iOS stays read-only "Configured by Mac".
 public struct ClaudeCodeSettings: Codable, Sendable, Equatable {

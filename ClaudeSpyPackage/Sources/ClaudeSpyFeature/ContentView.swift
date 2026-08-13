@@ -628,7 +628,7 @@
                             .foregroundStyle(.secondary)
                     }
 
-                    Link(destination: ProductIdentity.sourceURL) {
+                    Link(destination: AppBuildInfo.current.correspondingSourceURL) {
                         HStack {
                             Text("CtrlX Source")
                             Spacer()

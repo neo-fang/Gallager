@@ -31,7 +31,7 @@
     /// Actor managing UNUserNotificationCenter permission + delivery. The
     /// ensurePermission() body is identical to LiveLicenseNotificationHandler's.
     private actor LivePluginUpdateNotificationHandler {
-        private let logger = Logger(label: "com.claudespy.pluginupdatenotification")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.pluginupdatenotification")
         private var isAuthorized = false
         private var hasRequestedPermission = false
         private var hasInstalledDelegate = false

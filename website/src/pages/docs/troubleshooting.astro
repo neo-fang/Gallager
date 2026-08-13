@@ -34,18 +34,10 @@ import Guide from "../../layouts/Guide.astro";
   <h2>No push notifications</h2>
   <ul>
     <li>Check iOS notification permission for CtrlX.</li>
-    <li>On the hosted relay, check your trial/subscription state in the Mac's Remote Access settings.</li>
-    <li>Self-hosting? Pushes need your APNs key configured — check the relay logs for
+    <li>Pushes need your APNs key configured on the self-hosted relay — check its logs for
       "APNs client initialized", and make sure <code>APNS_ENVIRONMENT</code> matches
       your build (development for Xcode builds, production for TestFlight/App&nbsp;Store).</li>
   </ul>
-
-  <h2>License won't activate</h2>
-  <p>
-    "license_key not found" after pasting a key usually means an invisible line break or
-    space came along from the email — embedded whitespace makes it a different string.
-    Re-copy the key carefully, or paste it into a plain-text field first to check.
-  </p>
 
   <h2>The Mac went to sleep</h2>
   <p>

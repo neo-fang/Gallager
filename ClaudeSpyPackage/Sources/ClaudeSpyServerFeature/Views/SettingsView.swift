@@ -210,6 +210,11 @@ struct GeneralSettingsView: View {
             }
 
             Section("Updates") {
+                if !UpdaterController.isConfigured {
+                    Text("Updates are not configured for this build.")
+                        .foregroundStyle(.secondary)
+                }
+
                 Toggle(
                     "Automatically check for updates",
                     isOn: Binding(
@@ -217,6 +222,7 @@ struct GeneralSettingsView: View {
                         set: { updaterController.automaticallyChecksForUpdates = $0 }
                     )
                 )
+                .disabled(!UpdaterController.isConfigured)
                 .help("Periodically check for new versions in the background")
 
                 HStack {

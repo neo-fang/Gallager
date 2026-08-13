@@ -1,15 +1,15 @@
 import Foundation
 
 /// Drives the Gallager sidebar progress bar and session color on the calling
-/// pane via `gallager set-progress` / `gallager set-color`. The bar advances
+/// pane via `ctrlx set-progress` / `ctrlx set-color`. The bar advances
 /// by `(completed / total)` percent as scenarios finish; the session is
 /// painted green at run start and switches to red on the first failure.
 ///
 /// Silently no-ops when not launched from a Gallager-managed tmux pane
-/// (i.e. `$TMUX_PANE` is unset) or when the `gallager` CLI is not on PATH.
+/// (i.e. `$TMUX_PANE` is unset) or when the `ctrlx` CLI is not on PATH.
 final public class GallagerProgressReporter: TestProgressReporter, @unchecked Sendable {
     private let totalScenarios: Int
-    private let gallagerPath: String?
+    private let ctrlxPath: String?
     private let hasPane: Bool
     private var completed = 0
     private var sawFailure = false
@@ -18,7 +18,7 @@ final public class GallagerProgressReporter: TestProgressReporter, @unchecked Se
         self.totalScenarios = totalScenarios
         let env = ProcessInfo.processInfo.environment
         self.hasPane = env["TMUX_PANE"]?.isEmpty == false
-        self.gallagerPath = Self.resolveGallager()
+        self.ctrlxPath = Self.resolveGallager()
     }
 
     // MARK: - TestProgressReporter
@@ -65,7 +65,7 @@ final public class GallagerProgressReporter: TestProgressReporter, @unchecked Se
     }
 
     private func runGallager(_ arguments: [String]) {
-        guard hasPane, let path = gallagerPath else { return }
+        guard hasPane, let path = ctrlxPath else { return }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: path)
         proc.arguments = arguments
@@ -80,7 +80,7 @@ final public class GallagerProgressReporter: TestProgressReporter, @unchecked Se
     }
 
     private static func resolveGallager() -> String? {
-        let candidates = ["/usr/local/bin/gallager", "/opt/homebrew/bin/gallager"]
+        let candidates = ["/usr/local/bin/ctrlx", "/opt/homebrew/bin/ctrlx"]
         for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
             return path
         }

@@ -92,7 +92,7 @@ public extension ClipboardClient {
 
 final private class FileBackedClipboard: Sendable {
     private static let logger = Logger(
-        subsystem: "com.claudespy",
+        subsystem: "com.jicezeng.ctrlx",
         category: "FileBackedClipboard"
     )
 

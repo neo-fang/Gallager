@@ -109,7 +109,7 @@
 
         // MARK: - Properties
 
-        private let logger = Logger(label: "com.claudespy.panestreammanager")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.panestreammanager")
         private let tmuxService: TmuxService
         private let controlClientManager: TmuxControlClientManager
 

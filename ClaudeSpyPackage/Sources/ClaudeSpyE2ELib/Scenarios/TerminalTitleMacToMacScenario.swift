@@ -50,7 +50,7 @@ public enum TerminalTitleMacToMacScenario {
 
         TestStep.log("Opening Panes window on viewer and verifying title")
         TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "CtrlX", timeout: 5, instance: 1)
 
         TestStep.macWaitForElement(titled: "e2e-title", timeout: 15, instance: 1)
         TestStep.macClickButton(titled: "e2e-title", instance: 1)

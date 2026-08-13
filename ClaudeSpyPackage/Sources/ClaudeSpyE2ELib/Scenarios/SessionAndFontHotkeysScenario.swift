@@ -41,13 +41,13 @@ public enum SessionAndFontHotkeysScenario {
         tags: ["hotkeys", "session", "font", "macos-only"]
     ) {
         // ── Setup: two single-window local sessions ──────────────────
-        // Stable `@gallager-description`s keep the sidebar labels (and thus the
+        // Stable `@ctrlx-description`s keep the sidebar labels (and thus the
         // screenshots) from falling back to the working-directory path, which
         // varies by checkout folder. A fixed prompt + a distinct marker per
         // session makes the two terminals visually different in the shots.
         TestStep.log("Setup: two tmux sessions hkalpha and hkbeta")
         TestStep.tmuxCreateSession(name: "hkalpha", width: 100, height: 30)
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=hkalpha:", "@gallager-description", "Alpha"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=hkalpha:", "@ctrlx-description", "Alpha"])
         Shortcut.tmuxClearAndSetPrompt(target: "hkalpha:0")
         // Fill hkalpha (the font-demo session) with many deterministic lines so a
         // font-size change repaints a large fraction of the pane — see the type
@@ -58,7 +58,7 @@ public enum SessionAndFontHotkeysScenario {
         )
 
         TestStep.tmuxCreateSession(name: "hkbeta", width: 100, height: 30)
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=hkbeta:", "@gallager-description", "Beta"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=hkbeta:", "@ctrlx-description", "Beta"])
         Shortcut.tmuxClearAndSetPrompt(target: "hkbeta:0")
         Shortcut.tmuxRunCommand(target: "hkbeta:0", command: "echo SESSION-BETA")
 

@@ -3,7 +3,7 @@ import Foundation
 /// How Gallager handles the in-app prompt editor (Ctrl-G) when the user's
 /// shell config clobbers the `$VISUAL` Gallager sets on tmux panes.
 ///
-/// Gallager points `$VISUAL` at the bundled `gallager edit` CLI so Ctrl-G in
+/// Gallager points `$VISUAL` at the bundled `ctrlx edit` CLI so Ctrl-G in
 /// Claude Code / Codex opens the in-app prompt editor. Spawned panes run a
 /// login shell that sources the user's rc files *after* the session env is
 /// applied, so a user with `export VISUAL=<their editor>` in `~/.zshrc` /
@@ -73,22 +73,22 @@ public enum EditorOverride {
     /// Sentinel `$VISUAL` value seeded on the probe session via `-e`. If it
     /// survives the user's rc files we read it back unchanged; anything else
     /// (a different value, or empty) means the rc clobbered it.
-    public static let probeSentinel = "__gallager_probe__"
+    public static let probeSentinel = "__ctrlx_probe__"
 
     /// Marker the probe's `printf` emits, immediately followed by the resolved
     /// `$VISUAL` value, so we can pick the output line out of the pane capture.
-    public static let probeMarker = "GALLAGER_PROBE="
+    public static let probeMarker = "CTRLX_PROBE="
 
     /// Session-name prefix for the detached probe session. Panes whose session
     /// name carries this prefix are filtered out of every user-facing list
     /// (sidebar, iOS) — see `TmuxService.queryRefreshOutcome`.
-    public static let probeSessionPrefix = "__gallager_probe"
+    public static let probeSessionPrefix = "__ctrlx_probe"
 
     /// The command typed into the probe shell. After the user's rc files run,
-    /// this prints `GALLAGER_PROBE=<resolved $VISUAL>` at the first prompt. The
+    /// this prints `CTRLX_PROBE=<resolved $VISUAL>` at the first prompt. The
     /// `\n` is a literal backslash-n typed into the shell; `printf` turns it
     /// into a newline so the marker lands on its own line.
-    public static let probeCommand = #"printf 'GALLAGER_PROBE=%s\n' "$VISUAL""#
+    public static let probeCommand = #"printf 'CTRLX_PROBE=%s\n' "$VISUAL""#
 
     /// Whether an active override should be dropped because the probe proved the
     /// rc `$VISUAL` conflict is gone (issue #591). The override types
@@ -111,7 +111,7 @@ public enum EditorOverride {
     /// Builds the override line to type into a shell pane (issue #591 §5), or
     /// nil for shells we don't recognize (so they're skipped rather than
     /// corrupted). `visualValue` is the value `$VISUAL` should resolve to —
-    /// Gallager's `<gallager> edit` for the override.
+    /// Gallager's `<ctrlx> edit` for the override.
     ///
     /// The leading space keeps the line out of history under the common
     /// `HISTCONTROL=ignorespace` (bash) / `setopt HIST_IGNORE_SPACE` (zsh)
@@ -140,24 +140,24 @@ public enum EditorOverride {
     }
 
     /// The guarded rc line suggested by dialog Option 1 (issue #591 §3). Gallager
-    /// exports `GALLAGER_SOCKET` into panes *before* rc files run, so the user's
+    /// exports `CTRLX_SOCKET` into panes *before* rc files run, so the user's
     /// rc can detect a Gallager pane natively and skip its own override there —
     /// keeping their editor in every non-Gallager terminal. `visualValue` here is
     /// the *user's* editor (their probed value), not Gallager's.
     public static func recommendedRcLine(visualValue: String, shell: String) -> String {
         if shellBasename(shell) == "fish" {
-            return "set -q GALLAGER_SOCKET; or set -gx VISUAL \(visualValue.posixSingleQuoted)"
+            return "set -q CTRLX_SOCKET; or set -gx VISUAL \(visualValue.posixSingleQuoted)"
         }
-        return "[ -n \"$GALLAGER_SOCKET\" ] || export VISUAL=\(visualValue.posixSingleQuoted)"
+        return "[ -n \"$CTRLX_SOCKET\" ] || export VISUAL=\(visualValue.posixSingleQuoted)"
     }
 
     /// Parses captured probe output into a result, or nil while the marker line
     /// hasn't appeared yet (the caller keeps polling).
     ///
     /// Scans for the *last* line that begins with ``probeMarker`` after trimming:
-    /// the typed command echo (`printf 'GALLAGER_PROBE=%s\n' …`) starts with the
+    /// the typed command echo (`printf 'CTRLX_PROBE=%s\n' …`) starts with the
     /// prompt, not the marker, so it's skipped — and even if a narrow terminal
-    /// wrapped the echo so a continuation row started with `GALLAGER_PROBE=%s…`,
+    /// wrapped the echo so a continuation row started with `CTRLX_PROBE=%s…`,
     /// the real output line always comes after it, so "last match" wins.
     public static func parseProbeOutput(_ captured: String) -> VisualProbeResult? {
         var result: VisualProbeResult?

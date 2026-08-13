@@ -11,7 +11,7 @@ struct PaneInfoTests {
 
     /// Legacy format with no color, emoji, or description columns.
     private static let legacyLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1"
-    /// Pre-color format with only `@gallager-description` at index 13.
+    /// Pre-color format with only `@ctrlx-description` at index 13.
     private static let preColorLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)My custom description"
     /// Pre-emoji format: color at 13, description at 14+ (no emoji column).
     private static let preEmojiLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)blue\(Self.sep)My custom description"

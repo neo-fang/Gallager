@@ -22,16 +22,13 @@ DERIVED_DATA="$LOCAL_BUILD_ROOT/DerivedData/iOS"
 SOURCE_PACKAGES="$LOCAL_BUILD_ROOT/SourcePackages"
 PACKAGE_ROOT="$LOCAL_BUILD_ROOT/package-ios"
 DIST_DIR="$PROJECT_ROOT/dist"
-APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphoneos/Gallager.app"
+APP_PATH="$DERIVED_DATA/Build/Products/Debug-iphoneos/CtrlX.app"
 EXTENSION_PATH="$APP_PATH/PlugIns/ClaudeSpyNotificationExtension.appex"
-IPA_PATH="$DIST_DIR/Gallager-$VERSION-zengjice.ipa"
-SIGNING_IDENTITY="$(find_apple_development_identity)"
-
-[ -n "$SIGNING_IDENTITY" ] || log_error 'No Apple Development signing identity is available.'
+IPA_PATH="$DIST_DIR/CtrlX-$VERSION.ipa"
 
 mkdir -p "$DERIVED_DATA" "$SOURCE_PACKAGES" "$DIST_DIR"
 
-log_info "Building Gallager $VERSION from $PROJECT_ROOT"
+log_info "Building CtrlX $VERSION from $PROJECT_ROOT"
 /usr/bin/xcodebuild \
     -workspace "$PROJECT_ROOT/ClaudeSpy.xcworkspace" \
     -scheme ClaudeSpy \
@@ -43,8 +40,8 @@ log_info "Building Gallager $VERSION from $PROJECT_ROOT"
     -onlyUsePackageVersionsFromResolvedFile \
     -skipMacroValidation \
     -skipPackagePluginValidation \
-    GALLAGER_BUILD_STAMP="$BUILD_STAMP" \
-    GALLAGER_SOURCE_REVISION="$SOURCE_REVISION" \
+    CTRLX_BUILD_STAMP="$BUILD_STAMP" \
+    CTRLX_SOURCE_REVISION="$SOURCE_REVISION" \
     CODE_SIGNING_ALLOWED=NO \
     build
 
@@ -93,6 +90,13 @@ APP_ENTITLEMENTS="$PROFILE_ROOT/app-entitlements.plist"
 EXTENSION_ENTITLEMENTS="$PROFILE_ROOT/extension-entitlements.plist"
 /usr/bin/security cms -D -i "$APP_PROFILE" -o "$APP_PROFILE_PLIST"
 /usr/bin/security cms -D -i "$EXTENSION_PROFILE" -o "$EXTENSION_PROFILE_PLIST"
+APP_TEAM_ID="$(/usr/bin/plutil -extract TeamIdentifier.0 raw -o - "$APP_PROFILE_PLIST")"
+EXTENSION_TEAM_ID="$(/usr/bin/plutil -extract TeamIdentifier.0 raw -o - "$EXTENSION_PROFILE_PLIST")"
+[ "$APP_TEAM_ID" = "$EXTENSION_TEAM_ID" ] \
+    || log_error 'The app and notification extension provisioning profiles belong to different teams.'
+SIGNING_IDENTITY="$(find_apple_development_identity "$APP_TEAM_ID")"
+[ -n "$SIGNING_IDENTITY" ] \
+    || log_error "No Apple Development signing identity is available for team $APP_TEAM_ID."
 /usr/bin/plutil -extract Entitlements xml1 -o "$APP_ENTITLEMENTS" "$APP_PROFILE_PLIST"
 /usr/bin/plutil -extract Entitlements xml1 -o "$EXTENSION_ENTITLEMENTS" "$EXTENSION_PROFILE_PLIST"
 /bin/cp "$APP_PROFILE" "$APP_PATH/embedded.mobileprovision"
@@ -111,16 +115,16 @@ done < <(/usr/bin/find "$APP_PATH" -type d -name '*.framework' -print)
 /usr/bin/codesign --verify --deep --strict "$APP_PATH" \
     || log_error 'Signed app verification failed.'
 
-[ "$(/usr/libexec/PlistBuddy -c 'Print :GallagerBuildStamp' "$APP_PATH/Info.plist")" = "$BUILD_STAMP" ] \
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CtrlXBuildStamp' "$APP_PATH/Info.plist")" = "$BUILD_STAMP" ] \
     || log_error 'Signed app is missing the expected build stamp.'
-[ "$(/usr/libexec/PlistBuddy -c 'Print :GallagerSourceRevision' "$APP_PATH/Info.plist")" = "$SOURCE_REVISION" ] \
+[ "$(/usr/libexec/PlistBuddy -c 'Print :CtrlXSourceRevision' "$APP_PATH/Info.plist")" = "$SOURCE_REVISION" ] \
     || log_error 'Signed app is missing the expected source revision.'
 
 if [ -e "$PACKAGE_ROOT" ]; then
     /bin/rm -rf -- "$PACKAGE_ROOT"
 fi
 mkdir -p "$PACKAGE_ROOT/Payload"
-/usr/bin/ditto "$APP_PATH" "$PACKAGE_ROOT/Payload/Gallager.app"
+/usr/bin/ditto "$APP_PATH" "$PACKAGE_ROOT/Payload/CtrlX.app"
 if [ -e "$IPA_PATH" ]; then
     /bin/rm -f -- "$IPA_PATH"
 fi
@@ -128,6 +132,7 @@ fi
     cd "$PACKAGE_ROOT"
     /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_PATH"
 )
+write_artifact_metadata "$IPA_PATH"
 
 log_success "IPA: $IPA_PATH"
 log_success "Build: $VERSION ($(get_build_number)) · $BUILD_STAMP · $SOURCE_REVISION"

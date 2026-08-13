@@ -1,0 +1,29 @@
+#!/bin/sh
+
+set -eu
+
+cd "$(git rev-parse --show-toplevel)"
+
+runtime_paths="ClaudeSpy ClaudeSpyServer ClaudeSpyNotificationExtension ClaudeSpyE2ERunner Config ClaudeSpyPackage/Sources ClaudeSpyPackage/caddy ClaudeSpyPackage/monitoring plugin plugins scripts sbin"
+forbidden='GALLAGER_|CLAUDESPY_|@gallager-|\.gallager([/"[:space:]]|$)|\.claudespy([/"[:space:]]|$)|gallager\.sock|com\.claudespy|br\.eng\.gustavo|engineering\.dx\.gallager|XG2WG7U93U|relay\.gallager\.app|updates\.gallager\.app|gallager\.lemonsqueezy\.com'
+
+if rg -n -g '!check-ctrlx-technical-boundary.sh' "$forbidden" $runtime_paths; then
+  printf '\nCtrlX technical boundary check failed: an upstream runtime identity remains.\n' >&2
+  exit 1
+fi
+
+required_patterns='com\.jicezeng\.ctrlx\.macos|com\.jicezeng\.ctrlx\.notification-service|group\.com\.jicezeng\.ctrlx|com\.jicezeng\.ctrlx\.shared|CTRLX_SOCKET|@ctrlx-description|\.ctrlx|ctrlx\.sock|CTRLX_SOURCE_REVISION|app\.get\("source"\)'
+for pattern in $(printf '%s' "$required_patterns" | tr '|' ' '); do
+  if ! rg -q "$pattern" $runtime_paths; then
+    printf 'CtrlX technical boundary check failed: required identity not found: %s\n' "$pattern" >&2
+    exit 1
+  fi
+done
+
+if rg -n 'https?://([a-z0-9-]+\.)*ctrlx\.app' \
+  ClaudeSpy ClaudeSpyServer ClaudeSpyNotificationExtension Config ClaudeSpyPackage/Sources scripts sbin; then
+  printf '\nCtrlX technical boundary check failed: an unowned production domain is hard-coded.\n' >&2
+  exit 1
+fi
+
+printf 'CtrlX technical boundary check passed.\n'

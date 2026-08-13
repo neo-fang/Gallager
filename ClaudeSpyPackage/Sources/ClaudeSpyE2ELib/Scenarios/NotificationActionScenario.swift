@@ -52,7 +52,7 @@ public enum NotificationActionScenario {
             projectPath: "/Users/test/MyProject"
         )
         // The app waits internally for the actionable notification to arrive.
-        TestStep.iosNotificationAction(actionIdentifier: "gallager.permission.allow")
+        TestStep.iosNotificationAction(actionIdentifier: "ctrlx.permission.allow")
         // tolerance 2: absorbs the Dynamic Island's black/invisible rendering
         // flip in simulator captures plus the row spinner (SessionStateSorting
         // precedent for session-list screenshots).
@@ -96,7 +96,7 @@ public enum NotificationActionScenario {
             tmuxPane: "${pane1Id}",
             projectPath: "/Users/test/MyProject"
         )
-        TestStep.iosNotificationAction(actionIdentifier: "gallager.permission.always")
+        TestStep.iosNotificationAction(actionIdentifier: "ctrlx.permission.always")
         TestStep.wait(seconds: 6)
         TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "alwaysSeq")
         // "Always" applies the suggestion = the "Accept with Rule" option (2).
@@ -128,7 +128,7 @@ public enum NotificationActionScenario {
         // Re-tap the already-consumed phase-2 notification: iOS submits (the
         // tap "succeeds" client-side); the HOST drops it because the pane's
         // open form no longer matches the request id.
-        TestStep.iosNotificationAction(actionIdentifier: "gallager.permission.allow", reuseLast: true)
+        TestStep.iosNotificationAction(actionIdentifier: "ctrlx.permission.allow", reuseLast: true)
         TestStep.wait(seconds: 6)
         TestStep.tmuxCapturePaneContent(target: "session-1:0", storeAs: "staleSeq")
         // Logger ran and idled out...

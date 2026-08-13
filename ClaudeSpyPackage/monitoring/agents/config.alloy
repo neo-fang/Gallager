@@ -6,12 +6,12 @@ prometheus.scrape "relay" {
   bearer_token = sys.env("METRICS_TOKEN")
   forward_to = [prometheus.remote_write.grafana_cloud.receiver]
 
-  job_name = "claudespy-relay"
+  job_name = "ctrlx-relay"
 }
 
 // Scrape host metrics from node_exporter.
 prometheus.scrape "node" {
-  targets = [{ __address__ = "127.0.0.1:9100", instance = "hetzner-1" }]
+  targets = [{ __address__ = "127.0.0.1:9100", instance = "ctrlx-relay-host" }]
   scrape_interval = "30s"
   forward_to = [prometheus.remote_write.grafana_cloud.receiver]
 
@@ -29,6 +29,6 @@ prometheus.remote_write "grafana_cloud" {
   }
 
   external_labels = {
-    deployment = "hetzner-prod",
+    deployment = "ctrlx-self-hosted",
   }
 }

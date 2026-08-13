@@ -44,7 +44,7 @@ public struct TmuxWindow: Identifiable, Sendable {
 
     /// The custom description for this window.
     ///
-    /// Although persisted at session scope (via `@gallager-description`),
+    /// Although persisted at session scope (via `@ctrlx-description`),
     /// tmux's option-resolution chain makes every pane in the session report
     /// the same value, so any pane is a valid source. We scan rather than
     /// pick a fixed pane to tolerate partial refreshes.

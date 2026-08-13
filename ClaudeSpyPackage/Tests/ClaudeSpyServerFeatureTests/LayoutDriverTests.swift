@@ -14,7 +14,7 @@
     struct LayoutDriverTests {
         private static let tmuxPath: String? = TmuxBinaryLocator.liveValue.find()
 
-        /// Regression test for issue #501: running `gallager apply` twice in a
+        /// Regression test for issue #501: running `ctrlx apply` twice in a
         /// row against the same yaml must both succeed. Before the fix, the
         /// driver emitted `select-window -t session:!`, which fails with
         /// "can't find window: !" when the session has no previous-window
@@ -165,10 +165,10 @@
 
         private func uniqueSocketPath() -> String {
             // Per-test socket so `swift test --parallel` runs don't collide.
-            // `gallager-test-` prefix matches manual-debug conventions and keeps
+            // `ctrlx-test-` prefix matches manual-debug conventions and keeps
             // any leaked sockets easy to spot in /tmp.
             let suffix = UUID().uuidString.prefix(8)
-            return "/tmp/gallager-test-\(suffix).sock"
+            return "/tmp/ctrlx-test-\(suffix).sock"
         }
 
         private func killServer(tmuxPath: String, socketPath: String) {

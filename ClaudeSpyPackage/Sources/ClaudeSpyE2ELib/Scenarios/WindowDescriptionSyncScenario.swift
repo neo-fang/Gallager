@@ -8,7 +8,7 @@ import Foundation
 /// 2. Mac viewer edits the description via context menu → host and iOS see it
 /// 3. Host removes the description → all platforms reflect the removal
 /// 4. Host re-adds a description, is terminated + relaunched, and the
-///    description persists (stored as a tmux `@gallager-description` user option).
+///    description persists (stored as a tmux `@ctrlx-description` user option).
 public enum WindowDescriptionSyncScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Window Description Sync",
@@ -128,7 +128,7 @@ public enum WindowDescriptionSyncScenario {
 
         // ── Phase 8: Restart host to verify the description is persisted ────
         //
-        // Descriptions are stored as the tmux `@gallager-description` user option,
+        // Descriptions are stored as the tmux `@ctrlx-description` user option,
         // so they should survive the host app being killed and relaunched.
         // Viewers are lost on restart (in-memory pairings under --e2e-test), so
         // this phase only checks the host side.

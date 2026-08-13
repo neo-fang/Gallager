@@ -137,14 +137,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
     // MARK: - Custom Color
 
     /// User-assigned color for this session, shown as a dot in the sidebar.
-    /// Persisted via the tmux `@gallager-color` user option.
+    /// Persisted via the tmux `@ctrlx-color` user option.
     public var customColor: SessionColor?
 
     // MARK: - Custom Emoji
 
     /// User-assigned emoji for this session, shown as a small icon in the
     /// sidebar. Free-form text so any platform-supported emoji works.
-    /// Persisted via the tmux `@gallager-emoji` user option.
+    /// Persisted via the tmux `@ctrlx-emoji` user option.
     public var customEmoji: String?
 
     // MARK: - Terminal State
@@ -169,7 +169,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - CLI Session State Override
 
-    /// Manual session-state override, set via the gallager CLI's `session
+    /// Manual session-state override, set via the ctrlx CLI's `session
     /// set-state` command or the sidebar's "Set State" context menu (issue #695).
     /// Overrides the indicator shown in the sidebar until cleared, either
     /// explicitly or by a hook event that updates the underlying session.

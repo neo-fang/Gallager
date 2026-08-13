@@ -1,14 +1,14 @@
 {
-  "name": "gallager",
+  "name": "ctrlx",
   "interface": {
-    "displayName": "Gallager"
+    "displayName": "CtrlX"
   },
   "plugins": [
     {
-      "name": "gallager",
+      "name": "ctrlx",
       "source": {
         "source": "local",
-        "path": "./gallager"
+        "path": "./ctrlx"
       },
       "policy": {
         "installation": "AVAILABLE",

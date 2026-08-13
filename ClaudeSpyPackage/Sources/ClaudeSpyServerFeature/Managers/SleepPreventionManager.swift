@@ -48,7 +48,7 @@ private actor LiveSleepPreventionManager {
     private var isPreventingSleep = false
     private let assertionReason = "CtrlX: Active coding-agent sessions" as CFString
     private var assertionID: IOPMAssertionID = 0
-    private let logger = Logger(label: "com.claudespy.sleep-prevention")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.sleep-prevention")
 
     init() { }
 

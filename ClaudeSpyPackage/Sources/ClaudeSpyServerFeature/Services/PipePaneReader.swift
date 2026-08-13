@@ -106,7 +106,7 @@
 
         init(paneId: String) {
             self.paneId = paneId
-            self.logger = Logging.Logger(label: "com.claudespy.pipepane.\(paneId)")
+            self.logger = Logging.Logger(label: "com.jicezeng.ctrlx.pipepane.\(paneId)")
             self.ingressBuffer = PipeIngressBuffer(
                 paneId: paneId,
                 maximumChunks: Self.ingressBufferChunks
@@ -119,7 +119,7 @@
                 "Pane ID must contain only digits after stripping '%', got: \(paneId)"
             )
             let tmpDir = FileManager.default.temporaryDirectory.path
-            self.fifoPath = "\(tmpDir)/claudespy-pipe-\(sanitized).fifo"
+            self.fifoPath = "\(tmpDir)/ctrlx-pipe-\(sanitized).fifo"
         }
 
         // MARK: - Public API
@@ -801,10 +801,10 @@
             let fm = FileManager.default
             let tmpDir = fm.temporaryDirectory.path
             guard let contents = try? fm.contentsOfDirectory(atPath: tmpDir) else { return }
-            for file in contents where file.hasPrefix("claudespy-pipe-") && file.hasSuffix(".fifo") {
+            for file in contents where file.hasPrefix("ctrlx-pipe-") && file.hasSuffix(".fifo") {
                 let path = "\(tmpDir)/\(file)"
                 try? fm.removeItem(atPath: path)
-                Logging.Logger(label: "com.claudespy.pipepane").debug("Cleaned up stale FIFO: \(path)")
+                Logging.Logger(label: "com.jicezeng.ctrlx.pipepane").debug("Cleaned up stale FIFO: \(path)")
             }
         }
     }

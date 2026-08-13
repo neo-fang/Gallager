@@ -70,7 +70,7 @@ final public class ViewerRelayClient {
 
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.viewerrelayclient")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.viewerrelayclient")
     private let messageDecoder = WebSocketMessageDecoder()
 
     /// Current connection state

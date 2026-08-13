@@ -1,452 +1,95 @@
-# Self-Hosting the ClaudeSpy Relay Server
+# Self-hosting CtrlX Relay
 
-This guide explains how to deploy your own ClaudeSpy relay server for private use.
-
-## Overview
-
-The ClaudeSpy relay server is a lightweight Vapor (Swift) application that:
-- Facilitates device pairing between Mac and iOS apps
-- Relays WebSocket messages between paired devices
-- Sends push notifications when iOS is disconnected (optional)
-
-All communication is end-to-end encrypted. The server only relays encrypted blobs—it cannot read your session data.
-
-Self-hosted relays are free and require no license configuration: the hosted-relay
-licensing gate is entirely disabled unless `LEMONSQUEEZY_STORE_ID` and
-`LEMONSQUEEZY_PRODUCT_ID` are set in the environment. Leave them unset (the
-default) and the relay behaves exactly as before licensing existed. Once licensing is enabled, a malformed (non-integer) value in any licensing variable fails the boot rather
-than silently falling back; with both ids unset, the other licensing variables are ignored.
+CtrlX Relay pairs Mac and iOS clients, routes end-to-end encrypted WebSocket
+frames, and optionally sends APNs notifications. It does not decrypt terminal
+content. The community configuration has no account, payment, or license
+requirement.
 
 ## Requirements
 
-### Server Requirements
-- Linux server (Ubuntu 22.04+ recommended)
-- Docker and Docker Compose
-- 1 CPU core, 512MB RAM minimum (1GB recommended)
-- A domain name with DNS configured
+- Docker with Compose v2
+- A domain with TLS termination for public WSS access
+- Approximately 1 CPU and 1 GB RAM for a small deployment
+- Optional Apple APNs key for background iOS notifications
 
-### Optional Requirements (for push notifications)
-- Apple Developer account ($99/year)
-- APNs authentication key (.p8 file)
-
-## Quick Start
-
-### 1. Clone the Repository
+## Local development
 
 ```bash
-git clone https://github.com/your-username/Gallager.git
-cd Gallager/ClaudeSpyPackage
+git clone https://github.com/jicezeng/CtrlX.git
+cd CtrlX
+./sbin/auto-env.sh
+./sbin/start_server.sh
 ```
 
-### 2. Configure Environment
+`auto-env.sh` creates `ClaudeSpyPackage/.env.local` and assigns a deterministic
+worktree-specific port. Stop the Relay with `./sbin/stop_server.sh`.
+
+Configuration is zero-parameter and follows one priority list:
+
+```text
+.env.local > .env.production > .env.development > .env.test
+```
+
+Only the first existing file is loaded. Lower-priority files are not merged.
+Copy one of the committed `ClaudeSpyPackage/.env.*.example` templates to the
+matching active filename. Active files and APNs private keys are Git-ignored.
+
+## Production
+
+1. Copy `.env.production.example` to `.env.production` on the server.
+2. Set `CTRLX_VERSION` and `CTRLX_SOURCE_REVISION` to the exact released tag and
+   full Git commit. `/version` and `/source` expose this mapping for AGPL users.
+3. Generate a metrics token of at least 32 random characters, or leave it empty
+   to disable `/metrics`.
+4. Leave all APNs credentials empty unless push notifications are required.
+5. Start through a shell that exports the selected file, or use the repository
+   deployment script from a clean primary worktree.
+
+The generic Caddy configuration is `ClaudeSpyPackage/caddy/ctrlx.caddy`. It
+expects `CTRLX_RELAY_HOST` in Caddy's own service environment and proxies to
+`127.0.0.1:8080`. No public domain is hard-coded in the source tree.
+
+The zero-parameter deployment script reads the repository root environment file:
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Edit with your settings (see Configuration section below)
-nano .env
+cp .env.example .env.production
+# edit .env.production, then:
+./scripts/deploy.sh
 ```
 
-### 3. Deploy
-
-```bash
-# Build and start the server
-docker compose up -d
-
-# Verify it's running
-curl http://localhost:8080/health
-# Should return: {"status":"ok"}
-```
-
-### 4. Set Up Reverse Proxy (Required)
-
-The server must be accessible via HTTPS for WebSocket connections. See [Reverse Proxy Setup](#reverse-proxy-setup).
-
-### 5. Configure Your Apps
-
-Update the server URL in both apps:
-- **Mac app**: Settings → Remote Access → Server URL
-- **iOS app**: Will use the same server after pairing
-
-## Configuration
-
-### Environment Variables
-
-Create a `.env` file based on `.env.example`:
-
-```bash
-# Server settings
-LOG_LEVEL=warning              # debug, info, notice, warning, error, critical
-PAIRING_CODE_EXPIRY_SECONDS=300  # How long pairing codes are valid
-
-# Minimum client version gate (optional — leave unset to accept every client)
-MIN_CLIENT_VERSION=            # e.g. 2.1; refuse clients older than this on connect
-MIN_CLIENT_VERSION_REJECT_UNKNOWN=false  # also refuse clients that report no version
-
-# Pairing pause (optional — leave unset to accept new pairings)
-PAIRING_PAUSED_MESSAGE=        # when set, refuse NEW pairing registrations and show this message (quote the value)
-
-# Licensing (leave unset for self-hosting — see docs above)
-LEMONSQUEEZY_STORE_ID=         # From Lemon Squeezy dashboard
-LEMONSQUEEZY_PRODUCT_ID=       # From Lemon Squeezy dashboard
-TRIAL_DAYS=7                   # Trial length (default 7)
-LICENSE_REVALIDATE_HOURS=24    # Recheck license validity (default 24)
-LICENSE_GRACE_DAYS=7           # Grace period if Lemon Squeezy unreachable (default 7)
-
-# Required for push notifications (optional feature)
-APNS_KEY_PATH=/secrets/AuthKey.p8
-APNS_KEY_ID=XXXXXXXXXX
-APNS_TEAM_ID=XXXXXXXXXX
-APNS_BUNDLE_ID=com.yourcompany.ClaudeSpy
-APNS_ENVIRONMENT=development
-```
-
-### Push Notifications (Optional)
-
-Push notifications allow the iOS app to receive alerts when not connected via WebSocket. To enable:
-
-1. **Create an APNs Key** in [Apple Developer Portal](https://developer.apple.com/account/resources/authkeys/list):
-   - Go to Certificates, Identifiers & Profiles → Keys
-   - Create a new key with APNs capability
-   - Download the `.p8` file (you can only download it once!)
-   - Note the Key ID
-
-2. **Place the key file**:
-   ```bash
-   mkdir -p secrets
-   cp ~/Downloads/AuthKey_XXXXXXXXXX.p8 secrets/AuthKey.p8
-   chmod 600 secrets/AuthKey.p8
-   ```
-
-3. **Configure environment variables**:
-   ```bash
-   APNS_KEY_PATH=/secrets/AuthKey.p8
-   APNS_KEY_ID=XXXXXXXXXX        # From step 1
-   APNS_TEAM_ID=XXXXXXXXXX       # From Apple Developer Portal → Membership
-   APNS_BUNDLE_ID=com.yourcompany.ClaudeSpy  # Your iOS app bundle ID
-   APNS_ENVIRONMENT=development  # Use "production" for App Store builds
-   ```
-
-If you skip APNs configuration, the server runs without push notifications—devices communicate only when both are actively connected.
-
-### Minimum Client Version Gate (Optional)
-
-By default the relay is a dumb end-to-end-encrypted router that never inspects client versions—the host and viewer negotiate compatibility peer-to-peer (each tells an older peer to update). That handshake can't help an *old-host + old-viewer* pair, and it can't let the relay refuse a client on its own. The optional server-side gate closes that gap:
-
-- Set `MIN_CLIENT_VERSION` (e.g. `2.1`) and the relay refuses any client reporting a marketing version below it, closing the WebSocket with a "please update" error. Clients report their version in a pre-E2EE query parameter the relay can already read; it never decrypts message contents. The value must be a clean dot-separated numeric version (`2`, `2.1`, `2.1.0`); a malformed value like `v2.1` fails the relay at boot rather than silently parsing to a near-zero minimum that accepts almost everything.
-- Leave it unset (the default) and every client is accepted—self-hosting needs no configuration here.
-
-The relay can only enforce against clients new enough to *report* a version. Builds predating this feature send none; `MIN_CLIENT_VERSION_REJECT_UNKNOWN` chooses the policy for them:
-
-- `false` (default) — unknown-version clients are allowed through, so turning the gate on doesn't break the entire pre-reporting fleet at once. Clean enforcement becomes available for the *next* release that breaks the wire, once a version-reporting build is universal.
-- `true` — unknown-version clients are also refused. Only safe once every deployed client reports its version.
-
-### Pairing Pause (Optional)
-
-A maintenance switch for server migrations or overload: set `PAIRING_PAUSED_MESSAGE` to any non-empty text and the relay refuses **new** pairing registrations, returning that text (whitespace-trimmed) as the error message — it appears verbatim in the Mac's pairing UI (red error state with a "Try Again" button). Existing and completed pairings are completely unaffected — WebSocket relay traffic, status polling, and unpairing all keep working — but un-redeemed pairing codes do not survive the restart that applies the pause: they live only in server memory, so although the gate itself is register-only (a code registered just before the restart could in principle still be completed), in practice the recreate discards pending codes.
-
-- Leave it unset (the default) and pairing works normally — self-hosting needs no configuration here.
-- The value is read at boot, so applying a change requires a container recreate (`docker compose up -d`).
-- Keep the message under ~100 characters so it displays cleanly in the Mac's pairing UI.
-- Refused attempts are counted in the `claudespy_paused_pairing_attempts_total` metric.
-- On the wire this is a normal pairing `error` response with code `PAIRING_PAUSED`; no minimum client version is required.
-
-## Reverse Proxy Setup
-
-The relay server needs HTTPS for secure WebSocket connections. Choose one option:
-
-### Option A: Caddy (Recommended)
-
-Caddy automatically handles TLS certificates via Let's Encrypt.
-
-1. **Install Caddy**:
-   ```bash
-   sudo apt install -y caddy
-   ```
-
-2. **Create Caddy configuration**:
-   ```bash
-   sudo nano /etc/caddy/Caddyfile
-   ```
-
-   Add:
-   ```caddyfile
-   your-domain.com {
-       reverse_proxy localhost:8080
-
-       log {
-           output file /var/log/caddy/claudespy-access.log
-           format json
-       }
-
-       header {
-           X-Frame-Options "DENY"
-           X-Content-Type-Options "nosniff"
-           X-XSS-Protection "1; mode=block"
-       }
-   }
-   ```
-
-3. **Reload Caddy**:
-   ```bash
-   sudo systemctl reload caddy
-   ```
-
-### Option B: nginx with Certbot
-
-1. **Install nginx and Certbot**:
-   ```bash
-   sudo apt install -y nginx certbot python3-certbot-nginx
-   ```
-
-2. **Create nginx configuration**:
-   ```bash
-   sudo nano /etc/nginx/sites-available/claudespy
-   ```
-
-   Add:
-   ```nginx
-   server {
-       listen 80;
-       server_name your-domain.com;
-
-       location / {
-           proxy_pass http://localhost:8080;
-           proxy_http_version 1.1;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection "upgrade";
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-
-           # WebSocket timeouts
-           proxy_read_timeout 86400;
-           proxy_send_timeout 86400;
-       }
-   }
-   ```
-
-3. **Enable the site and get certificates**:
-   ```bash
-   sudo ln -s /etc/nginx/sites-available/claudespy /etc/nginx/sites-enabled/
-   sudo nginx -t
-   sudo systemctl reload nginx
-   sudo certbot --nginx -d your-domain.com
-   ```
-
-### Option C: Traefik (Docker-native)
-
-If you're already using Traefik, add labels to `docker-compose.yml`:
-
-```yaml
-services:
-  relay:
-    # ... existing configuration ...
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.claudespy.rule=Host(`your-domain.com`)"
-      - "traefik.http.routers.claudespy.entrypoints=websecure"
-      - "traefik.http.routers.claudespy.tls.certresolver=letsencrypt"
-      - "traefik.http.services.claudespy.loadbalancer.server.port=8080"
-```
-
-## Deployment Script
-
-For automated deployments, use `deploy.sh`:
-
-```bash
-# Set required environment variables
-export DEPLOY_HOST=your-server-ip-or-hostname
-export DEPLOY_USER=root  # or your SSH user
-
-# Dry-run first: build + boot + health-check in isolation on the server
-# (separate dir/port/container — does NOT touch the running deployment).
-# Recommended before a Swift toolchain or dependency bump.
-./deploy.sh test
-
-# Deploy
-./deploy.sh deploy
-
-# Other commands
-./deploy.sh logs          # View warnings and errors
-./deploy.sh logs all      # View all logs
-./deploy.sh logs debug    # Restart with debug logging
-./deploy.sh stop          # Stop the server
-./deploy.sh restart       # Restart the server
-```
-
-`test` builds the image and boots the relay on `TEST_PORT` (default `8099`) under
-`TEST_REMOTE_DIR` (default `/opt/claudespy-test`), curls `/health`, then tears the
-container and image down. If a dependency bump deadlocks against a stale build
-cache (`declares no traits`), it prunes the BuildKit cache and retries once
-automatically. The production container keeps running throughout.
-
-### Environment Variables for deploy.sh
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DEPLOY_HOST` | (required) | Server IP or hostname |
-| `DEPLOY_USER` | `root` | SSH username |
-| `REMOTE_DIR` | `/opt/claudespy` | Installation directory on server |
-| `HEALTH_CHECK_URL` | `http://localhost:8080/health` | URL to check after deployment |
-| `TEST_REMOTE_DIR` | `/opt/claudespy-test` | Isolated directory used by `test` |
-| `TEST_PORT` | `8099` | Host port the `test` container binds to |
-
-## API Reference
-
-### Health Check
-```
-GET /health
-Response: {"status":"ok"}
-```
-
-### Pairing Endpoints
-```
-POST /api/pairing/register    # Mac registers pairing code
-POST /api/pairing/complete    # iOS completes pairing
-GET  /api/pairing/:pairId/status  # Check pairing status
-DELETE /api/pairing/:pairId   # Remove pairing
-```
-
-### WebSocket
-```
-WS /api/ws?pairId=xxx&deviceType=mac|ios&deviceId=xxx
-```
-
-### Metrics (Optional)
-```
-GET /metrics    # Prometheus text exposition, requires Bearer METRICS_TOKEN
-```
-
-## Monitoring (Optional)
-
-The relay can push metrics to Grafana Cloud (free tier) for dashboards and Discord alerts. See [docs/monitoring.md](monitoring.md) for the full setup. Quick summary:
-
-1. Set `METRICS_TOKEN` in `.env` (generate with `openssl rand -hex 32`).
-2. Sign up for Grafana Cloud and grab a metrics-write token.
-3. Run `monitoring/agents/install.sh` on the VM (installs `node_exporter` + Grafana Alloy as systemd services).
-4. Apply the dashboards/alerts from `monitoring/grizzly/` with `grr apply`.
-
-The `/metrics` endpoint is gated by a bearer token (`METRICS_TOKEN`). In the default Docker deployment the relay's port is published only on `127.0.0.1:8080:8080`, so `/metrics` is not externally reachable; if you build and run the binary directly without Docker, restrict access via firewall or reverse proxy in addition to the token.
-
-## Security Considerations
-
-### Data Privacy
-- All session data is end-to-end encrypted between Mac and iOS
-- The server cannot decrypt any message content
-- Pairing codes expire after 5 minutes (configurable)
-
-### Network Security
-- Always use HTTPS/WSS in production
-- Consider firewall rules to restrict access to port 8080 (only allow reverse proxy)
-- The Docker container runs as a non-root user
-
-### Server Hardening
-```bash
-# Recommended: Only allow reverse proxy to access the container
-sudo ufw allow from 127.0.0.1 to any port 8080
-sudo ufw enable
-```
-
-## Troubleshooting
-
-### Server won't start
-```bash
-# Check container logs
-docker compose logs -f
-
-# Verify the image built successfully
-docker compose build --progress=plain
-```
-
-### WebSocket connections fail
-- Ensure your reverse proxy supports WebSocket upgrades
-- Check that the `Upgrade` and `Connection` headers are being forwarded
-- Verify TLS/HTTPS is working: `curl -v https://your-domain.com/health`
-
-### Push notifications not working
-- Verify APNs configuration: check logs for "APNs client initialized"
-- Ensure the `.p8` key file is readable
-- Use `APNS_ENVIRONMENT=development` for Xcode builds
-- Use `APNS_ENVIRONMENT=production` for TestFlight/App Store builds
-
-### Pairing fails
-- Ensure both devices can reach the server
-- Check that the pairing code hasn't expired (5 minutes by default)
-- Verify the Mac app is connected: `GET /api/pairing/:pairId/status`
-
-### View server logs
-```bash
-# Warnings and errors only
-docker compose logs -f | grep -E '\[ (WARNING|ERROR|CRITICAL) \]'
-
-# All logs
-docker compose logs -f
-
-# Debug mode (restart required)
-LOG_LEVEL=debug docker compose up -d
-docker compose logs -f
-```
-
-## Updating
-
-To update to a new version:
-
-```bash
-cd ClaudeSpy/ClaudeSpyPackage
-
-# Pull latest changes
-git pull
-
-# Rebuild and restart
-docker compose down
-docker compose build
-docker compose up -d
-```
-
-## Hosting Provider Examples
-
-### DigitalOcean
-- Create a Droplet (Ubuntu 22.04, $6/month Droplet is sufficient)
-- Point your domain to the Droplet's IP
-- Follow the Quick Start instructions above
-
-### AWS
-- Launch an EC2 instance (t3.micro is sufficient)
-- Configure Security Group to allow ports 80, 443
-- Use Elastic IP for a stable address
-- Follow the Quick Start instructions above
-
-### Hetzner
-- Create a CX11 server (cheapest option works fine)
-- Point your domain to the server IP
-- Follow the Quick Start instructions above
-
-### Raspberry Pi (Local Network)
-For local-only use without internet access:
-```bash
-# Skip reverse proxy, use direct HTTP
-docker compose up -d
-
-# Configure Mac app to use: http://raspberrypi.local:8080
-```
-Note: iOS requires HTTPS for WebSocket, so this is Mac-only without extra setup.
-
-## Building from Source
-
-If you prefer to build without Docker:
-
-```bash
-# Requires Swift 6.3+ (swift-dependencies declares its package traits only in its Swift 6.3 manifest)
-cd ClaudeSpyPackage
-swift build -c release --product ClaudeSpyExternalServer
-
-# Run the server
-.build/release/ClaudeSpyExternalServer serve --env production --hostname 0.0.0.0 --port 8080
-```
-
----
-
-*"Here I am, brain the size of a planet, and they ask me to relay WebSocket messages. But at least they're encrypted, so I don't have to know what pointless tasks the humans are doing."* — Your Server
+It refuses a dirty worktree, verifies that the remote `.env.production` reports
+the same version and commit, starts the container, then validates `/health` and
+`/source`.
+
+## Endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Process health |
+| `GET /ready` | Relay readiness |
+| `GET /version` | Product, version, protocol, commit, source and license |
+| `GET /source` | Corresponding source and AGPL license |
+| `GET /metrics` | Authenticated Prometheus metrics; disabled without token |
+| `POST /api/pairing/register` | Register a Mac pairing code |
+| `POST /api/pairing/complete` | Complete pairing from a viewer |
+| `WS /api/ws` | Encrypted relay stream |
+
+## APNs
+
+For push notifications, mount a `.p8` key read-only at `/secrets/AuthKey.p8`
+and configure `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID` and
+`APNS_ENVIRONMENT`. `APNS_BUNDLE_ID` must match the installed CtrlX iOS build;
+the official distribution identity is `com.jicezeng.ctrlx`.
+
+If APNs values are absent, the Relay continues to provide pairing and live WSS
+transport without background push.
+
+## Security notes
+
+- Expose only the TLS reverse proxy; the Compose port binds to loopback.
+- Back up the Relay data directory and test restoration.
+- Treat pairing records, IP addresses, device metadata and APNs tokens as
+  personal data even though terminal content is encrypted.
+- Rotate APNs and monitoring credentials without committing them.
+- Set `MIN_CLIENT_VERSION=3.0.0` and reject unknown versions for a CtrlX-only
+  production Relay; CtrlX 3 intentionally does not share Gallager 2.x identity.

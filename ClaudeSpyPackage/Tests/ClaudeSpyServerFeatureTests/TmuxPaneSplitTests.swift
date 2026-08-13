@@ -16,10 +16,10 @@ struct TmuxPaneSplitTests {
             $0[ProcessRunner.self] = .liveValue
         } operation: {
             let suffix = UUID().uuidString.lowercased()
-            let sessionName = "gallager-split-\(suffix)"
+            let sessionName = "ctrlx-split-\(suffix)"
             let socketPath = "/tmp/gs-\(suffix.prefix(8)).sock"
             let rootURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("gallager-split-\(suffix)", isDirectory: true)
+                .appendingPathComponent("ctrlx-split-\(suffix)", isDirectory: true)
             let sourceURL = rootURL.appendingPathComponent("source", isDirectory: true)
             let overrideURL = rootURL.appendingPathComponent("override", isDirectory: true)
             let service = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)

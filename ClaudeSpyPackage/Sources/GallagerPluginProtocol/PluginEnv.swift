@@ -7,7 +7,7 @@ import Foundation
 public struct PluginEnv: Sendable {
     /// `Resources/plugins/<id>/` — read-only bundled plugin assets (manifest, icon).
     public let pluginRoot: URL
-    /// `~/.gallager/state/plugins/<id>/` — writable per-plugin scratch/state.
+    /// `~/.ctrlx/state/plugins/<id>/` — writable per-plugin scratch/state.
     public let stateDir: URL
     /// The host app's marketing version.
     public let appVersion: String

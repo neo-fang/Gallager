@@ -10,6 +10,6 @@
 
 ## Engineering follow-ups
 
-- [ ] 审计 UserDefaults 是否完全依赖 bundle domain，确保与 Gallager 共存。
-- [ ] 明确 CtrlX 3.0.0 与 Gallager 2.x 的 wire compatibility；身份必须隔离，消息模型尽量兼容。
+- [x] UserDefaults 默认 domain 由新 Bundle ID 隔离；显式 suite/App Group 已切换到 CtrlX。
+- [x] CtrlX 3.0.0 使用新的 E2EE salt 与最低协议版本，明确不与 Gallager 2.x 建立加密会话；消息模型继续复用以降低维护成本。
 - [ ] 评估历史文档是保留为上游资料还是迁移到 `docs/upstream/`，避免机械重写历史记录。

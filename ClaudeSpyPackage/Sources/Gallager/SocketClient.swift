@@ -4,8 +4,8 @@ import Foundation
 enum SocketClient {
     /// Resolves the socket path from environment or default.
     static var socketPath: String {
-        ProcessInfo.processInfo.environment["GALLAGER_SOCKET"]
-            ?? NSTemporaryDirectory() + "gallager.sock"
+        ProcessInfo.processInfo.environment["CTRLX_SOCKET"]
+            ?? NSTemporaryDirectory() + "ctrlx.sock"
     }
 
     /// Sends a JSON-RPC request and returns the response.

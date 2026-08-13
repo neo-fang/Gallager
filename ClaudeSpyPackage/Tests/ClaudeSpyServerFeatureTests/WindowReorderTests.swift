@@ -108,7 +108,7 @@ struct WindowReorderTests {
             $0[ProcessRunner.self] = .liveValue
         } operation: {
             let suffix = UUID().uuidString.lowercased()
-            let sessionName = "gallager-reorder-\(suffix)"
+            let sessionName = "ctrlx-reorder-\(suffix)"
             let socketPath = "/tmp/gw-\(suffix.prefix(8)).sock"
             let service = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
             defer { try? FileManager.default.removeItem(atPath: socketPath) }

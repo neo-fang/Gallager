@@ -698,8 +698,8 @@ const faqs = [
       >
         Devices exchange X25519 keys at pairing and derive session keys with
         HKDF. Terminal streams, keystrokes and hook events are sealed with
-        ChaCha20-Poly1305 before they leave your device. Don't trust our
-        relay? Run your own with one docker compose command.
+        ChaCha20-Poly1305 before they leave your device. Run your own relay
+        with the included zero-parameter scripts.
       </p>
       <a href="/security/" class="btn btn-ghost" style="font-size:15px;"
         >Read the security model →</a
@@ -710,8 +710,8 @@ const faqs = [
       style="font-size:13px;line-height:1.9;background:var(--color-surface);border:2px solid var(--color-divider);padding:var(--space-6);"
     >
       <div><span class="text-muted">$</span> git clone https://github.com/jicezeng/CtrlX</div>
-      <div><span class="text-muted">$</span> cd CtrlX/ClaudeSpyPackage</div>
-      <div><span class="text-muted">$</span> cp .env.example .env && docker compose up -d</div>
+      <div><span class="text-muted">$</span> cd CtrlX</div>
+      <div><span class="text-muted">$</span> ./sbin/auto-env.sh &amp;&amp; ./sbin/start_server.sh</div>
       <div style="color:var(--color-accent-700);">✓ relay running on your own domain</div>
       <div class="text-muted">{`{"status":"ok"} — your code is ciphertext to it`}</div>
     </div>
@@ -758,7 +758,7 @@ const faqs = [
         Stop babysitting terminals.
       </h2>
       <p style="font-size:17px;margin-bottom:var(--space-6);opacity:0.9;">
-        Free forever with your own relay. Hosted relay if you'd rather not.
+        Free software. Your devices, your relay, your keys.
       </p>
       <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">
         <a

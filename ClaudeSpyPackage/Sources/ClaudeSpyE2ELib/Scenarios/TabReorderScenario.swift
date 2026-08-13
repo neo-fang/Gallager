@@ -52,13 +52,13 @@ public enum TabReorderScenario {
         TestStep.wait(seconds: 1)
 
         // Give both sessions a stable custom title — same mechanism the CLI uses
-        // (`gallager set-title` / `new-session --title`), persisted as the
-        // `@gallager-description` tmux user option. This drives the window title
+        // (`ctrlx set-title` / `new-session --title`), persisted as the
+        // `@ctrlx-description` tmux user option. This drives the window title
         // bar and the sidebar primary label, so neither falls back to the
         // working-directory path (which varies by checkout folder). Set before
         // the app launches so the first session read already sees the titles.
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder:", "@gallager-description", "Tab Reorder"])
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder-other:", "@gallager-description", "Tab Reorder Other"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder:", "@ctrlx-description", "Tab Reorder"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder-other:", "@ctrlx-description", "Tab Reorder Other"])
 
         // ── Launch app ────────────────────────────────────────────────
         Shortcut.macOnlySetup

@@ -23,7 +23,7 @@ import Foundation
 ///    most-recent write to the folder, so terminate + relaunch restores the
 ///    folder's *current* layout (hello-only) — README does not come back. tmux
 ///    survives the restart and the layout store lives under the per-instance
-///    `--gallager-state-root`, so the record persists across the relaunch.
+///    `--ctrlx-state-root`, so the record persists across the relaunch.
 public enum FolderLayoutPersistenceScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Folder Layout Persistence",

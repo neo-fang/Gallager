@@ -37,7 +37,7 @@
     /// LiveNotificationHandler.ensurePermission() (same
     /// notDetermined/authorized/denied handling and delegate installation).
     private actor LiveLicenseNotificationHandler {
-        private let logger = Logger(label: "com.claudespy.licensenotification")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.licensenotification")
         private var isAuthorized = false
         private var hasRequestedPermission = false
         private var hasInstalledDelegate = false

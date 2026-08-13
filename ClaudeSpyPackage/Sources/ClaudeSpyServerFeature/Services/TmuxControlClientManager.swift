@@ -14,7 +14,7 @@
     @Observable
     @MainActor
     final public class TmuxControlClientManager {
-        private let logger = Logger(label: "com.claudespy.controlclientmanager")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.controlclientmanager")
 
         private let tmuxPath: String
         private let socketPath: String?

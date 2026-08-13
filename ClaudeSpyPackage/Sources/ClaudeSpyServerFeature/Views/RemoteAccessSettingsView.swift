@@ -68,7 +68,7 @@ public struct RemoteAccessSettingsView: View {
         }
         .onReceive(
             NotificationCenter.default.publisher(
-                for: .init("com.claudespy.e2e.unpairViewer")
+                for: .init("com.jicezeng.ctrlx.e2e.unpairViewer")
             )
         ) { _ in
             guard let viewer = pairingManager.pairedViewers.first else { return }
@@ -217,7 +217,7 @@ public struct RemoteAccessSettingsView: View {
 
     private var unpairedView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Pair your iPhone to monitor Claude sessions remotely.")
+            Text("Pair your iPhone to monitor terminal sessions remotely.")
                 .foregroundStyle(.secondary)
 
             Button {

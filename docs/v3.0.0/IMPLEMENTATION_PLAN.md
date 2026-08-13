@@ -2,8 +2,8 @@
 
 ## 状态
 
-- **状态**：🟡 规划完成，Stage 1 开始实施
-- **进度**：0/6 stages
+- **状态**：🟡 源码实施完成，外部分发验收待资源就绪
+- **进度**：5/6 stages completed；Stage 6 为 6/7
 - **开发分支**：`feature/ctrlx-distribution`
 - **基础提交**：`919c7772928531d4d0bb266bdf275691d361901e`
 - **基础日期**：2026-08-14
@@ -124,3 +124,10 @@ E2EE 与 Relay 行为。
 - iOS App Store/TestFlight 发布需要单独的 AGPL/Apple 条款法律结论。
 
 这些外部项不阻止本地源码、身份隔离、测试和开发签名构建。
+
+## 7. 当前验收结论
+
+截至 2026-08-14，Stage 1–5 的源码实施已经完成；Stage 6 的静态检查、Swift 全量测试、
+macOS/iOS 无签名构建、网站构建、Sidecar 测试与 Linux Relay 容器运行检查已经通过。
+尚未完成的发布门禁仅包括：CtrlX 专用签名/Notary/APNs/Sparkle 资源、公开生产域名与
+Gallager/CtrlX 双应用真机共存验收。未完成这些门禁前，本分支不应创建正式 release。

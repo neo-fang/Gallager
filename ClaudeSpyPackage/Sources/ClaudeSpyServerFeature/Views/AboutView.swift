@@ -30,7 +30,7 @@
                 }
 
                 Section("Links") {
-                    Link(destination: ProductIdentity.sourceURL) {
+                    Link(destination: AppBuildInfo.current.correspondingSourceURL) {
                         HStack {
                             Label("CtrlX Source", symbol: .linkCircle)
                             Spacer()

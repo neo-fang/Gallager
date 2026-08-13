@@ -1,6 +1,6 @@
 import Foundation
 
-/// E2E scenario: `gallager plugin` CLI introspection (spec §14).
+/// E2E scenario: `ctrlx plugin` CLI introspection (spec §14).
 ///
 /// Verifies the plugin CLI surface reflects the in-process plugin runtime:
 /// - `plugin list` shows both bundled plugins (claude-code, codex), enabled.
@@ -8,7 +8,7 @@ import Foundation
 /// - `plugin info <unknown>` exits non-zero.
 ///
 /// All CLI commands are typed into the `plugin-cli` pane via the same
-/// socket-backed `gallager` helper used by the Gallager CLI API scenario.
+/// socket-backed `ctrlx` helper used by the Gallager CLI API scenario.
 public enum PluginCLIScenario {
     public static let scenario = ClaudeSpyE2ELib.scenario(
         "Plugin CLI Introspection",
@@ -22,22 +22,22 @@ public enum PluginCLIScenario {
         TestStep.macClickButton(titled: "plugin-cli")
         TestStep.wait(seconds: 1)
 
-        // 2. CLI access: point at the app's socket + define a `gallager` helper.
+        // 2. CLI access: point at the app's socket + define a `ctrlx` helper.
         Shortcut.tmuxClearAndSetPrompt(target: "plugin-cli:0")
         Shortcut.tmuxRunCommand(
             target: "plugin-cli:0",
-            command: #"export GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock""#
+            command: #"export CTRLX_SOCKET="$TMPDIR/ctrlx-e2e.sock""#
         )
         Shortcut.tmuxRunCommand(
             target: "plugin-cli:0",
-            command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
+            command: #"ctrlx() { "${macOSAppPath}/Contents/MacOS/CtrlXCLI" "$@"; }"#
         )
         Shortcut.tmuxRunCommand(target: "plugin-cli:0", command: "clear")
 
         // 3. plugin list — both bundled plugins, enabled.
         Shortcut.tmuxRunCommand(
             target: "plugin-cli:0",
-            command: #"gallager plugin list > /tmp/e2e-plugin-list.txt 2>&1"#
+            command: #"ctrlx plugin list > /tmp/e2e-plugin-list.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-plugin-list.txt", storeAs: "pluginList")
@@ -48,7 +48,7 @@ public enum PluginCLIScenario {
         // 4. plugin info claude-code.
         Shortcut.tmuxRunCommand(
             target: "plugin-cli:0",
-            command: #"gallager plugin info claude-code > /tmp/e2e-plugin-info-claude.txt 2>&1"#
+            command: #"ctrlx plugin info claude-code > /tmp/e2e-plugin-info-claude.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-plugin-info-claude.txt", storeAs: "claudeInfo")
@@ -58,7 +58,7 @@ public enum PluginCLIScenario {
         // 5. plugin info codex.
         Shortcut.tmuxRunCommand(
             target: "plugin-cli:0",
-            command: #"gallager plugin info codex > /tmp/e2e-plugin-info-codex.txt 2>&1"#
+            command: #"ctrlx plugin info codex > /tmp/e2e-plugin-info-codex.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-plugin-info-codex.txt", storeAs: "codexInfo")
@@ -69,7 +69,7 @@ public enum PluginCLIScenario {
         //    stderr and exits 1 for an unregistered id).
         Shortcut.tmuxRunCommand(
             target: "plugin-cli:0",
-            command: #"gallager plugin info nope-not-a-plugin > /tmp/e2e-plugin-info-bad.txt 2>&1; echo "exit=$?" >> /tmp/e2e-plugin-info-bad.txt"#
+            command: #"ctrlx plugin info nope-not-a-plugin > /tmp/e2e-plugin-info-bad.txt 2>&1; echo "exit=$?" >> /tmp/e2e-plugin-info-bad.txt"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-plugin-info-bad.txt", storeAs: "badInfo")

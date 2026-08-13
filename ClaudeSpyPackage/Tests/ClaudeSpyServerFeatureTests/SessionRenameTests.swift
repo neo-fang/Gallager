@@ -45,8 +45,8 @@ struct SessionRenameTests {
             $0[ProcessRunner.self] = .liveValue
         } operation: {
             let suffix = UUID().uuidString.lowercased()
-            let oldName = "gallager-rename-old-\(suffix)"
-            let newName = "gallager-rename-new-\(suffix)"
+            let oldName = "ctrlx-rename-old-\(suffix)"
+            let newName = "ctrlx-rename-new-\(suffix)"
             let socketPath = "/tmp/gr-\(suffix.prefix(8)).sock"
             let service = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
             defer { try? FileManager.default.removeItem(atPath: socketPath) }
@@ -82,8 +82,8 @@ struct SessionRenameTests {
             $0[ProcessRunner.self] = .liveValue
         } operation: {
             let suffix = UUID().uuidString.lowercased()
-            let sourceName = "gallager-source-\(suffix)"
-            let existingName = "gallager-existing-\(suffix)"
+            let sourceName = "ctrlx-source-\(suffix)"
+            let existingName = "ctrlx-existing-\(suffix)"
             let socketPath = "/tmp/gc-\(suffix.prefix(8)).sock"
             let service = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
             defer { try? FileManager.default.removeItem(atPath: socketPath) }

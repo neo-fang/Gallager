@@ -39,7 +39,7 @@ final public class ExternalServerClient {
 
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.externalserver")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.externalserver")
 
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected

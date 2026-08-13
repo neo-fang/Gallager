@@ -372,13 +372,13 @@ struct TerminalContainerView: NSViewRepresentable {
                 // strictly ordered across our async load/paste pair (the
                 // process spawn for one drop's `paste-buffer` can land after
                 // the next drop's `load-buffer` if the user drops twice
-                // quickly), so a stable name like `gallager-drop` would lose
+                // quickly), so a stable name like `ctrlx-drop` would lose
                 // the first drop's contents under that race. The UUID suffix
                 // gives each drop its own buffer; `-d` cleans them up.
                 try await tmuxService.loadAndPasteBuffer(
                     target: target,
                     content: content,
-                    bufferName: "gallager-drop-\(UUID().uuidString.prefix(8))"
+                    bufferName: "ctrlx-drop-\(UUID().uuidString.prefix(8))"
                 )
             } catch {
                 print("Failed to paste dropped files into tmux: \(error)")

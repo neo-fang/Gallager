@@ -28,7 +28,7 @@ final public class PairingManager {
 
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.pairing")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.pairing")
 
     /// Current pairing state (for adding new devices)
     public private(set) var state: State = .idle

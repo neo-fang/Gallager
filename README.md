@@ -42,9 +42,8 @@ Open `ClaudeSpy.xcworkspace` and build:
 Build the Relay locally:
 
 ```sh
-cd ClaudeSpyPackage
-cp .env.example .env.local
-docker compose up -d
+./sbin/auto-env.sh
+./sbin/start_server.sh
 ```
 
 Run package tests:

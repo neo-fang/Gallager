@@ -5,7 +5,7 @@ This is the durable external contract for building a v2 sidecar plugin for Galla
 as a child process and communicates with over stdio using JSON-RPC.
 
 > **Authoring shortcut:** the `gallager` Claude Code plugin bundles a
-> `create-agent-plugin` skill (`plugin/gallager/skills/create-agent-plugin/`) that
+> `create-agent-plugin` skill (`plugin/ctrlx/skills/create-agent-plugin/`) that
 > scaffolds a working sidecar from a runnable Python template and a self-contained
 > copy of this contract. This document remains the source of truth; the skill is the
 > guided path.
@@ -15,13 +15,13 @@ as a child process and communicates with over stdio using JSON-RPC.
 - `ClaudeSpyPackage/Sources/GallagerPluginProtocol/SidecarWire.swift` — RPC vocabulary + framing
 - `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/Plugins/Sidecar/SidecarSupervisor.swift` — spawn, crash policy
 - `ClaudeSpyPackage/Sources/GallagerPluginProtocol/IngressFrame.swift` — hook ingress frame
-- `plugin/gallager/scripts/hook.py` — reference hook bridge implementation
+- `plugin/ctrlx/scripts/hook.py` — reference hook bridge implementation
 
 ---
 
 ## 1. Manifest Schema
 
-A sidecar plugin is a directory under `~/.gallager/plugins/<id>/` containing a
+A sidecar plugin is a directory under `~/.ctrlx/plugins/<id>/` containing a
 `plugin.json` manifest and an executable. Gallager reads `plugin.json` at startup.
 
 ### JSON keys (snake_case)
@@ -81,7 +81,7 @@ The `id` field is used as a filesystem path component. It must pass all of:
 - Does not contain `..` (no directory traversal)
 - Length ≤ 128 characters
 
-The directory name under `~/.gallager/plugins/` must exactly equal `id`. Gallager rejects
+The directory name under `~/.ctrlx/plugins/` must exactly equal `id`. Gallager rejects
 any folder where `sanitize(id)` does not match the directory name.
 
 ---
@@ -225,13 +225,13 @@ environment and adds these five plugin-specific variables:
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `GALLAGER_PLUGIN_ROOT` | `/Users/you/.gallager/plugins/my-agent` | Absolute path to the plugin bundle directory (read-only assets). |
-| `GALLAGER_STATE_DIR` | `/Users/you/.gallager/state/plugins/my-agent` | Writable per-plugin state/scratch directory. |
-| `GALLAGER_APP_VERSION` | `2.4.0` | The host app's marketing version string. |
-| `GALLAGER_INGRESS_SOCK` | `/Users/you/.gallager/state/ingress.sock` | Unix domain socket path for the hook ingress channel (see Section 4). |
-| `GALLAGER_PLUGIN_ID` | `my-agent` | The plugin's `id` from its manifest. |
+| `CTRLX_PLUGIN_ROOT` | `/Users/you/.ctrlx/plugins/my-agent` | Absolute path to the plugin bundle directory (read-only assets). |
+| `CTRLX_STATE_DIR` | `/Users/you/.ctrlx/state/plugins/my-agent` | Writable per-plugin state/scratch directory. |
+| `CTRLX_APP_VERSION` | `2.4.0` | The host app's marketing version string. |
+| `CTRLX_INGRESS_SOCK` | `/Users/you/.ctrlx/state/ingress.sock` | Unix domain socket path for the hook ingress channel (see Section 4). |
+| `CTRLX_PLUGIN_ID` | `my-agent` | The plugin's `id` from its manifest. |
 
-The sidecar's current working directory is set to `GALLAGER_PLUGIN_ROOT`.
+The sidecar's current working directory is set to `CTRLX_PLUGIN_ROOT`.
 
 ---
 
@@ -239,8 +239,8 @@ The sidecar's current working directory is set to `GALLAGER_PLUGIN_ROOT`.
 
 If your agent uses hook scripts (like Claude Code's `PostToolUse` hooks or Codex CLI's
 hooks), those scripts connect to the ingress socket to forward events into Gallager.
-Your sidecar's `install` implementation should template `GALLAGER_INGRESS_SOCK` and
-`GALLAGER_PLUGIN_ID` into a hook bridge script.
+Your sidecar's `install` implementation should template `CTRLX_INGRESS_SOCK` and
+`CTRLX_PLUGIN_ID` into a hook bridge script.
 
 ### Ingress frame format
 
@@ -264,7 +264,7 @@ The JSON body is:
 }
 ```
 
-- `plugin_id`: the plugin id (matches `GALLAGER_PLUGIN_ID`)
+- `plugin_id`: the plugin id (matches `CTRLX_PLUGIN_ID`)
 - `context`: string-keyed string-valued env snapshot; `TMUX_PANE` must be present for routing
 - `payload`: the raw hook event object
 
@@ -273,9 +273,9 @@ The JSON body is:
 ```python
 import json, os, socket, struct, sys
 
-PLUGIN_ID = os.environ.get("GALLAGER_PLUGIN_ID", "my-agent")
-SOCKET_PATH = os.environ.get("GALLAGER_INGRESS_SOCK",
-                             os.path.expanduser("~/.gallager/state/ingress.sock"))
+PLUGIN_ID = os.environ.get("CTRLX_PLUGIN_ID", "my-agent")
+SOCKET_PATH = os.environ.get("CTRLX_INGRESS_SOCK",
+                             os.path.expanduser("~/.ctrlx/state/ingress.sock"))
 
 tmux_pane = os.environ.get("TMUX_PANE", "")
 if not tmux_pane:
@@ -346,7 +346,7 @@ On graceful shutdown Gallager:
 The sidecar's stderr is captured and written to:
 
 ```
-~/.gallager/state/plugins/<id>/logs/stderr.log
+~/.ctrlx/state/plugins/<id>/logs/stderr.log
 ```
 
 This file is rotated at 5 MB (one generation kept as `stderr.log.1`). Stderr is
@@ -423,11 +423,11 @@ Two steps:
    top-level `eventName` field, then a string `body`.
 
 The `plugins/opencode/` bundled plugin is the reference consumer: its bridge
-(`opencode-bridge/gallager.js`) POSTs one record per completed assistant message
+(`opencode-bridge/ctrlx.js`) POSTs one record per completed assistant message
 with a plain `fetch`, and its sidecar bakes the endpoint into the bridge at
 `install` time (the agent process does not inherit Gallager's env).
 `plugins/pi/` follows the same pattern from a pi extension
-(`pi-bridge/gallager.ts` — one record per assistant `message_end`). If your
+(`pi-bridge/ctrlx.ts` — one record per assistant `message_end`). If your
 agent has a native OTLP exporter you can instead point that exporter at the
 endpoint — provided you can make its event names and attribute keys match your
 declaration.
@@ -449,7 +449,7 @@ lands in `build/plugins/<id>/` (gitignored); trim dev-only files with
 
 Plugins living in this repo's `plugins/` directory are packaged and published
 automatically by `scripts/release.sh` (non-beta releases) to
-`https://updates.gallager.app/plugins/<id>/`, excluding `tests/` and `scripts/`.
+`https://updates.ctrlx.app/plugins/<id>/`, excluding `tests/` and `scripts/`.
 
 ### Remote install (recommended)
 
@@ -500,14 +500,14 @@ Install flow (enforced by Gallager):
 3. On confirm: unpack into a staging directory with the same zip-slip hardening and
    tree validation as the remote flow, then atomic-commit (rename staging → final).
 
-The plugin is registered with **source `folder`** — it lives in `~/.gallager/plugins/<id>/`
+The plugin is registered with **source `folder`** — it lives in `~/.ctrlx/plugins/<id>/`
 exactly like a folder-dropped plugin, so the next launch re-discovers it the same way.
 There is no update channel for a zip-installed plugin (no `manifest_url`); reinstall a
 newer zip to upgrade.
 
 ### Folder-drop install
 
-Copy the plugin directory directly into `~/.gallager/plugins/<id>/`. Gallager discovers
+Copy the plugin directory directly into `~/.ctrlx/plugins/<id>/`. Gallager discovers
 it on the next launch. Requirements:
 - Directory name must equal the manifest's `id` (after sanitization).
 - `plugin.json` must decode successfully with `runtime == "sidecar"`.
@@ -575,7 +575,7 @@ deletes the state directory when `--delete-state` is passed.
 ## 8. Minimal Example: Plugin Directory Layout
 
 ```
-~/.gallager/plugins/my-agent/
+~/.ctrlx/plugins/my-agent/
 ├── plugin.json              # manifest
 ├── bin/
 │   └── sidecar              # executable (chmod +x)

@@ -11,7 +11,7 @@
         private let manifest: PluginManifest
         private let layout: PluginRootLayout
         private let supervisor: SidecarSupervisor
-        private let logger = Logger(label: "com.claudespy.sidecar.core")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.sidecar.core")
 
         /// Retained at `initialize`; NEVER marshaled over the wire.
         private var host: (any PluginHost)?
@@ -244,7 +244,7 @@
 
         /// Forward an arbitrary `method` string over the sidecar transport.
         /// Used by `PluginRegistry.callCore`'s `default:` path so operator-defined
-        /// sidecar methods are reachable via `gallager plugin call`.
+        /// sidecar methods are reachable via `ctrlx plugin call`.
         public func callRPC(_ method: String, params: JSONValue?) async throws -> JSONValue {
             let t = try requireTransport()
             return try await t.request(method, params)

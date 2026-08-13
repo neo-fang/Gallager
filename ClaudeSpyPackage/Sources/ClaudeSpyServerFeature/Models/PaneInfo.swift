@@ -39,14 +39,14 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let windowName: String
     /// Whether this pane's window is the active window in its session
     public let isWindowActive: Bool
-    /// Custom description set via the tmux `@gallager-description` user option,
+    /// Custom description set via the tmux `@ctrlx-description` user option,
     /// resolved with tmux's window-over-session inheritance. `nil` if unset.
     public let customDescription: String?
-    /// Custom color set via the tmux `@gallager-color` user option, resolved
+    /// Custom color set via the tmux `@ctrlx-color` user option, resolved
     /// with tmux's window-over-session inheritance. `nil` if unset or if the
     /// stored value isn't a recognised `SessionColor` case.
     public let customColor: SessionColor?
-    /// Custom emoji set via the tmux `@gallager-emoji` user option, resolved
+    /// Custom emoji set via the tmux `@ctrlx-emoji` user option, resolved
     /// with tmux's window-over-session inheritance. `nil` if unset. Free-form
     /// text so any platform-supported emoji works.
     public let customEmoji: String?
@@ -156,7 +156,7 @@ public extension PaneInfo {
         self.isWindowActive = components.count >= 13 ? components[12] == "1" : false
         if components.count >= 14 {
             // tmux only ever stores the canonical `rawValue` we wrote via
-            // `set-option @gallager-color`, so go straight from rawValue
+            // `set-option @ctrlx-color`, so go straight from rawValue
             // here. `parse(_:)` accepts CLI/API aliases like "violet" → purple
             // and would silently bridge them to a color tmux never persisted,
             // blurring the distinction between input parsing and storage.

@@ -7,7 +7,7 @@ const points = [
   { title: "What gets encrypted", body: "Terminal streams, keystrokes, hook events (tool inputs and outputs, project paths, session IDs), command responses and session state. Basically everything with content in it." },
   { title: "What the relay can see", body: "Connection state, message timing, payload sizes, and the pairing metadata it needs to route: device IDs and names, public keys, push tokens. Enough to route messages between two paired devices, not enough to know what you're building." },
   { title: "Compromising the relay yields nothing", body: "Session keys are derived on-device and are never sent anywhere. Breaching the relay — or recording its traffic — yields ciphertext, not your terminal." },
-  { title: "No accounts, no cloud storage", body: "No user database and none of your content: the relay keeps only pairing records (device IDs, public keys, push tokens) — plus subscription state on the hosted plan. Your terminal content is never stored or logged, anywhere." },
+  { title: "No accounts, no cloud storage", body: "The self-hosted relay has no user-account database and stores none of your terminal content. It keeps only the pairing records needed to route traffic: device IDs, public keys and push tokens." },
 ];
 ---
 
@@ -19,7 +19,7 @@ const points = [
     class="page-hero--tight"
     eyebrow="Security model"
     title="Your terminal is your secrets. We treat it that way."
-    lede="Agent sessions carry API keys, source code, file paths and passwords. CtrlX encrypts everything sensitive on-device, so the relay — ours or yours — only ever forwards ciphertext."
+    lede="Agent sessions carry API keys, source code, file paths and passwords. CtrlX encrypts everything sensitive on-device, so your relay only ever forwards ciphertext."
     titleMaxWidth="860px"
     ledeMaxWidth="680px"
   />
@@ -32,7 +32,7 @@ const points = [
       <div class="text-muted">// pairing — happens once</div>
       <div>Mac ⇄ iPhone &nbsp;exchange X25519 public keys via short pairing code</div>
       <div>shared secret = ECDH(privateKey, peerPublicKey)</div>
-      <div>sessionKey &nbsp;&nbsp;&nbsp;= HKDF-SHA256(sharedSecret, salt: "ClaudeSpy-E2EE-v1")</div>
+      <div>sessionKey &nbsp;&nbsp;&nbsp;= HKDF-SHA256(sharedSecret, salt: "CtrlX-E2EE-v1")</div>
       <div class="text-muted" style="margin-top:var(--space-3);">// every message after that</div>
       <div>ciphertext = ChaCha20-Poly1305.seal(payload, sessionKey)</div>
       <div>

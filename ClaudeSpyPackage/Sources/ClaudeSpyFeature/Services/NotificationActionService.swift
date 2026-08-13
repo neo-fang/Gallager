@@ -21,7 +21,7 @@
     public final class NotificationActionService {
         public static let shared = NotificationActionService()
 
-        private let logger = Logger(label: "com.claudespy.notificationaction")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.notificationaction")
 
         /// The app's live connection manager, registered by `ContentView` so
         /// action taps reuse existing sockets. `weak` so the service never

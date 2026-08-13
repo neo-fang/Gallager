@@ -40,7 +40,7 @@ import Foundation
 ///    reviewer flips to `user`.
 ///
 /// The scratch CODEX_HOME lives inside the per-scenario
-/// `--gallager-state-root`; the pre-seeded codex `settings.json` lists it in
+/// `--ctrlx-state-root`; the pre-seeded codex `settings.json` lists it in
 /// `additional_config_folders`, and each hook's `transcript_path` attributes
 /// the session to it. Each phase uses a distinct tool (`Bash`, `apply_patch`,
 /// `mcp__…`) so the append-only push-log assertions stay unambiguous.
@@ -55,13 +55,13 @@ public enum CodexGuardianSuppressionScenario {
         //          and codex settings pointing additional_config_folders at it.
         // ══════════════════════════════════════════════════════════════
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/config.toml",
+            path: "${ctrlxStateRoot}/codex-home/config.toml",
             content: "approvals_reviewer = \"auto_review\"\n"
         )
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/plugins/codex/settings.json",
+            path: "${ctrlxStateRoot}/plugins/codex/settings.json",
             content: """
-            {"additional_config_folders": ["${gallagerStateRoot}/codex-home"], "log_level": "debug"}
+            {"additional_config_folders": ["${ctrlxStateRoot}/codex-home"], "log_level": "debug"}
             """
         )
 
@@ -80,7 +80,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "SessionStart",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "timestamp": "2026-06-10T10:00:00.000000Z"
             }
             """,
@@ -106,7 +106,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:01:00.000000Z",
                 "tool_name": "Bash",
@@ -168,7 +168,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:02:00.000000Z",
                 "tool_name": "AskUserQuestion",
@@ -216,7 +216,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "permission_mode": "bypassPermissions",
                 "timestamp": "2026-06-10T10:03:00.000000Z",
                 "tool_name": "Bash",
@@ -249,7 +249,7 @@ public enum CodexGuardianSuppressionScenario {
         //          event notifies and forms. No new SessionStart, no waits.
         // ══════════════════════════════════════════════════════════════
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/config.toml",
+            path: "${ctrlxStateRoot}/codex-home/config.toml",
             content: "approvals_reviewer = \"user\"\n"
         )
 
@@ -260,7 +260,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:04:00.000000Z",
                 "tool_name": "apply_patch",
@@ -300,7 +300,7 @@ public enum CodexGuardianSuppressionScenario {
         //          guardian-reviewable vocabulary.
         // ══════════════════════════════════════════════════════════════
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/config.toml",
+            path: "${ctrlxStateRoot}/codex-home/config.toml",
             content: "approvals_reviewer = \"auto_review\"\n"
         )
 
@@ -311,7 +311,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:05:00.000000Z",
                 "tool_name": "mcp__memory__create_entities",
@@ -353,7 +353,7 @@ public enum CodexGuardianSuppressionScenario {
         //          instant, opposite outcomes.
         // ══════════════════════════════════════════════════════════════
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/config.toml",
+            path: "${ctrlxStateRoot}/codex-home/config.toml",
             content: "approvals_reviewer = \"user\"\n"
         )
         TestStep.tmuxCreateSession(name: "codex-guardian-b", width: 80, height: 24)
@@ -372,7 +372,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "SessionStart",
                 "session_id": "e2e-codex-guardian-b",
                 "cwd": "/Users/test/GuardianSecond",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-b.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-b.jsonl",
                 "timestamp": "2026-06-10T10:06:00.000000Z"
             }
             """,
@@ -390,7 +390,7 @@ public enum CodexGuardianSuppressionScenario {
         // "Approve for me" is toggled somewhere: only the file flips. B's
         // runtime posture is still `user` — Codex never re-reads mid-session.
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/config.toml",
+            path: "${ctrlxStateRoot}/codex-home/config.toml",
             content: "approvals_reviewer = \"auto_review\"\n"
         )
 
@@ -404,7 +404,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian",
                 "cwd": "/Users/test/CodexGuardian",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:07:00.000000Z",
                 "tool_name": "mcp__memory__read_graph",
@@ -420,7 +420,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian-b",
                 "cwd": "/Users/test/GuardianSecond",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-b.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-b.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:07:30.000000Z",
                 "tool_name": "Bash",
@@ -465,11 +465,11 @@ public enum CodexGuardianSuppressionScenario {
         //          notify: only the turn_context read explains silence.
         // ══════════════════════════════════════════════════════════════
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/config.toml",
+            path: "${ctrlxStateRoot}/codex-home/config.toml",
             content: "approvals_reviewer = \"user\"\n"
         )
         TestStep.writeFile(
-            path: "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
+            path: "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
             content: """
             {"timestamp": "2026-06-10T09:00:00.000Z", "type": "session_meta", "payload": {"id": "e2e-codex-guardian-c", "cwd": "/Users/test/GuardianResumed"}}
             {"timestamp": "2026-06-10T10:08:00.000Z", "type": "turn_context", "payload": {"turn_id": "t-1", "cwd": "/Users/test/GuardianResumed", "approval_policy": "on-request", "approvals_reviewer": "auto_review", "sandbox_policy": {"type": "workspace-write", "network_access": false}}}
@@ -488,7 +488,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian-c",
                 "cwd": "/Users/test/GuardianResumed",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:09:00.000000Z",
                 "tool_name": "mcp__memory__add_observations",
@@ -509,7 +509,7 @@ public enum CodexGuardianSuppressionScenario {
                 "hook_event_name": "PermissionRequest",
                 "session_id": "e2e-codex-guardian-c",
                 "cwd": "/Users/test/GuardianResumed",
-                "transcript_path": "${gallagerStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
+                "transcript_path": "${ctrlxStateRoot}/codex-home/sessions/2026/06/10/rollout-e2e-guardian-c.jsonl",
                 "permission_mode": "default",
                 "timestamp": "2026-06-10T10:09:30.000000Z",
                 "tool_name": "AskUserQuestion",

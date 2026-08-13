@@ -71,7 +71,7 @@ actor TmuxControlClient {
 
     private let tmuxPath: String
     private let socketPath: String?
-    private let logger = Logger(label: "com.claudespy.tmuxcontrol")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.tmuxcontrol")
 
     // Connection state
     private var process: Process?

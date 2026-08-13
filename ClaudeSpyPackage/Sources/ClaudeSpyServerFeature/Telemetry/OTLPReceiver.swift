@@ -88,7 +88,7 @@ actor OTLPReceiver {
     private var listener: NWListener?
     private var accumulator = OTLPTelemetryAccumulator()
     private let decoder = JSONDecoder()
-    private let logger = Logger(label: "com.claudespy.otlpreceiver")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.otlpreceiver")
 
     private let onTelemetry: TelemetryHandler
     private let onMilestone: MilestoneHandler

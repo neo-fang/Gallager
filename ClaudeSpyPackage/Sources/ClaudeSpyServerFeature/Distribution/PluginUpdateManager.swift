@@ -127,7 +127,7 @@
 
         private let callbacks: Callbacks
         private let automaticTriggersEnabled: Bool
-        private let logger = Logger(label: "com.claudespy.pluginupdatemanager")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.pluginupdatemanager")
         @ObservationIgnored @Dependency(PreferencesService.self) private var preferences
         @ObservationIgnored @Dependency(\.continuousClock) private var clock
         @ObservationIgnored @Dependency(\.date) private var date
@@ -220,7 +220,7 @@
 
         /// Out-of-band reinstall hook: called after an install that replaced an
         /// already-installed plugin OUTSIDE the manager's own apply flow — the
-        /// source-changed Review… trust sheet, CLI `gallager plugin install`,
+        /// source-changed Review… trust sheet, CLI `ctrlx plugin install`,
         /// the Add Plugin sheet, and zip installs. The installer has already
         /// committed the new bundle + registry entry, but it cannot swap a
         /// running sidecar (its enable step early-returns for an active plugin)
@@ -245,7 +245,7 @@
 
         /// Serialized entry point for out-of-band apply requests (the CLI path).
         /// Chains on the same run queue as every automatic/manual check so a CLI
-        /// `gallager plugin update --apply` can never interleave with an
+        /// `ctrlx plugin update --apply` can never interleave with an
         /// in-flight check/apply — two concurrent `PluginInstaller.install` runs
         /// for one id would race on the shared deterministic staging dir.
         public func applyUpdateSerialized(_ update: PluginUpdate) async -> ApplyResult {

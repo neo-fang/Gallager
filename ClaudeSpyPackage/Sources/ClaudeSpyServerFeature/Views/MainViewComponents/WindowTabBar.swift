@@ -877,7 +877,7 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     }
 
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .gallagerTabDrag)
+        CodableRepresentation(contentType: .ctrlxTabDrag)
     }
 
     /// Source-of-truth ordering for a session's tab strip. Reconciles the
@@ -973,7 +973,7 @@ extension UTType {
     /// `ClaudeSpyServer/Info.plist` under `UTExportedTypeDeclarations` so
     /// the system can resolve it without a runtime warning and
     /// `.dropDestination(for:)` accepts the payload reliably.
-    static var gallagerTabDrag: UTType {
-        UTType(exportedAs: "engineering.dx.gallager.tab-drag")
+    static var ctrlxTabDrag: UTType {
+        UTType(exportedAs: "com.jicezeng.ctrlx.tab-drag")
     }
 }

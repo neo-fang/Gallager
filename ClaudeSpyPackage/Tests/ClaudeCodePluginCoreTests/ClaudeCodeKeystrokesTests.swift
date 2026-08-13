@@ -14,7 +14,7 @@ struct ClaudeCodeKeystrokesTests {
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cc-ks-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cc-ks-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: Data(),
             marketplaceSource: URL(fileURLWithPath: "/")

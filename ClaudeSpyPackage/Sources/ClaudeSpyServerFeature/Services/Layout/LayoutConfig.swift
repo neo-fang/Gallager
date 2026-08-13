@@ -2,7 +2,7 @@
     import ClaudeSpyNetworking
     import Foundation
 
-    /// Declarative description of a tmux session built by `gallager apply`.
+    /// Declarative description of a tmux session built by `ctrlx apply`.
     ///
     /// The shape is a strict superset of [tmuxp](https://tmuxp.git-pull.com)'s YAML
     /// schema with a small set of Gallager-only extensions (`description`,
@@ -10,7 +10,7 @@
     public struct LayoutConfig: Sendable, Equatable {
         public var sessionName: String
         public var description: String?
-        /// Sidebar color persisted via the `@gallager-color` user option.
+        /// Sidebar color persisted via the `@ctrlx-color` user option.
         /// Applied at session scope, mirroring `description`.
         public var color: SessionColor?
         public var startDirectory: String?
@@ -103,7 +103,7 @@
             public var sleepAfter: Double
             public var claude: ClaudePane?
             /// Initial sidebar progress bar to apply once the pane is created.
-            /// Mirrors the runtime `gallager set-progress` CLI: the value is
+            /// Mirrors the runtime `ctrlx set-progress` CLI: the value is
             /// written through the same `MirrorWindowManager` path the OSC
             /// 9;4 reader uses, so a re-applied layout overrides whatever the
             /// pane is currently showing (and can be overridden again by a

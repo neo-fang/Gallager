@@ -16,7 +16,7 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        private static let sourceURL = ProductIdentity.sourceURL
+        private static let sourceURL = AppBuildInfo.current.correspondingSourceURL
 
         private let codeLength = 6
 

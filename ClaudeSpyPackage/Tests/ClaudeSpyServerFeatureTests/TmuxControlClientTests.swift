@@ -85,8 +85,8 @@
             func disconnectReapsControlClient() async throws {
                 let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
                 let suffix = UUID().uuidString.lowercased()
-                let socketPath = "/tmp/gallager-control-\(suffix.prefix(8)).sock"
-                let sessionName = "gallager-control-\(suffix)"
+                let socketPath = "/tmp/ctrlx-control-\(suffix.prefix(8)).sock"
+                let sessionName = "ctrlx-control-\(suffix)"
                 defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
 
                 try await withDependencies {
@@ -476,7 +476,7 @@
                 let reader = PipePaneReader(paneId: "%5")
                 let path = await reader.testFifoPath
                 let expectedDir = FileManager.default.temporaryDirectory.path
-                #expect(path == "\(expectedDir)/claudespy-pipe-5.fifo")
+                #expect(path == "\(expectedDir)/ctrlx-pipe-5.fifo")
             }
         }
 

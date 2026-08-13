@@ -18,8 +18,8 @@ import datetime
 
 def main() -> int:
     log_path = os.environ.get(
-        "GALLAGER_FAKE_EDITOR_LOG",
-        os.path.join(os.environ.get("TMPDIR", "/tmp"), "gallager-fake-editor.log"),
+        "CTRLX_FAKE_EDITOR_LOG",
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "ctrlx-fake-editor.log"),
     )
 
     args = sys.argv[1:]

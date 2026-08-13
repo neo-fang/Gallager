@@ -7,7 +7,7 @@ import SwiftUI
 /// emoji's single primary shortcode — so "trash" found nothing even though 🗑️
 /// exists (issue #630). This one searches the CLDR synonym set baked into
 /// ``GallagerEmoji``, so "trash", "bin", and "garbage" all surface the
-/// wastebasket, and the same index powers the `gallager` CLI.
+/// wastebasket, and the same index powers the `ctrlx` CLI.
 ///
 /// The API mirrors the view it replaced: pick a glyph and it is written through
 /// `selectedEmoji`. The host presentation (macOS popover / iOS detent sheet)

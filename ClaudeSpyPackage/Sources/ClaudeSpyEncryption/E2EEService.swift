@@ -4,7 +4,7 @@
     import Foundation
 
     /// Salt used for HKDF key derivation. This is a protocol constant.
-    private let protocolSalt = Data("ClaudeSpy-E2EE-v1".utf8)
+    private let protocolSalt = Data("CtrlX-E2EE-v1".utf8)
 
     /// End-to-end encryption service for secure communication between paired devices.
     ///

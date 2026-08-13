@@ -1,6 +1,6 @@
 import Foundation
 
-/// User-driven session state override, set via the gallager CLI (`session
+/// User-driven session state override, set via the ctrlx CLI (`session
 /// set-state`) or the sidebar's "Set State" context menu (issue #695).
 ///
 /// When a value is set on a `PaneState`, the sidebar shows the corresponding

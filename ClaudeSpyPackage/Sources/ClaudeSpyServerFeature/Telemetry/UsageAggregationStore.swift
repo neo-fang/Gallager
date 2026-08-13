@@ -9,7 +9,7 @@ import Logging
 ///
 /// #597's OTLP receiver holds **live** per-session state and evicts it on pane
 /// close, so the rollups need a store that outlives a session. This one persists
-/// a small JSON document under `~/.gallager/state/` (the same tree the plugin
+/// a small JSON document under `~/.ctrlx/state/` (the same tree the plugin
 /// runtime uses), so the totals survive both session end and app restart.
 ///
 /// ## Why per-session baselines
@@ -279,7 +279,7 @@ actor UsageAggregationStore {
             }
             return (records, state.baselines, order)
         } catch {
-            Logger(label: "com.claudespy.usagestore")
+            Logger(label: "com.jicezeng.ctrlx.usagestore")
                 .warning("Failed to load usage aggregates, starting empty: \(error)")
             return ([:], [:], [])
         }
@@ -312,7 +312,7 @@ actor UsageAggregationStore {
             let data = try JSONEncoder().encode(state)
             try data.write(to: fileURL, options: .atomic)
         } catch {
-            Logger(label: "com.claudespy.usagestore")
+            Logger(label: "com.jicezeng.ctrlx.usagestore")
                 .warning("Failed to persist usage aggregates: \(error)")
         }
     }

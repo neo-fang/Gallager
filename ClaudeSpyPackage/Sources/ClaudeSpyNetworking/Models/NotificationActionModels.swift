@@ -249,13 +249,13 @@ public struct NotificationActionProgress: Codable, Sendable, Equatable {
 /// The `UNNotificationAction` identifiers used by actionable notifications.
 /// Pure strings so the (Linux-built) relay target compiles them fine.
 public enum NotificationActionID {
-    public static let permissionAllow = "gallager.permission.allow"
-    public static let permissionAlways = "gallager.permission.always"
-    public static let permissionDeny = "gallager.permission.deny"
+    public static let permissionAllow = "ctrlx.permission.allow"
+    public static let permissionAlways = "ctrlx.permission.always"
+    public static let permissionDeny = "ctrlx.permission.deny"
     /// Free-text "Other" answer for the current question.
-    public static let questionOther = "gallager.question.other"
-    /// Prefix for per-option actions: `"gallager.question.option.<optionId>"`.
-    public static let questionOptionPrefix = "gallager.question.option."
+    public static let questionOther = "ctrlx.question.other"
+    /// Prefix for per-option actions: `"ctrlx.question.option.<optionId>"`.
+    public static let questionOptionPrefix = "ctrlx.question.option."
 
     /// Builds the action id selecting `optionId` on the current question.
     public static func questionOption(_ optionId: String) -> String {
@@ -274,12 +274,12 @@ public enum NotificationActionID {
 /// The `UNNotificationCategory` identifiers used by actionable notifications.
 public enum NotificationCategoryID {
     /// Permission form with an "Always" suggestion: Yes / Always / No.
-    public static let permission = "gallager.permission"
+    public static let permission = "ctrlx.permission"
     /// Permission form without suggestions: Yes / No.
-    public static let permissionNoAlways = "gallager.permission.no-always"
+    public static let permissionNoAlways = "ctrlx.permission.no-always"
     /// Prefix shared by all dynamically-registered question categories, so
     /// registration merges can tell them apart from the static set.
-    public static let questionPrefix = "gallager.question."
+    public static let questionPrefix = "ctrlx.question."
 
     /// The per-question category id. Unique per request AND question so a
     /// follow-up question's actions never collide with an earlier delivery.

@@ -119,16 +119,16 @@ private func handleRefreshProjects(id: String) {
     send(.response(id: id, result: .object([:])))
 }
 
-/// Handle `install` → template GALLAGER_INGRESS_SOCK + GALLAGER_PLUGIN_ID into a hook script.
+/// Handle `install` → template CTRLX_INGRESS_SOCK + CTRLX_PLUGIN_ID into a hook script.
 ///
 /// Reads both env vars injected by the supervisor (spec §3/§5) and writes a self-contained
 /// `<plugin_root>/generated/hook.sh` that bakes in the socket path and plugin id so the
 /// script needs no env at runtime. Responds with `InstallResult.installed(message:)`.
 private func handleInstall(id: String) {
     let env = ProcessInfo.processInfo.environment
-    let sock = env["GALLAGER_INGRESS_SOCK"] ?? ""
-    let pluginID = env["GALLAGER_PLUGIN_ID"] ?? "echo-sidecar"
-    let pluginRoot = env["GALLAGER_PLUGIN_ROOT"] ?? ""
+    let sock = env["CTRLX_INGRESS_SOCK"] ?? ""
+    let pluginID = env["CTRLX_PLUGIN_ID"] ?? "echo-sidecar"
+    let pluginRoot = env["CTRLX_PLUGIN_ROOT"] ?? ""
 
     // Create <plugin_root>/generated/ and write the hook script.
     let generatedDir = URL(fileURLWithPath: pluginRoot)
