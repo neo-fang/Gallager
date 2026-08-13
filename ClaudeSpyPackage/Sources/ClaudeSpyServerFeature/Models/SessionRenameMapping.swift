@@ -50,3 +50,33 @@ struct SessionRenameMapping: Equatable, Sendable {
         .sorted { $0.oldName < $1.oldName }
     }
 }
+
+/// Maps executable `session:index` targets across a tmux window reindex.
+///
+/// tmux's `window_id` is stable while a window remains alive, but a linked
+/// window can appear in more than one session. The session name is therefore
+/// part of the lookup key even though it is not part of the returned mapping.
+enum WindowReindexMapping {
+    private struct Key: Hashable {
+        let sessionName: String
+        let stableWindowId: String
+    }
+
+    static func detect(from oldPanes: [PaneInfo], to newPanes: [PaneInfo]) -> [String: String] {
+        let newTargets = Dictionary(
+            newPanes.map { pane in
+                (Key(sessionName: pane.sessionName, stableWindowId: pane.stableWindowId), pane.windowId)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return Dictionary(
+            oldPanes.compactMap { pane -> (String, String)? in
+                let key = Key(sessionName: pane.sessionName, stableWindowId: pane.stableWindowId)
+                guard let newTarget = newTargets[key], newTarget != pane.windowId else { return nil }
+                return (pane.windowId, newTarget)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+}

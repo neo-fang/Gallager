@@ -52,7 +52,7 @@ struct WindowTabBar: View {
     /// Rearranges the tmux windows in the session to match the supplied id
     /// order. Invoked when the user drops a window tab into a new slot. The
     /// caller persists the new order via `tmux move-window`.
-    let onReorderWindows: ([String]) -> Void
+    let onReorderWindows: (_ stableWindowIds: [String], _ rollbackOrder: [TabDragPayload]) -> Void
     /// Reorders the open file tabs. The caller mutates the `openFileTabs`
     /// array on `SessionFileTabsState` so the new layout survives session
     /// switches like every other tab-list mutation.
@@ -132,7 +132,7 @@ struct WindowTabBar: View {
         // (`includeGit` defaults to true), so the Git tab takes part in
         // drag-reordering and keyboard cycling alongside everything else.
         TabDragPayload.reconciledOrder(
-            windowIds: session.windows.map(\.id),
+            windowIds: session.windows.map(\.stableId),
             fileTabIds: openFileTabs.map(\.id),
             browserTabIds: openBrowserTabs.map(\.id),
             storedOrder: sessionTabs?.tabOrder ?? []
@@ -313,7 +313,7 @@ struct WindowTabBar: View {
     private func tabView(for ref: TabDragPayload) -> some View {
         switch ref {
         case let .window(id):
-            if let window = session.windows.first(where: { $0.id == id }) {
+            if let window = session.windows.first(where: { $0.stableId == id }) {
                 windowTab(window)
             }
         case .fileExplorer:
@@ -458,7 +458,7 @@ struct WindowTabBar: View {
         // rendered right-side content. On the left (or in single mode) the
         // existing rule applies: the tab is the active terminal and no
         // file/browser/explorer is occupying the left pane.
-        let payload = TabDragPayload.window(window.id)
+        let payload = TabDragPayload.window(window.stableId)
         let tabIsOnRight = isOnRight(payload)
         let isSelected = tabIsOnRight
             ? selectedRight == payload
@@ -681,8 +681,8 @@ struct WindowTabBar: View {
     /// Translates a drop event into a reorder of the unified `tabOrder`. Any
     /// kind can target any other kind (window onto browser, file-explorer
     /// onto window, etc.) — the entry simply moves to the target's position
-    /// using Slack-style asymmetric insertion (right→left drops land at the
-    /// target's slot; left→right drops land after it). When the window
+    /// immediately before the target, matching the indicator drawn on the
+    /// target's leading edge. When the window
     /// subsequence changes, the new order is also pushed to tmux via
     /// `move-window`; when the file or browser subsequences change, the
     /// corresponding `openFileTabs` / `openBrowserTabs` arrays are updated
@@ -691,34 +691,21 @@ struct WindowTabBar: View {
         defer { dropIndicator = nil }
         guard let source = payloads.first, source != target else { return false }
 
-        var order = effectiveTabOrder
-        guard
-            let sourceIndex = order.firstIndex(of: source),
-            let targetIndex = order.firstIndex(of: target),
-            sourceIndex != targetIndex
-        else { return false }
-
-        let moved = order.remove(at: sourceIndex)
-        // After removal: if source was before target, target's index shifted
-        // down by one — inserting at the original `targetIndex` now places
-        // source *after* the target. If source was after target, target's
-        // index is unchanged — inserting at `targetIndex` places source
-        // *before* it. Same asymmetric (Slack-like) semantics as the
-        // existing scenario test (drag winC onto winA → winC,winA,winB).
-        order.insert(moved, at: targetIndex)
+        let previousOrder = effectiveTabOrder
+        guard let order = TabDragPayload.moving(source, before: target, in: previousOrder) else { return false }
+        let windowOrderChanged = order.windowIds != session.windows.map(\.stableId)
+        guard !windowOrderChanged || sessionTabs?.isWindowReorderPending != true else { return false }
 
         sessionTabs?.tabOrder = order
 
-        // If the drop crosses the split, also flip the source file/browser
-        // tab's side membership so it shows up in the pane the user dropped
-        // it into. Windows and the file explorer don't have a side concept,
-        // so this is a no-op for them.
+        // If the drop crosses the split, also flip the source tab's side
+        // membership so it shows up in the pane the user dropped it into.
         adjustSplitSideIfNeeded(source: source, to: sectionOf(target))
 
         // Sync the per-kind subsequences out to the rest of the app so
         // anything still iterating the old arrays (keyboard nav, tmux's
         // own window indices) sees the new order.
-        syncSubsequences(from: order)
+        syncSubsequences(from: order, rollbackOrder: previousOrder)
 
         return true
     }
@@ -732,7 +719,8 @@ struct WindowTabBar: View {
         defer { trailingDropTargetedSection = nil }
         guard let source = payloads.first else { return false }
 
-        var order = effectiveTabOrder
+        let previousOrder = effectiveTabOrder
+        var order = previousOrder
         guard let sourceIndex = order.firstIndex(of: source) else { return false }
 
         let moved = order.remove(at: sourceIndex)
@@ -750,9 +738,11 @@ struct WindowTabBar: View {
         }
 
         order.insert(moved, at: min(insertIndex, order.count))
+        let windowOrderChanged = order.windowIds != session.windows.map(\.stableId)
+        guard !windowOrderChanged || sessionTabs?.isWindowReorderPending != true else { return false }
         sessionTabs?.tabOrder = order
         adjustSplitSideIfNeeded(source: source, to: section)
-        syncSubsequences(from: order)
+        syncSubsequences(from: order, rollbackOrder: previousOrder)
         return true
     }
 
@@ -779,10 +769,8 @@ struct WindowTabBar: View {
     /// `tabOrder` and pushes each one out to the matching reorder callback
     /// when it differs from the live data. Idempotent — re-invoking with the
     /// same order is a no-op.
-    private func syncSubsequences(from order: [TabDragPayload]) {
-        let windowIds: [String] = order.compactMap { ref in
-            if case let .window(id) = ref { return id } else { return nil }
-        }
+    private func syncSubsequences(from order: [TabDragPayload], rollbackOrder: [TabDragPayload]) {
+        let windowIds = order.windowIds
         let fileIds: [UUID] = order.compactMap { ref in
             if case let .file(id) = ref { return id } else { return nil }
         }
@@ -790,8 +778,9 @@ struct WindowTabBar: View {
             if case let .browser(id) = ref { return id } else { return nil }
         }
 
-        if windowIds != session.windows.map(\.id), !windowIds.isEmpty {
-            onReorderWindows(windowIds)
+        if windowIds != session.windows.map(\.stableId), !windowIds.isEmpty {
+            sessionTabs?.isWindowReorderPending = true
+            onReorderWindows(windowIds, rollbackOrder)
         }
         if fileIds != openFileTabs.map(\.id) {
             onReorderFileTabs(fileIds)
@@ -843,6 +832,48 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     func remappingWindowID(using mapping: [String: String]) -> TabDragPayload {
         guard case let .window(windowID) = self else { return self }
         return .window(mapping[windowID] ?? windowID)
+    }
+
+    var windowId: String? {
+        guard case let .window(id) = self else { return nil }
+        return id
+    }
+
+    /// Moves one entry immediately before another. Re-finding the target after
+    /// removing the source keeps left-to-right and right-to-left drops
+    /// symmetric and makes the result match the leading-edge indicator.
+    static func moving(
+        _ source: TabDragPayload,
+        before target: TabDragPayload,
+        in order: [TabDragPayload]
+    ) -> [TabDragPayload]? {
+        guard source != target, let sourceIndex = order.firstIndex(of: source) else { return nil }
+        var result = order
+        let moved = result.remove(at: sourceIndex)
+        guard let targetIndex = result.firstIndex(of: target) else { return nil }
+        result.insert(moved, at: targetIndex)
+        return result == order ? nil : result
+    }
+
+    /// Restores only the window subsequence after a failed asynchronous tmux
+    /// reorder. Non-window entries keep their latest positions so a file or
+    /// browser drag completed while the request was pending is not lost.
+    static func restoringWindowOrder(
+        from previousOrder: [TabDragPayload],
+        in currentOrder: [TabDragPayload]
+    ) -> [TabDragPayload] {
+        let previousWindowIds = previousOrder.windowIds
+        let currentWindowIds = currentOrder.windowIds
+        guard
+            previousWindowIds.count == currentWindowIds.count,
+            Set(previousWindowIds) == Set(currentWindowIds)
+        else { return currentOrder }
+
+        var iterator = previousWindowIds.makeIterator()
+        return currentOrder.map { payload in
+            guard payload.windowId != nil, let windowId = iterator.next() else { return payload }
+            return .window(windowId)
+        }
     }
 
     static var transferRepresentation: some TransferRepresentation {
@@ -928,6 +959,12 @@ enum TabDragPayload: Codable, Hashable, Transferable {
             order.append(tab)
         }
         return order
+    }
+}
+
+private extension Array where Element == TabDragPayload {
+    var windowIds: [String] {
+        compactMap(\.windowId)
     }
 }
 

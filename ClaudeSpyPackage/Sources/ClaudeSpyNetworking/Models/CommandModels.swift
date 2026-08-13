@@ -687,8 +687,8 @@ public struct SetWindowName: CommandSpec, Equatable {
 }
 
 /// Reorder tmux windows inside a remote session so the windows match the
-/// supplied id list. Applied on the host via `TmuxService.moveWindows` (a
-/// two-phase park-then-place that rewrites the session's window indices).
+/// supplied id list. Applied on the host via `TmuxService.moveWindows`, which
+/// swaps stable tmux window identities into the session's existing slots.
 ///
 /// The viewer renders an optimistic order locally and then sends this command
 /// to make the host's tmux state match. On success the host pushes a fresh
@@ -699,9 +699,9 @@ public struct MoveTmuxWindows: CommandSpec, Equatable {
     /// The session whose windows are being reordered.
     public let sessionName: String
 
-    /// The desired window order, listed as the current window ids
-    /// (`sessionName:N`). Every window in the session must appear; partial
-    /// reorders are rejected by the host.
+    /// The desired order, listed as stable tmux window ids (`@N`). Every
+    /// window in the session must appear exactly once. A host also accepts
+    /// legacy `sessionName:N` ids from an older viewer.
     public let windowIds: [String]
 
     public init(sessionName: String, windowIds: [String]) {

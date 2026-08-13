@@ -31,7 +31,7 @@ public struct LocalTmuxSession: Identifiable, Sendable, Hashable {
     /// window, then the session's active window when every window is parked on
     /// the right.
     public func leftPaneWindow(excludingRightSide rightSideIds: Set<String>) -> LocalTmuxWindow? {
-        let leftCandidates = windows.filter { !rightSideIds.contains($0.id) }
+        let leftCandidates = windows.filter { !rightSideIds.contains($0.stableId) }
         return leftCandidates.first(where: \.isWindowActive)
             ?? leftCandidates.first
             ?? activeWindow

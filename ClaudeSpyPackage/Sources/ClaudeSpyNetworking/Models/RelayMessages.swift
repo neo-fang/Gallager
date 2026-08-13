@@ -97,6 +97,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The window index within the session
     public var windowIndex: Int
 
+    /// tmux's process-lifetime-stable window id (for example `@3`). Unlike
+    /// `windowIndex`, this does not change when windows are reordered.
+    /// Optional for wire compatibility with older hosts.
+    public var tmuxWindowId: String?
+
     /// The pane index within the window
     public var paneIndex: Int
 
@@ -225,6 +230,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
         "\(sessionName):\(windowIndex)"
     }
 
+    /// Stable identity for UI state that must survive tmux renumbering.
+    public var stableWindowId: String {
+        guard let tmuxWindowId, !tmuxWindowId.isEmpty else { return windowId }
+        return tmuxWindowId
+    }
+
     /// The state bucket currently shown for this pane: the manual "Set State"
     /// override wins, else the agent-derived state — matching `SessionStatusBadge`
     /// and `TmuxSession.displayedState`. `nil` when the pane shows the plain
@@ -240,6 +251,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         target: String = "",
         sessionName: String = "",
         windowIndex: Int = 0,
+        tmuxWindowId: String? = nil,
         paneIndex: Int = 0,
         command: String? = nil,
         currentPath: String? = nil,
@@ -269,6 +281,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.target = target
         self.sessionName = sessionName
         self.windowIndex = windowIndex
+        self.tmuxWindowId = tmuxWindowId
         self.paneIndex = paneIndex
         self.command = command
         self.currentPath = currentPath
