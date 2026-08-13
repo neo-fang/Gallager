@@ -191,6 +191,12 @@ public enum RemoteTabReorderScenario {
         TestStep.log("Phase 5: Cmd-Shift-] cycles to the next tab; Cmd-Shift-[ cycles back")
         // Start on winC (the leftmost tab after the reorder).
         TestStep.macClickButton(titled: "rtabreorder:0 winC", instance: 1)
+        TestStep.waitForTmuxDisplayMessage(
+            target: "rtabreorder",
+            format: "#{window_name}",
+            contains: "winC",
+            timeout: 10
+        )
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("rtabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5,

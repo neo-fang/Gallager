@@ -946,7 +946,7 @@ public struct MainView: View {
                             tabs?.selectedRight = payload
                             return
                         }
-                        selectTerminalWindow(id: newWindow.id)
+                        selectTerminalWindow(stableId: newWindow.stableId)
                     },
                     onCloseWindow: { windowToClose in
                         requestCloseRemoteWindow(windowToClose, hostId: remote.hostId)
@@ -1082,7 +1082,7 @@ public struct MainView: View {
                                 tabs?.selectedRight = payload
                                 return
                             }
-                            selectTerminalWindow(id: newWindow.id)
+                            selectTerminalWindow(stableId: newWindow.stableId)
                         },
                         onCloseWindow: { windowToClose in
                             requestCloseWindow(windowToClose)
@@ -2574,7 +2574,7 @@ public struct MainView: View {
             orderedWindowIDs: orderedIDs,
             direction: direction
         ) else { return }
-        selectTerminalWindow(id: targetID)
+        selectTerminalWindow(stableId: targetID)
     }
 
     private func selectTerminalWindow(at index: Int) {
@@ -2582,13 +2582,13 @@ public struct MainView: View {
             at: index,
             orderedWindowIDs: navigableTerminalWindowIDs
         ) else { return }
-        selectTerminalWindow(id: targetID)
+        selectTerminalWindow(stableId: targetID)
     }
 
-    private func selectTerminalWindow(id: String) {
+    private func selectTerminalWindow(stableId: String) {
         if let remote = selectedRemoteSession {
             guard
-                let target = selectedRemoteSessionWindows.first(where: { $0.stableId == id }),
+                let target = selectedRemoteSessionWindows.first(where: { $0.stableId == stableId }),
                 let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId)
             else { return }
             let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
@@ -2609,7 +2609,7 @@ public struct MainView: View {
         guard
             let current = selectedWindow,
             let session = currentLocalSession(),
-            let target = session.windows.first(where: { $0.stableId == id })
+            let target = session.windows.first(where: { $0.stableId == stableId })
         else { return }
         let tabs = sessionFileTabsStates[session.sessionName]
         guard tabs?.rightSide.contains(.window(target.stableId)) != true else { return }

@@ -154,6 +154,12 @@ public enum TabReorderScenario {
         TestStep.log("Phase 5: Cmd-Shift-] cycles to the next tab; Cmd-Shift-[ cycles back")
         // Start on winC (the leftmost tab after the reorder).
         TestStep.macClickButton(titled: "tabreorder:0 winC")
+        TestStep.waitForTmuxDisplayMessage(
+            target: "tabreorder",
+            format: "#{window_name}",
+            contains: "winC",
+            timeout: 5
+        )
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5
