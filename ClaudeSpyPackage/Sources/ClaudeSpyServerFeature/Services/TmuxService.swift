@@ -10,6 +10,7 @@ enum TmuxError: Error, LocalizedError {
     case invalidPane(target: String)
     case invalidSessionName(reason: String)
     case sessionAlreadyExists(name: String)
+    case invalidWindowOrder(reason: String)
     case commandFailed(message: String)
 
     var errorDescription: String? {
@@ -22,6 +23,8 @@ enum TmuxError: Error, LocalizedError {
             return "Invalid session name: \(reason)"
         case let .sessionAlreadyExists(name):
             return "A session named '\(name)' already exists"
+        case let .invalidWindowOrder(reason):
+            return "Invalid window order: \(reason)"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
         }
@@ -331,6 +334,11 @@ final public class TmuxService {
     /// SwiftUI observation graph. `isRefreshing` is UI state; this is I/O state.
     @ObservationIgnored private var refreshInFlight = false
 
+    /// A reorder spans several tmux subprocesses and therefore several actor
+    /// suspension points. Reject a second transaction for the same session
+    /// instead of interleaving two otherwise-valid swap plans.
+    @ObservationIgnored private var windowReordersInFlight: Set<String> = []
+
     /// The loading indicator is only for the first snapshot after configuration,
     /// not for the permanent discovery poll (including a legitimately empty tmux).
     @ObservationIgnored private var hasCompletedInitialRefresh = false
@@ -523,7 +531,7 @@ final public class TmuxService {
         // soon as `pane_title` contained a `|` (Codex CLI does this when it
         // surfaces "Action Required | <session>" titles).
         let sep = String(PaneInfo.fieldSeparator)
-        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}"
+        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}\(sep)#{window_id}"
 
         let result: ProcessResult
         do {
@@ -2281,48 +2289,170 @@ final public class TmuxService {
         return name
     }
 
-    /// Reorders a tmux window inside a single session so the windows match the
-    /// supplied id list. `windowIds` lists the windows of `sessionName` (each in
-    /// the form `sessionName:N`) in the order the caller wants them to appear.
+    struct WindowPosition: Equatable, Sendable {
+        let stableId: String
+        var index: Int
+    }
+
+    struct WindowSwap: Equatable, Sendable {
+        let sourceId: String
+        let targetIndex: Int
+    }
+
+    /// Produces the minimal left-to-right swap sequence while preserving the
+    /// session's actual index slots (including base-index 1 and sparse slots).
+    nonisolated static func windowReorderSwaps(
+        current: [WindowPosition],
+        desiredIds: [String]
+    ) throws -> [WindowSwap] {
+        guard !current.isEmpty else {
+            throw TmuxError.invalidWindowOrder(reason: "session has no windows")
+        }
+        let currentIds = current.map(\.stableId)
+        guard Set(currentIds).count == currentIds.count else {
+            throw TmuxError.invalidWindowOrder(reason: "tmux returned duplicate window ids")
+        }
+        guard Set(current.map(\.index)).count == current.count else {
+            throw TmuxError.invalidWindowOrder(reason: "tmux returned duplicate window indices")
+        }
+        guard desiredIds.count == current.count, Set(desiredIds).count == desiredIds.count else {
+            throw TmuxError.invalidWindowOrder(reason: "every window must appear exactly once")
+        }
+        guard Set(desiredIds) == Set(currentIds) else {
+            throw TmuxError.invalidWindowOrder(reason: "window set changed during drag")
+        }
+
+        let targetIndices = current.map(\.index).sorted()
+        var indexById = Dictionary(uniqueKeysWithValues: current.map { ($0.stableId, $0.index) })
+        var idByIndex = Dictionary(uniqueKeysWithValues: current.map { ($0.index, $0.stableId) })
+        var swaps: [WindowSwap] = []
+
+        for (desiredId, targetIndex) in zip(desiredIds, targetIndices) {
+            guard let sourceIndex = indexById[desiredId] else {
+                throw TmuxError.invalidWindowOrder(reason: "window \(desiredId) disappeared")
+            }
+            guard sourceIndex != targetIndex else { continue }
+            guard let displacedId = idByIndex[targetIndex] else {
+                throw TmuxError.invalidWindowOrder(reason: "target index \(targetIndex) disappeared")
+            }
+
+            swaps.append(WindowSwap(sourceId: desiredId, targetIndex: targetIndex))
+            indexById[desiredId] = targetIndex
+            indexById[displacedId] = sourceIndex
+            idByIndex[targetIndex] = desiredId
+            idByIndex[sourceIndex] = displacedId
+        }
+        return swaps
+    }
+
+    /// Reorders every window in one session using tmux's stable `#{window_id}`.
+    /// Existing index slots are retained; no destination is overwritten.
     ///
-    /// tmux only supports moving a window to one specific index at a time, so
-    /// the implementation rewrites every window index in two steps: first
-    /// parking each window at a high temporary index (offset by 1000) to free
-    /// up the lower indices, then moving each window into its target slot 0…N-1
-    /// in the desired order. After all moves complete a single `refreshPanes`
-    /// brings the in-memory model back in sync with tmux.
-    public func moveWindows(in sessionName: String, to windowIds: [String]) async throws {
-        guard !windowIds.isEmpty else { return }
-        // Park every window at a unique high index so the lower indices are
-        // free for re-assignment. -k forces tmux to overwrite the destination
-        // if it's already in use, which shouldn't happen at +1000 but keeps
-        // the call defensive against future renumbering.
-        for (offset, id) in windowIds.enumerated() {
-            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + offset)")
-            let result = try await runTmuxCommand([
-                "move-window", "-k",
-                "-s", id,
-                "-t", parkTarget,
-            ])
+    /// Returns the old `session:index` to new `session:index` mapping so local
+    /// UI state that intentionally stores executable tmux targets can migrate
+    /// before the refreshed pane snapshot is published.
+    @discardableResult
+    public func moveWindows(in sessionName: String, to requestedIds: [String]) async throws -> [String: String] {
+        guard windowReordersInFlight.insert(sessionName).inserted else {
+            throw TmuxError.invalidWindowOrder(reason: "another reorder is already in progress")
+        }
+        defer { windowReordersInFlight.remove(sessionName) }
+
+        let sep = String(PaneInfo.fieldSeparator)
+        let listed = try await runTmuxCommand([
+            "list-windows", "-t", Self.sessionTarget(sessionName),
+            "-F", "#{window_id}\(sep)#{window_index}",
+        ])
+        guard listed.isSuccess else {
+            throw TmuxError.commandFailed(message: listed.stderrString)
+        }
+
+        let original = try listed.stdoutString
+            .split(separator: "\n")
+            .map(String.init)
+            .map { line -> WindowPosition in
+                let fields = line.split(separator: PaneInfo.fieldSeparator, omittingEmptySubsequences: false)
+                guard fields.count == 2, let index = Int(fields[1]) else {
+                    throw TmuxError.invalidWindowOrder(reason: "could not parse tmux window list")
+                }
+                return WindowPosition(stableId: String(fields[0]), index: index)
+            }
+
+        // Accept legacy `session:index` requests from an older viewer, but
+        // normalize immediately so every actual swap is addressed by @id.
+        let stableIds = Set(original.map(\.stableId))
+        let legacyToStable = Dictionary(uniqueKeysWithValues: original.map {
+            ("\(sessionName):\($0.index)", $0.stableId)
+        })
+        let normalizedIds = requestedIds.map { id in
+            stableIds.contains(id) ? id : (legacyToStable[id] ?? id)
+        }
+        let swaps = try Self.windowReorderSwaps(current: original, desiredIds: normalizedIds)
+
+        var applied = 0
+        for swap in swaps {
+            let result: ProcessResult
+            do {
+                result = try await runTmuxCommand([
+                    "swap-window", "-d",
+                    "-s", swap.sourceId,
+                    "-t", Self.windowTarget(in: sessionName, windowIndex: "\(swap.targetIndex)"),
+                ])
+            } catch {
+                if applied > 0 {
+                    await restoreWindowOrder(original, in: sessionName)
+                }
+                throw error
+            }
             guard result.isSuccess else {
+                // A sequence of tmux commands is not atomic. Restore the
+                // original logical order after a partial failure whenever the
+                // socket is still usable, then report the original error.
+                if applied > 0 {
+                    await restoreWindowOrder(original, in: sessionName)
+                }
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
+            applied += 1
         }
-        // Now move each parked window into its final slot. Iterate in the new
-        // order so the final tmux indices match the caller's intent.
-        for newIndex in windowIds.indices {
-            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + newIndex)")
-            let finalTarget = Self.windowTarget(in: sessionName, windowIndex: "\(newIndex)")
-            let result = try await runTmuxCommand([
-                "move-window", "-k",
-                "-s", parkTarget,
-                "-t", finalTarget,
-            ])
-            guard result.isSuccess else {
-                throw TmuxError.commandFailed(message: result.stderrString)
-            }
+
+        let targetIndices = original.map(\.index).sorted()
+        let newIndexById = Dictionary(uniqueKeysWithValues: zip(normalizedIds, targetIndices))
+        return Dictionary(uniqueKeysWithValues: original.compactMap { position in
+            guard let newIndex = newIndexById[position.stableId] else { return nil }
+            return (
+                "\(sessionName):\(position.index)",
+                "\(sessionName):\(newIndex)"
+            )
+        })
+    }
+
+    private func restoreWindowOrder(_ original: [WindowPosition], in sessionName: String) async {
+        let desired = original.sorted { $0.index < $1.index }.map(\.stableId)
+        let sep = String(PaneInfo.fieldSeparator)
+        guard
+            let listed = try? await runTmuxCommand([
+                "list-windows", "-t", Self.sessionTarget(sessionName),
+                "-F", "#{window_id}\(sep)#{window_index}",
+            ]),
+            listed.isSuccess
+        else { return }
+        let current = listed.stdoutString.split(separator: "\n").compactMap { line -> WindowPosition? in
+            let fields = line.split(separator: PaneInfo.fieldSeparator, omittingEmptySubsequences: false)
+            guard fields.count == 2, let index = Int(fields[1]) else { return nil }
+            return WindowPosition(stableId: String(fields[0]), index: index)
         }
-        await refreshPanes()
+        guard let rollback = try? Self.windowReorderSwaps(current: current, desiredIds: desired) else { return }
+        for swap in rollback {
+            guard
+                let result = try? await runTmuxCommand([
+                    "swap-window", "-d",
+                    "-s", swap.sourceId,
+                    "-t", Self.windowTarget(in: sessionName, windowIndex: "\(swap.targetIndex)"),
+                ]),
+                result.isSuccess
+            else { return }
+        }
     }
 
     /// Lists window names for a session in window-index order.

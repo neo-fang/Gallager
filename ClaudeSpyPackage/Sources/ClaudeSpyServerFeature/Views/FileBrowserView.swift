@@ -332,6 +332,10 @@ final class SessionFileTabsState {
     /// renders by iterating this array and dispatching on the case.
     var tabOrder: [TabDragPayload] = []
 
+    /// Serializes tmux window reorder transactions for this session. File and
+    /// browser tab moves remain synchronous and are not blocked by it.
+    var isWindowReorderPending = false
+
     /// True when at least one entry has been sent to the right pane. Drives
     /// the split content layout and the tab strip icons.
     var isSplit: Bool {

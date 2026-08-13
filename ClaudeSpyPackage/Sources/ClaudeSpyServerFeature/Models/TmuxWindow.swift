@@ -20,6 +20,12 @@ public struct LocalTmuxWindow: Identifiable, Sendable, Hashable {
     /// Panes in this window, sorted by pane index
     public let panes: [PaneInfo]
 
+    /// Identity used by tab/split state. tmux keeps `#{window_id}` stable
+    /// while `session:index` changes during reordering.
+    public var stableId: String {
+        panes.first?.stableWindowId ?? id
+    }
+
     /// Whether this window has only a single pane
     public var isSinglePane: Bool { panes.count == 1 }
 
