@@ -2085,7 +2085,8 @@ final public class TmuxService {
     /// - Parameters:
     ///   - target: The pane target to split (e.g., "%5")
     ///   - horizontal: If true, splits left-right (-h); if false, splits top-bottom (-v)
-    ///   - workingDirectory: Optional starting directory for the new pane
+    ///   - workingDirectory: Starting directory for the new pane. When omitted, the new pane
+    ///     inherits the target pane's current directory.
     /// - Returns: The pane ID of the newly created pane
     public func splitPane(
         _ target: String,
@@ -2101,9 +2102,12 @@ final public class TmuxService {
             "-P", "-F", "#{pane_id}", // Print new pane ID
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
-        if let workingDirectory, !workingDirectory.isEmpty {
-            args.append(contentsOf: ["-c", workingDirectory])
+        let startDirectory = if let workingDirectory, !workingDirectory.isEmpty {
+            workingDirectory
+        } else {
+            "#{pane_current_path}"
         }
+        args.append(contentsOf: ["-c", startDirectory])
 
         // Trailing positional becomes the new pane's command (tmux runs it
         // instead of the user's default-shell). Pass the shell here so the
