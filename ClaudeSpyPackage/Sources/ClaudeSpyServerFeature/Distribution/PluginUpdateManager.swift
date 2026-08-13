@@ -306,7 +306,7 @@
                 // bridge refresh so the next successful enable (usually next
                 // launch) finishes the job.
                 mutateEntry(id) { $0.needsBridgeRefresh = true }
-                return .failed("new version failed to start — restart Gallager to retry")
+                return .failed("new version failed to start — restart CtrlX to retry")
             }
             let bridgesRefreshed = await refreshBridges(id)
             if !bridgesRefreshed {
@@ -401,7 +401,7 @@
                 // while the plugin had no active sessions — nothing is left to
                 // restart, so no restart advice.
                 notice.needsAppRestart
-                    ? "\(notice.displayName) \(notice.newVersion) — restart Gallager and any \(notice.displayName) sessions"
+                    ? "\(notice.displayName) \(notice.newVersion) — restart CtrlX and any \(notice.displayName) sessions"
                     : "\(notice.displayName) updated to \(notice.newVersion)"
             }
             .joined(separator: "; ")

@@ -211,7 +211,7 @@ actor APNsService {
                 let alert = APNSAlertNotificationContent(
                     // Agent-neutral placeholder; the iOS Notification Service
                     // Extension decrypts and replaces both title and body.
-                    title: .raw("Gallager"),
+                    title: .raw("CtrlX"),
                     body: .raw("New activity") // Placeholder - extension replaces this
                 )
                 let notification = APNSAlertNotification(

@@ -551,8 +551,8 @@ struct TmuxPaneMirrorApp: App {
             }
         }
 
-        // About window - custom About panel with Gallager explanation
-        Window("About Gallager", id: "about") {
+        // About window - custom CtrlX provenance and build information
+        Window("About CtrlX", id: "about") {
             AboutWindowView()
         }
         .windowResizability(.contentSize)
@@ -769,7 +769,7 @@ private struct AboutMenuItem: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("About Gallager") {
+        Button("About CtrlX") {
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "about")
             NSApp.activate()

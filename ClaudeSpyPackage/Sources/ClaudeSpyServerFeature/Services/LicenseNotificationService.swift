@@ -47,7 +47,7 @@
             guard isAuthorized else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = "Gallager trial ending"
+            content.title = "CtrlX trial ending"
             content.body = "Your hosted-relay trial ends in less than \(hoursRemaining) hours. "
                 + "Subscribe to keep remote access."
             content.sound = .default

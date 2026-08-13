@@ -3,10 +3,7 @@
     import ClaudeSpyCommon
     import SwiftUI
 
-    /// Custom About window content shown when clicking the app name > "About Gallager".
-    ///
-    /// Explains why the app is called "Gallager" and provides links to
-    /// the Wikipedia pages for Robert Gallager and Claude Shannon.
+    /// Custom About window with CtrlX build identity and upstream provenance.
     public struct AboutWindowView: View {
         public init() { }
 
@@ -17,8 +14,7 @@
 
                 Divider()
 
-                // Explanation
-                explanationSection
+                provenanceSection
 
                 // Links
                 linksSection
@@ -36,7 +32,7 @@
                     .resizable()
                     .frame(width: 64, height: 64)
 
-                Text("Gallager")
+                Text(ProductIdentity.name)
                     .font(.title)
                     .fontWeight(.bold)
 
@@ -47,19 +43,20 @@
             }
         }
 
-        // MARK: - Explanation
+        // MARK: - Provenance
 
         @ViewBuilder
-        private var explanationSection: some View {
+        private var provenanceSection: some View {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Why \"Gallager\"?")
+                Text("Independent open-source distribution")
                     .font(.headline)
 
-                Text("This app is named after Robert G. Gallager, a pioneering information theorist and professor at MIT.")
+                Text("CtrlX is based on Gallager and distributed under GNU AGPL-3.0. It is not affiliated with or endorsed by the Gallager project.")
 
-                Text("Gallager was a close colleague of Claude Shannon, the father of information theory, after whom Anthropic's Claude AI is named.")
-
-                Text("Just as Gallager extended and built upon Shannon's foundational work, this app extends your ability to monitor and interact with Claude Code sessions.")
+                Text("Forked from commit \(ProductIdentity.forkCommit) on \(ProductIdentity.forkDate).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
             .font(.body)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -70,12 +67,12 @@
         @ViewBuilder
         private var linksSection: some View {
             HStack(spacing: 16) {
-                Link(destination: AboutLinks.gallagerWikipedia) {
-                    Label("Robert G. Gallager", symbol: .linkCircle)
+                Link(destination: ProductIdentity.sourceURL) {
+                    Label("CtrlX Source", symbol: .linkCircle)
                 }
 
-                Link(destination: AboutLinks.shannonWikipedia) {
-                    Label("Claude Shannon", symbol: .linkCircle)
+                Link(destination: ProductIdentity.upstreamURL) {
+                    Label("Gallager Upstream", symbol: .linkCircle)
                 }
             }
             .font(.callout)

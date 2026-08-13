@@ -81,7 +81,7 @@ enum CLIError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .socketCreationFailed: "Failed to create socket"
-        case .connectionFailed: "Failed to connect to Gallager (is it running?)"
+        case .connectionFailed: "Failed to connect to CtrlX (is it running?)"
         case .writeFailed: "Failed to send request"
         case .emptyResponse: "Empty response from server"
         case .pathTooLong: "Socket path exceeds maximum length"

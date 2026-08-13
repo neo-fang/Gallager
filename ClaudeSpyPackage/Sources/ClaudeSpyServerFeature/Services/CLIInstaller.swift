@@ -78,7 +78,7 @@
             CLI='\(escapedAppPath)/Contents/MacOS/GallagerCLI'
             if [ ! -x "$CLI" ]; then
                 echo "Error: GallagerCLI not found at $CLI" >&2
-                echo "The app may have moved. Re-run Install Command Line Tool from the Gallager menu." >&2
+                echo "The app may have moved. Re-run Install Command Line Tool from the CtrlX menu." >&2
                 exit 1
             fi
 

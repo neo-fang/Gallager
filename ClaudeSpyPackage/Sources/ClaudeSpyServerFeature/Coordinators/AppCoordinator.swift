@@ -2795,7 +2795,7 @@
                         case let .applied(needsAppRestart):
                             row["applied"] = .bool(true)
                             if needsAppRestart {
-                                row["note"] = .string("restart Gallager to load the new sidecar")
+                                row["note"] = .string("restart CtrlX to load the new sidecar")
                             }
                         case .skippedSourceChanged:
                             row["applied"] = .bool(false)

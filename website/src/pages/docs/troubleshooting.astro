@@ -3,7 +3,7 @@ import Guide from "../../layouts/Guide.astro";
 ---
 
 <Guide
-  title="Troubleshooting — Gallager"
+  title="Troubleshooting — CtrlX"
   description="Pairing codes, connection issues, missing notifications, sleep, and other common fixes."
   heroTitle="Troubleshooting"
   lede="The short list of things that actually go wrong, and what fixes them."
@@ -33,7 +33,7 @@ import Guide from "../../layouts/Guide.astro";
 
   <h2>No push notifications</h2>
   <ul>
-    <li>Check iOS notification permission for Gallager.</li>
+    <li>Check iOS notification permission for CtrlX.</li>
     <li>On the hosted relay, check your trial/subscription state in the Mac's Remote Access settings.</li>
     <li>Self-hosting? Pushes need your APNs key configured — check the relay logs for
       "APNs client initialized", and make sure <code>APNS_ENVIRONMENT</code> matches
@@ -49,7 +49,7 @@ import Guide from "../../layouts/Guide.astro";
 
   <h2>The Mac went to sleep</h2>
   <p>
-    While sessions are active, Gallager holds a sleep-prevention assertion so an
+    While sessions are active, CtrlX holds a sleep-prevention assertion so an
     open-lid Mac stays awake ("Prevent sleep during active sessions" in Settings).
     Closing the lid on battery still sleeps the machine. Agents live inside tmux, so
     nothing is lost either way — when the Mac wakes and reconnects, sessions are
@@ -58,12 +58,12 @@ import Guide from "../../layouts/Guide.astro";
 
   <h2>tmux missing</h2>
   <p>
-    Gallager needs tmux and will walk you through installing it on first launch —
+    CtrlX needs tmux and will walk you through installing it on first launch —
     it detects Homebrew or MacPorts, shows the right command with a copy button, and
     continues automatically once tmux appears.
   </p>
 
-  <h2>A TUI's keyboard acts differently in Gallager</h2>
+  <h2>A TUI's keyboard acts differently in CtrlX</h2>
   <p>
     The mirrored terminal intentionally stays in standard keyboard mode: kitty
     keyboard-protocol negotiation is stripped so panes render identically on Mac and
@@ -73,6 +73,6 @@ import Guide from "../../layouts/Guide.astro";
   <h2>Where the logs are</h2>
   <ul>
     <li>Relay (self-hosted): <code>docker compose logs -f</code> on the server.</li>
-    <li>Agent plugins: <code>~/.gallager/state/plugins/&lt;id&gt;/logs/</code> on the Mac.</li>
+    <li>Agent plugins: <code>~/.ctrlx/state/plugins/&lt;id&gt;/logs/</code> on the Mac.</li>
   </ul>
 </Guide>

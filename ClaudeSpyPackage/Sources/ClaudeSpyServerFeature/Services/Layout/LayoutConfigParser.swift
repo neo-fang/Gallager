@@ -125,7 +125,7 @@
 
             for key in root.keys where Self.acceptedButIgnoredTopLevelKeys.contains(key) {
                 ignored.append(key)
-                warnings.append("Ignoring '\(key)': Gallager owns the tmux server, this option has no effect.")
+                warnings.append("Ignoring '\(key)': CtrlX owns the tmux server, this option has no effect.")
             }
 
             for key in root.keys where !Self.supportedTopLevelKeys.contains(key)

@@ -148,7 +148,7 @@ struct GeneralSettingsView: View {
 
             Section("Behavior") {
                 Toggle("Launch at login", isOn: $launchAtLoginEnabled)
-                    .help("Start Gallager automatically when you log in")
+                    .help("Start CtrlX automatically when you log in")
                     .onChange(of: launchAtLoginEnabled) { _, newValue in
                         do {
                             try settings.setLoginItemEnabled(newValue)

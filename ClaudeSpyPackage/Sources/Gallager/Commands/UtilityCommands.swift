@@ -4,7 +4,7 @@ import Foundation
 struct PingCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "ping",
-        abstract: "Check if Gallager is running"
+        abstract: "Check if CtrlX is running"
     )
 
     @OptionGroup var options: GlobalOptions
@@ -22,7 +22,7 @@ struct PingCommand: ParsableCommand {
 struct WaitReadyCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "wait-ready",
-        abstract: "Block until Gallager responds to ping, or fail after a timeout",
+        abstract: "Block until CtrlX responds to ping, or fail after a timeout",
         discussion: """
         Polls `system.ping` until it succeeds, then exits 0. Useful in
         login-time scripts that fire before the Gallager app finishes launching.
@@ -61,7 +61,7 @@ struct WaitReadyCommand: ParsableCommand {
         // `CleanExit.message` would print to stdout and exit 0, breaking the
         // contract documented for this command.
         FileHandle.standardError.write(
-            Data("Error: timed out waiting for Gallager after \(timeout)s\n".utf8)
+            Data("Error: timed out waiting for CtrlX after \(timeout)s\n".utf8)
         )
         throw ExitCode.failure
     }

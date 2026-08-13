@@ -109,7 +109,7 @@ public struct MenuBarExtraView: View {
 
         Divider()
 
-        Button("Quit Gallager") {
+        Button("Quit CtrlX") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)

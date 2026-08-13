@@ -28,7 +28,7 @@ public enum EditorOverrideMode: String, CaseIterable, Identifiable, Sendable {
     public var displayName: String {
         switch self {
         case .ask: "Ask me"
-        case .overrideInGallagerSessions: "Override in Gallager sessions"
+        case .overrideInGallagerSessions: "Override in CtrlX sessions"
         case .useMyEditor: "Use my editor"
         }
     }

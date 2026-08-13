@@ -9,14 +9,14 @@ const path = Astro.url.pathname;
 
 <footer class="footer">
   <div class="container footer-inner">
-    <span class="mono text-muted">gallager.app</span>
+    <span class="mono text-muted">CtrlX</span>
     <div style="flex:1;"></div>
     {
       links
         .filter((l) => l.href !== path)
         .map((l) => <a href={l.href}>{l.label}</a>)
     }
-    <a href="https://github.com/gpambrozio/Gallager">GitHub</a>
+    <a href="https://github.com/jicezeng/CtrlX">GitHub</a>
     <span class="text-muted">AGPL-3.0 licensed</span>
   </div>
 </footer>

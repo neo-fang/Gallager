@@ -8,7 +8,7 @@
 	<string>$(GALLAGER_SOURCE_REVISION)</string>
 	<!-- Apple Events Usage Description - required for AppleScript automation -->
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Gallager needs to control terminal applications to open tmux sessions.</string>
+	<string>CtrlX needs to control terminal applications to open tmux sessions.</string>
 
 	<!-- Sparkle Auto-Update Configuration -->
 	<key>SUFeedURL</key>

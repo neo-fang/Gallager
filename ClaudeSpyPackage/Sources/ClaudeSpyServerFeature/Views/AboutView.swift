@@ -3,9 +3,7 @@
     import ClaudeSpyCommon
     import SwiftUI
 
-    /// About view explaining the Gallager name and its connection to Claude Shannon.
-    ///
-    /// Used in the Settings "About" tab.
+    /// CtrlX build, source, upstream, and license information.
     public struct AboutView: View {
         public init() { }
 
@@ -19,32 +17,42 @@
                     }
                 }
 
-                Section("Why \"Gallager\"?") {
+                Section("Origin and license") {
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Gallager is named after [Robert G. Gallager](https://en.wikipedia.org/wiki/Robert_G._Gallager), a pioneering information theorist and professor at MIT.")
+                        Text("CtrlX is an independent distribution based on Gallager and licensed under GNU AGPL-3.0.")
 
-                        Text("Gallager was a close colleague of [Claude Shannon](https://en.wikipedia.org/wiki/Claude_Shannon), the father of information theory, after whom Anthropic's Claude AI is named.")
+                        Text("CtrlX is not affiliated with or endorsed by the Gallager project.")
 
-                        Text("Just as Gallager extended and built upon Shannon's foundational work in information theory, this app extends your ability to monitor and interact with Claude Code sessions.")
+                        Text("Forked from `\(ProductIdentity.forkCommit)` on \(ProductIdentity.forkDate).")
+                            .textSelection(.enabled)
                     }
                     .font(.body)
                 }
 
                 Section("Links") {
-                    Link(destination: AboutLinks.gallagerWikipedia) {
+                    Link(destination: ProductIdentity.sourceURL) {
                         HStack {
-                            Label("Robert G. Gallager", symbol: .linkCircle)
+                            Label("CtrlX Source", symbol: .linkCircle)
                             Spacer()
-                            Text("Wikipedia")
+                            Text("GitHub")
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                    Link(destination: AboutLinks.shannonWikipedia) {
+                    Link(destination: ProductIdentity.upstreamURL) {
                         HStack {
-                            Label("Claude Shannon", symbol: .linkCircle)
+                            Label("Gallager Upstream", symbol: .linkCircle)
                             Spacer()
-                            Text("Wikipedia")
+                            Text("GitHub")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Link(destination: ProductIdentity.licenseURL) {
+                        HStack {
+                            Label("GNU AGPL-3.0", symbol: .linkCircle)
+                            Spacer()
+                            Text("License")
                                 .foregroundStyle(.secondary)
                         }
                     }

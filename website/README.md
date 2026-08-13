@@ -1,4 +1,4 @@
-# gallager.app website
+# CtrlX website
 
 Static marketing site built with [Astro](https://astro.build). Four pages
 (index, docs, pricing, security) sharing one design system.
@@ -34,18 +34,15 @@ npm run preview    # serve dist/ locally
 3. Add the page to the `links` array in `src/components/Nav.astro` (and the
    Footer) if it belongs in the chrome.
 
-## Deploy
+## Build for deployment
 
 ```bash
-./scripts/deploy.sh website
+CTRLX_SITE_URL=https://your-domain.example npm run build
 ```
 
-Builds locally, rsyncs `dist/` to `/opt/gallager-website` on the relay box,
-installs `ClaudeSpyPackage/caddy/website.caddy` and reloads Caddy.
-
-One-time prerequisite: DNS A records for `gallager.app` and
-`www.gallager.app` pointing at the server. Caddy provisions Let's Encrypt
-certs automatically once DNS resolves.
+The repository does not assume a production domain or deployment host. Publish
+`dist/` using infrastructure you control, and set `CTRLX_SITE_URL` to its public
+origin so canonical and sitemap URLs are correct.
 
 ## History
 

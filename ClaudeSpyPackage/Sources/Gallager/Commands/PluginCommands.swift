@@ -9,7 +9,7 @@ import Foundation
 struct PluginCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "plugin",
-        abstract: "Inspect and manage Gallager plugins",
+        abstract: "Inspect and manage CtrlX plugins",
         subcommands: [
             PluginListCommand.self,
             PluginInfoCommand.self,

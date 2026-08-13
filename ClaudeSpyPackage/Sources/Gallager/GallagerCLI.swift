@@ -5,7 +5,7 @@ import Foundation
 struct GallagerCLI: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "gallager",
-        abstract: "Control Gallager from the command line",
+        abstract: "Control CtrlX from the command line",
         subcommands: [
             // Sessions
             ListSessionsCommand.self,
