@@ -43,7 +43,8 @@ public struct MenuBarExtraView: View {
                 mode: settings.sidebarSortMode,
                 sidebarFields: settings.sidebarFields,
                 sidebarTerminalFields: settings.sidebarTerminalFields,
-                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+                preferredSessionNames: settings.remoteSessionOrder(for: host.id)
             )
             guard !sessions.isEmpty else { return nil }
             return (host: host, sessions: sessions)
