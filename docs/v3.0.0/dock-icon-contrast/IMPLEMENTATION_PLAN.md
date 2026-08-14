@@ -42,6 +42,14 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 3. Keep the Stage 3 documentation as the historical record of the rejected high-resolution appearance.
 4. Re-run derivative consistency, build, review, packaging, and tmux-preservation checks.
 
+## Stage 5
+
+1. Treat the Stage 1 and Stage 2 masters as fixed endpoints with identical geometry.
+2. Blend them at a restrained midpoint biased toward Stage 1, reducing the silver-white appearance while retaining Dock-scale readability.
+3. Do not alter the background, slider geometry, framing, texture, or monochrome identity.
+4. Regenerate every raster derivative from the resulting 1024×1024 master and inspect the 32 px, 64 px, and full-size results.
+5. Build and install the macOS app without interrupting the existing tmux server or sessions.
+
 ## Acceptance Criteria
 
 - The `X` silhouette remains clear at Dock-scale sizes.
@@ -53,3 +61,4 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 - Stage 2 remains visibly brighter than Stage 1 at 32 px and 64 px without turning the `X` silver.
 - Stage 3 makes the embedded controls readable without further brightening the `X` or changing the overall silhouette.
 - Stage 4 restores the accepted Stage 2 appearance after Finder exposed the Stage 3 icon as too bright.
+- Stage 5 restores a darker gunmetal mood than Stage 2 without regressing to Stage 1's low small-size contrast.
