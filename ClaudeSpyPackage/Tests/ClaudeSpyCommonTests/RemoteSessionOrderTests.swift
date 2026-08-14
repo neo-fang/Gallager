@@ -43,4 +43,9 @@ struct RemoteSessionOrderTests {
         #expect(RemoteSessionOrder.replacing("old", with: "new", in: ["a", "old", "b"]) == ["a", "new", "b"])
         #expect(RemoteSessionOrder.replacing("old", with: "new", in: ["old", "new"]) == ["new"])
     }
+
+    @Test("Normalization removes empty and duplicate names")
+    func normalizesNames() {
+        #expect(RemoteSessionOrder.normalized(["a", "", "b", "a"]) == ["a", "b"])
+    }
 }

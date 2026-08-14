@@ -354,6 +354,11 @@ final public class AppSettings {
         didSet { savePairedHosts() }
     }
 
+    /// Viewer-local session order, isolated by remote host pair ID.
+    public private(set) var remoteSessionOrderByHost: [String: [String]] = [:] {
+        didSet { saveRemoteSessionOrder() }
+    }
+
     /// Whether to automatically connect to relay server on launch
     public var autoConnectToServer: Bool = Defaults.autoConnectToServer {
         didSet { preferences.setBool(autoConnectToServer, Keys.autoConnectToServer) }
@@ -476,6 +481,11 @@ final public class AppSettings {
         // Load paired devices and hosts
         self.pairedViewers = Self.loadCodable(from: preferences, key: Keys.pairedViewers)
         self.pairedHosts = Self.loadCodable(from: preferences, key: Keys.pairedHosts)
+        if
+            let data = preferences.data(Keys.remoteSessionOrderByHost),
+            let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            self.remoteSessionOrderByHost = decoded.mapValues(RemoteSessionOrder.normalized)
+        }
 
         // Generate device ID if not already set
         if let existingDeviceId = preferences.string(Keys.deviceId) {
@@ -572,6 +582,7 @@ final public class AppSettings {
         case externalServerURL
         case pairedViewers = "pairedDevices"
         case pairedHosts
+        case remoteSessionOrderByHost
         case autoConnectToServer
         case deviceId
         case trialAlertsFired
@@ -678,6 +689,13 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.pairedHosts)
+    }
+
+    private func saveRemoteSessionOrder() {
+        guard let data = try? JSONEncoder().encode(remoteSessionOrderByHost) else {
+            return
+        }
+        preferences.setData(data, Keys.remoteSessionOrderByHost)
     }
 
     private func saveSidebarFields() {
@@ -792,6 +810,7 @@ final public class AppSettings {
     /// Remove a paired host by ID
     public func removeHostPairing(id: String) {
         pairedHosts.removeAll { $0.id == id }
+        remoteSessionOrderByHost.removeValue(forKey: id)
     }
 
     /// Get a paired host by ID
@@ -809,6 +828,28 @@ final public class AppSettings {
     /// Clear all host pairings
     public func clearAllHostPairings() {
         pairedHosts = []
+        remoteSessionOrderByHost = [:]
+    }
+
+    public func remoteSessionOrder(for hostId: String) -> [String] {
+        remoteSessionOrderByHost[hostId] ?? []
+    }
+
+    public func setRemoteSessionOrder(_ sessionNames: [String], for hostId: String) {
+        let normalized = RemoteSessionOrder.normalized(sessionNames)
+        if normalized.isEmpty {
+            remoteSessionOrderByHost.removeValue(forKey: hostId)
+        } else {
+            remoteSessionOrderByHost[hostId] = normalized
+        }
+    }
+
+    public func replaceRemoteSessionName(_ oldName: String, with newName: String, for hostId: String) {
+        guard let current = remoteSessionOrderByHost[hostId] else { return }
+        setRemoteSessionOrder(
+            RemoteSessionOrder.replacing(oldName, with: newName, in: current),
+            for: hostId
+        )
     }
 
     /// Check if any paired hosts have duplicate names (for disambiguation)

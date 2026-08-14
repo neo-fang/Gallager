@@ -60,6 +60,7 @@
             case deviceId
             case customDeviceName
             case pairedHosts
+            case remoteSessionOrderByHost
             case externalServerURL
             case autoReconnect
             case appearanceMode
@@ -94,6 +95,11 @@
         /// All paired host servers
         public private(set) var pairedHosts: [PairedHost] = [] {
             didSet { savePairedHosts() }
+        }
+
+        /// Viewer-local session order, isolated by remote host pair ID.
+        public private(set) var remoteSessionOrderByHost: [String: [String]] = [:] {
+            didSet { saveRemoteSessionOrder() }
         }
 
         /// External relay server URL
@@ -215,6 +221,7 @@
 
             // Load paired hosts
             self.pairedHosts = loadPairedHosts()
+            self.remoteSessionOrderByHost = loadRemoteSessionOrder()
 
             // didSet doesn't fire during init, so refresh the App Group mirror
             // explicitly so the Notification Service Extension can label
@@ -246,6 +253,23 @@
             mirrorHostNamesToAppGroup()
         }
 
+        private func loadRemoteSessionOrder() -> [String: [String]] {
+            guard
+                let data = preferences.data(Keys.remoteSessionOrderByHost),
+                let decoded = try? JSONDecoder().decode([String: [String]].self, from: data)
+            else {
+                return [:]
+            }
+            return decoded.mapValues(RemoteSessionOrder.normalized)
+        }
+
+        private func saveRemoteSessionOrder() {
+            guard let data = try? JSONEncoder().encode(remoteSessionOrderByHost) else {
+                return
+            }
+            preferences.setData(data, Keys.remoteSessionOrderByHost)
+        }
+
         /// Mirror pairId → display-name into the shared App Group container so the
         /// Notification Service Extension can label notifications by host.
         private func mirrorHostNamesToAppGroup() {
@@ -272,6 +296,7 @@
         /// Remove a paired host by ID
         public func removePairing(id: String) {
             pairedHosts.removeAll { $0.id == id }
+            remoteSessionOrderByHost.removeValue(forKey: id)
         }
 
         /// Get a paired host by ID
@@ -289,6 +314,28 @@
         /// Clear all pairings
         public func clearAllPairings() {
             pairedHosts = []
+            remoteSessionOrderByHost = [:]
+        }
+
+        public func remoteSessionOrder(for hostId: String) -> [String] {
+            remoteSessionOrderByHost[hostId] ?? []
+        }
+
+        public func setRemoteSessionOrder(_ sessionNames: [String], for hostId: String) {
+            let normalized = RemoteSessionOrder.normalized(sessionNames)
+            if normalized.isEmpty {
+                remoteSessionOrderByHost.removeValue(forKey: hostId)
+            } else {
+                remoteSessionOrderByHost[hostId] = normalized
+            }
+        }
+
+        public func replaceRemoteSessionName(_ oldName: String, with newName: String, for hostId: String) {
+            guard let current = remoteSessionOrderByHost[hostId] else { return }
+            setRemoteSessionOrder(
+                RemoteSessionOrder.replacing(oldName, with: newName, in: current),
+                for: hostId
+            )
         }
 
         // MARK: - Display Helpers

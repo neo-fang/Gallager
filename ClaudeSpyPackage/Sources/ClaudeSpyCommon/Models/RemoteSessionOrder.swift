@@ -6,6 +6,15 @@ import Foundation
 /// ranks session names it has seen; new sessions retain their relative host
 /// order and are appended after the ranked sessions.
 public enum RemoteSessionOrder {
+    public static func normalized(_ sessionNames: [String]) -> [String] {
+        var result: [String] = []
+        var seen: Set<String> = []
+        for name in sessionNames where !name.isEmpty && seen.insert(name).inserted {
+            result.append(name)
+        }
+        return result
+    }
+
     public static func applying<Element>(
         _ preferredSessionNames: [String],
         to elements: [Element],
@@ -64,15 +73,6 @@ public enum RemoteSessionOrder {
         with newName: String,
         in sessionNames: [String]
     ) -> [String] {
-        var result: [String] = []
-        var seen: Set<String> = []
-
-        for name in sessionNames {
-            let replacement = name == oldName ? newName : name
-            if seen.insert(replacement).inserted {
-                result.append(replacement)
-            }
-        }
-        return result
+        normalized(sessionNames.map { $0 == oldName ? newName : $0 })
     }
 }
