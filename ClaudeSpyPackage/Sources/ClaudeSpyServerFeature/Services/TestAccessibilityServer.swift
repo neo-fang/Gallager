@@ -152,7 +152,7 @@
                 if request.hasPrefix("POST /unpair") {
                     Task { @MainActor in
                         NotificationCenter.default.post(
-                            name: .init("com.claudespy.e2e.unpairViewer"), object: nil
+                            name: .init("com.jicezeng.ctrlx.e2e.unpairViewer"), object: nil
                         )
                         let response = Data(
                             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
@@ -179,7 +179,7 @@
                                 minRequired.isEmpty ? nil : minRequired
                         }
                         NotificationCenter.default.post(
-                            name: .init("com.claudespy.e2e.reconnectViewers"), object: nil
+                            name: .init("com.jicezeng.ctrlx.e2e.reconnectViewers"), object: nil
                         )
                         let response = Data(
                             "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"

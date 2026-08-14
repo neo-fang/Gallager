@@ -46,7 +46,7 @@
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Quit Gallager") {
+                Button("Quit CtrlX") {
                     // Force exit — NSApp.terminate gets blocked by
                     // interactiveDismissDisabled on the parent sheet.
                     exit(0)
@@ -93,7 +93,7 @@
                     .font(.title)
                     .fontWeight(.semibold)
 
-                Text("Gallager uses tmux to mirror terminal sessions.\nInstall tmux to get started.")
+                Text("CtrlX uses tmux to mirror terminal sessions.\nInstall tmux to get started.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

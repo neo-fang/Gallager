@@ -5,8 +5,8 @@ import Foundation
 /// The timestamp and source revision are display metadata only. Protocol and
 /// store compatibility continue to use `CFBundleShortVersionString`.
 public struct AppBuildInfo: Equatable, Sendable {
-    public static let buildStampKey = "GallagerBuildStamp"
-    public static let sourceRevisionKey = "GallagerSourceRevision"
+    public static let buildStampKey = "CtrlXBuildStamp"
+    public static let sourceRevisionKey = "CtrlXSourceRevision"
 
     public let version: String?
     public let buildNumber: String?
@@ -30,9 +30,13 @@ public struct AppBuildInfo: Equatable, Sendable {
             components.append(buildStamp)
         }
         if let sourceRevision {
-            components.append(sourceRevision)
+            components.append(String(sourceRevision.prefix(12)))
         }
         return components.joined(separator: " · ")
+    }
+
+    public var correspondingSourceURL: URL {
+        ProductIdentity.sourceURL(for: sourceRevision)
     }
 
     private var baseVersion: String {

@@ -1,0 +1,401 @@
+/**
+ * CtrlX ↔ opencode ingress bridge.
+ *
+ * This is an opencode *plugin* (auto-loaded from ~/.config/opencode/plugin/).
+ * opencode removed config-based shell hooks (the old `experimental.hook`), so
+ * the only robust way to observe session lifecycle is a plugin that subscribes
+ * to the event bus and forwards the events CtrlX cares about to CtrlX's
+ * Unix-domain *ingress socket*.
+ *
+ * Channel note: the ingress socket uses a 4-byte big-endian length prefix +
+ * JSON body (NOT the sidecar's Content-Length framing). The frame's JSON is
+ * snake_case (`plugin_id`, `context`, `payload`) — that's the ingress contract.
+ *
+ * The CtrlX sidecar's `install` rewrites the two placeholder tokens below
+ * with the real ingress socket path and plugin id (the opencode process does
+ * not inherit CtrlX's env, so they must be baked in). When the tokens are
+ * left un-substituted (e.g. running this file straight from the repo for a
+ * smoke test) it falls back to CTRLX_INGRESS_SOCK / CTRLX_PLUGIN_ID env
+ * vars, then to CtrlX's default conventions.
+ */
+import net from "node:net"
+import os from "node:os"
+import path from "node:path"
+import fs from "node:fs"
+
+// --- Baked-in identity (install substitutes these exact tokens) ---------------
+const RAW_SOCK = "__CTRLX_INGRESS_SOCK__"
+const RAW_ID = "__CTRLX_PLUGIN_ID__"
+const RAW_OTLP = "__CTRLX_OTLP_ENDPOINT__"
+
+const SOCKET_PATH = RAW_SOCK.startsWith("__CTRLX")
+  ? process.env.CTRLX_INGRESS_SOCK || path.join(os.homedir(), ".ctrlx", "state", "ingress.sock")
+  : RAW_SOCK
+const PLUGIN_ID = RAW_ID.startsWith("__CTRLX")
+  ? process.env.CTRLX_PLUGIN_ID || "opencode"
+  : RAW_ID
+// CtrlX's loopback OTLP receiver (issue #617). Baked in at install like the
+// socket path (the port is whatever the receiver actually bound that launch);
+// the env fallback serves repo smoke tests. Empty → telemetry disabled (the
+// receiver failed to bind, or the bridge predates OTLP support).
+const OTLP_ENDPOINT = RAW_OTLP.startsWith("__CTRLX")
+  ? process.env.CTRLX_OTLP_ENDPOINT || ""
+  : RAW_OTLP
+
+// Optional: set CTRLX_OPENCODE_DEBUG=1 to record every event type this bridge
+// sees (and which it forwards) — handy for confirming opencode's event names on a
+// new version. Lands next to the sidecar's stderr.log so `ctrlx plugin logs
+// opencode` neighbours find it.
+const DEBUG = !!process.env.CTRLX_OPENCODE_DEBUG
+const DEBUG_LOG =
+  process.env.CTRLX_OPENCODE_DEBUG_LOG ||
+  path.join(os.homedir(), ".ctrlx", "state", "plugins", PLUGIN_ID, "logs", "bridge-debug.log")
+
+// The lifecycle events CtrlX maps. Forward a *broad* allowlist that covers
+// both the current server names (`permission.asked`) and the names still
+// declared in the published SDK types (`permission.updated`) so we stay correct
+// across opencode versions; the sidecar parses whichever actually arrives.
+const FORWARD = new Set([
+  // session.created / session.updated carry info.parentID — the ONLY events that
+  // do (session.status / session.idle omit it, opencode #30043). The sidecar uses
+  // them to learn which sessions are task-tool subagents so it can drop their
+  // busy/idle churn and only notify when the MAIN session finishes (issue #670).
+  "session.created",
+  "session.updated",
+  "session.status",
+  "session.idle",
+  "session.error",
+  "permission.asked",
+  "permission.updated",
+  "permission.replied",
+  "permission.v2.asked",
+  "permission.v2.replied",
+  "question.asked",
+  "question.replied",
+  "question.rejected",
+  "question.v2.asked",
+  "question.v2.replied",
+  "question.v2.rejected",
+])
+
+function debug(line) {
+  if (!DEBUG) return
+  try {
+    fs.mkdirSync(path.dirname(DEBUG_LOG), { recursive: true })
+    fs.appendFileSync(DEBUG_LOG, `${new Date().toISOString()} ${line}\n`)
+  } catch {
+    /* never break opencode over a debug write */
+  }
+}
+
+/**
+ * Write one length-prefixed frame to CtrlX's ingress socket.
+ *
+ * Returns a Promise that resolves once the frame has flushed (socket closed) or
+ * the attempt gave up (CtrlX not running / timeout) — never rejects. Callers
+ * go through enqueue() below, never call this directly — frame ORDER matters.
+ */
+function forward(event, context) {
+  return new Promise((resolve) => {
+    if (!context.TMUX_PANE) return resolve() // no pane → nothing to route
+    let sock
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    try {
+      const body = Buffer.from(
+        JSON.stringify({ plugin_id: PLUGIN_ID, context, payload: event }),
+        "utf8",
+      )
+      const prefix = Buffer.allocUnsafe(4)
+      prefix.writeUInt32BE(body.length, 0)
+
+      sock = net.createConnection({ path: SOCKET_PATH })
+      sock.on("connect", () => {
+        sock.write(Buffer.concat([prefix, body]), () => {
+          try {
+            sock.end()
+          } catch {}
+        })
+      })
+      sock.on("close", done) // frame flushed + server hung up
+      sock.on("error", () => {
+        // CtrlX not running / socket gone — drop silently.
+        try {
+          sock.destroy()
+        } catch {}
+        done()
+      })
+      sock.setTimeout(5000, () => {
+        try {
+          sock.destroy()
+        } catch {}
+        done()
+      })
+    } catch {
+      try {
+        sock && sock.destroy()
+      } catch {}
+      done()
+    }
+  })
+}
+
+// FIFO send chain — every ingress frame flows through here. forward() opens a
+// fresh socket per frame, and opencode dispatches plugin `event` hooks WITHOUT
+// awaiting them (`void hook.event(...)`, packages/opencode/src/plugin/index.ts),
+// so two in-flight frames could otherwise flush out of order. Order matters:
+// the sidecar must see a child's `session.created` before that child's own
+// busy/idle churn to know it's a subagent (issue #670). Hook bodies DO start
+// synchronously in event order, so chaining each send onto the previous one
+// preserves bus order end-to-end. forward() never rejects → the chain can't wedge.
+//
+// summaryPromise (idle frames only): the turn-summary fetch result, awaited
+// INSIDE the chain step — never before enqueueing. Awaiting it in the hook body
+// instead would let a new turn's `busy` frame overtake the still-fetching idle
+// frame, and the sidecar would see busy→idle and fire a spurious "finished".
+// The promise never rejects and self-times-out (fetchIdleSummary), so it can't
+// wedge the chain.
+let sendChain = Promise.resolve()
+function enqueue(event, context, summaryPromise) {
+  sendChain = sendChain.then(async () => {
+    let payload = event
+    if (summaryPromise) {
+      const summary = await summaryPromise
+      // Copy — the same event object is dispatched to every subscribed plugin.
+      if (summary) payload = { ...event, properties: { ...(event.properties || {}), ctrlxSummary: summary } }
+    }
+    return forward(payload, context)
+  })
+  return sendChain
+}
+
+// --- Turn summaries -----------------------------------------------------------
+// opencode's idle events carry no text, so at turn end the bridge fetches the
+// session's messages via the in-process SDK client (works even though the
+// server listens on a unix socket — the client dispatches in-process) and
+// attaches the last assistant message's visible text to the idle frame as
+// properties.ctrlxSummary. The sidecar surfaces it as doneWorking's summary
+// and the notification body, matching Claude Code's lastAssistantMessage.
+//
+// BUSY_IDS gates the fetch to real turn ends (a session-switch idle has no new
+// text worth fetching); CHILD_IDS skips task-tool subagent idles, whose
+// lifecycle the sidecar drops anyway (issue #670). Both mirror the sidecar's
+// WORKING/CHILD tracking — kept bridge-side purely to avoid pointless fetches.
+const CHILD_IDS = new Set()
+const BUSY_IDS = new Set()
+const SUMMARY_MAX = 300
+const SUMMARY_TIMEOUT_MS = 2000
+
+/** The last assistant message's visible text, trimmed for a notification body. */
+function lastAssistantText(entries) {
+  if (!Array.isArray(entries)) return undefined
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]
+    if (!entry || !entry.info || entry.info.role !== "assistant") continue
+    const text = (Array.isArray(entry.parts) ? entry.parts : [])
+      .filter((p) => p && p.type === "text" && typeof p.text === "string" && !p.synthetic && !p.ignored)
+      .map((p) => p.text)
+      .join("\n")
+      .trim()
+    if (text) return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 3)}…` : text
+    return undefined // last assistant message had no text (e.g. pure tool call)
+  }
+  return undefined
+}
+
+/** Resolves to the session's summary text, undefined on any failure. Never rejects. */
+async function fetchIdleSummary(client, sessionID) {
+  if (!client || !client.session || typeof client.session.messages !== "function") return undefined
+  try {
+    const res = await Promise.race([
+      client.session.messages({ path: { id: sessionID } }),
+      new Promise((resolve) => setTimeout(resolve, SUMMARY_TIMEOUT_MS)),
+    ])
+    if (!res) return undefined // timeout
+    // hey-api clients wrap the body in {data}; tolerate a bare array too.
+    return lastAssistantText(Array.isArray(res) ? res : res.data)
+  } catch {
+    return undefined // summaries are best-effort — never break the idle frame
+  }
+}
+
+// --- OTLP telemetry (issue #617) ----------------------------------------------
+// opencode has no usable native OTEL export, but this bridge already sees every
+// `message.updated` on the event bus — and a completed AssistantMessage carries
+// everything CtrlX's meter surfaces (tokens, cost, model, latency). Emit ONE
+// OTLP/JSON log record per completed assistant message, straight to CtrlX's
+// loopback receiver (`POST /v1/logs`, plain fetch — no SDK, no third-party
+// plugin, no user-set OPENCODE_* env vars). This never goes through the ingress
+// socket: telemetry is the OTLP channel, and message.updated fires on every
+// streaming metadata change — far too chatty to forward.
+//
+// The attribute keys mirror Claude Code's `api_request` vocabulary exactly, so
+// the host aggregates them with the same additive per-message semantics (the
+// manifest's `otlp` declaration maps the `opencode.` namespace onto it).
+// `session.id` is opencode's OWN session id (`info.sessionID`, "ses_…"): the
+// host stamps a pane's telemetry join key from the sessionID the sidecar
+// reports in its PluginEvents, and for every real opencode event that IS the
+// opencode session id — the pane id is only reported by the synthetic launch
+// frame, before any turn. Stamping the pane id here would therefore join only
+// until the first turn's `session.status busy` re-stamps the key, and never
+// again. Bonus: the meter follows the ACTIVE opencode session in the pane, and
+// switching sessions resets the visible meter exactly like Claude's `/clear`
+// (the receiver keeps each session's running totals, so switching back
+// restores them on the next completed message).
+
+// Assistant-message ids already exported, so a post-completion re-emit of
+// `message.updated` can't double-count a turn. Bounded FIFO (Sets iterate in
+// insertion order).
+const OTLP_EMITTED = new Set()
+const OTLP_EMITTED_CAP = 512
+
+function emitTelemetry(info, context) {
+  if (!OTLP_ENDPOINT || !context.TMUX_PANE) return
+  if (!info || info.role !== "assistant") return
+  // `time.completed` ONLY (live-verified as the final-tally signal). Emission
+  // is deduped by message id, so a broader trigger (e.g. `finish`) that could
+  // fire before the final token/cost tally would freeze this message's
+  // contribution at the early values forever.
+  const completed = info.time && info.time.completed
+  if (!completed || !info.id || OTLP_EMITTED.has(info.id)) return
+  // opencode's session id — the join key (see the header comment). The pane-id
+  // fallback covers a hypothetical message without one; such records only join
+  // before the first turn.
+  const sessionID = info.sessionID || context.TMUX_PANE
+  OTLP_EMITTED.add(info.id)
+  if (OTLP_EMITTED.size > OTLP_EMITTED_CAP) {
+    OTLP_EMITTED.delete(OTLP_EMITTED.values().next().value)
+  }
+
+  const tokens = info.tokens || {}
+  const cache = tokens.cache || {}
+  const int = (v) => (typeof v === "number" && isFinite(v) ? Math.max(0, Math.round(v)) : 0)
+  const attributes = [
+    { key: "event.name", value: { stringValue: "opencode.api_request" } },
+    { key: "session.id", value: { stringValue: sessionID } },
+    // opencode's reasoning tokens are folded into output — matching Claude's
+    // api_request, where thinking tokens are billed/reported as output tokens.
+    { key: "input_tokens", value: { intValue: int(tokens.input) } },
+    { key: "output_tokens", value: { intValue: int(tokens.output) + int(tokens.reasoning) } },
+    { key: "cache_read_tokens", value: { intValue: int(cache.read) } },
+    { key: "cache_creation_tokens", value: { intValue: int(cache.write) } },
+    // opencode computes cost itself (a plain number on the message).
+    { key: "cost_usd", value: { doubleValue: typeof info.cost === "number" && isFinite(info.cost) ? info.cost : 0 } },
+  ]
+  if (info.time && typeof info.time.created === "number" && typeof info.time.completed === "number") {
+    attributes.push({ key: "duration_ms", value: { intValue: int(info.time.completed - info.time.created) } })
+  }
+  if (info.modelID) {
+    attributes.push({ key: "model", value: { stringValue: String(info.modelID) } })
+  }
+
+  const body = {
+    resourceLogs: [{ scopeLogs: [{ logRecords: [{ eventName: "opencode.api_request", attributes }] }] }],
+  }
+  debug(`otlp api_request message=${info.id} session=${sessionID} pane=${context.TMUX_PANE}`)
+  // Fire-and-forget: telemetry must never break opencode. The receiver is
+  // loopback-local, so a failure means CtrlX is gone — drop silently.
+  try {
+    fetch(`${OTLP_ENDPOINT}/v1/logs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => {})
+  } catch {
+    /* fetch unavailable or sync throw — never break opencode */
+  }
+}
+
+// Synthetic lifecycle frames CtrlX understands (handled by the sidecar's
+// translate_event): one when opencode loads this bridge (≈ TUI start → the
+// session appears as idle), one when opencode disposes it (≈ TUI quit → the
+// session is removed). opencode itself emits no event on a fresh idle launch or
+// on exit, so these are the bridge's own signal.
+const LIFECYCLE_STARTED = { id: "ctrlx-started", type: "ctrlx.lifecycle.started", properties: {} }
+const LIFECYCLE_STOPPED = { id: "ctrlx-stopped", type: "ctrlx.lifecycle.stopped", properties: {} }
+
+export const CtrlXMonitor = async ({ client, serverUrl, directory, worktree, project }) => {
+  // Captured once per opencode process. TMUX_PANE is how CtrlX routes the
+  // event to the right pane; serverUrl lets the sidecar answer permission
+  // prompts via opencode's HTTP API; the directory seeds the project name.
+  const tmuxPane = process.env.TMUX_PANE || ""
+  const serverURLString = serverUrl ? String(serverUrl.origin || serverUrl) : ""
+  const projectDir = directory || worktree || project?.worktree || ""
+
+  const context = { TMUX_PANE: tmuxPane }
+  if (serverURLString) context.OPENCODE_SERVER_URL = serverURLString
+  if (projectDir) context.OPENCODE_PROJECT_DIR = projectDir
+
+  debug(`bridge loaded sock=${SOCKET_PATH} id=${PLUGIN_ID} pane=${tmuxPane} server=${serverURLString}`)
+
+  // Only real turn ends (session went busy) of non-subagent sessions get a
+  // summary fetch; everything else forwards the idle frame untouched.
+  const maybeFetchSummary = (sid) => {
+    if (!sid || CHILD_IDS.has(sid) || !BUSY_IDS.has(sid)) return undefined
+    BUSY_IDS.delete(sid)
+    return fetchIdleSummary(client, sid)
+  }
+
+  // Announce the session the moment opencode loads us — opencode emits nothing on
+  // a fresh idle launch, so this is what makes the (idle) session appear in the
+  // sidebar before the first turn. Not awaited (nothing to sequence against yet);
+  // it heads the send chain, so it lands before any event frame regardless.
+  enqueue(LIFECYCLE_STARTED, context)
+
+  return {
+    event: async ({ event }) => {
+      if (!event || typeof event.type !== "string") return
+      debug(`event ${event.type}`)
+      if (event.type === "message.updated") {
+        // Telemetry rides the OTLP channel, not the ingress socket (see
+        // emitTelemetry) — message.updated is never forwarded.
+        emitTelemetry((event.properties || {}).info, context)
+        return
+      }
+      if (!FORWARD.has(event.type)) return
+
+      // Turn-summary bookkeeping (see fetchIdleSummary). The fetch is KICKED OFF
+      // here — capturing the messages as they stand at idle time — but its result
+      // is awaited inside the send chain so frame order is preserved.
+      const props = event.properties || {}
+      const sid = props.sessionID
+      let summaryPromise
+      if (event.type === "session.created" || event.type === "session.updated") {
+        if (props.info && props.info.id && props.info.parentID) CHILD_IDS.add(props.info.id)
+      } else if (event.type === "session.status") {
+        const status = (props.status || {}).type
+        if (sid && (status === "busy" || status === "retry")) BUSY_IDS.add(sid)
+        else if (status === "idle") summaryPromise = maybeFetchSummary(sid)
+      } else if (event.type === "session.idle") {
+        summaryPromise = maybeFetchSummary(sid)
+      } else if (event.type === "session.error" && sid) {
+        BUSY_IDS.delete(sid) // errored turns end without an eligible idle
+      }
+
+      // enqueue() (not bare forward()) is what guarantees frames reach the
+      // ingress socket in event order; the await additionally keeps this hook's
+      // promise honest — it settles only once the frame has actually flushed.
+      await enqueue(event, context, summaryPromise)
+    },
+    // opencode runs this finalizer on a graceful shutdown (the quit command,
+    // `/exit`, Ctrl-C). It's the only exit signal we get — the bridge dies with
+    // the process — so tell CtrlX to drop the session. Awaited (behind any
+    // still-pending frames on the send chain) so opencode's shutdown waits for
+    // the final "stopped" frame to land. A hard kill (SIGKILL/crash) skips
+    // finalizers and so won't fire this; that's the one uncovered case.
+    dispose: async () => {
+      debug("dispose → lifecycle.stopped")
+      try {
+        await enqueue(LIFECYCLE_STOPPED, context)
+      } catch {
+        /* never throw out of dispose */
+      }
+    },
+  }
+}
+
+export default CtrlXMonitor

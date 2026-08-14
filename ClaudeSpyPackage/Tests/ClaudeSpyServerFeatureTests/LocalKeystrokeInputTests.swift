@@ -85,8 +85,8 @@
         func controlManagerUsesExistingConnection() async throws {
             let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
             let suffix = UUID().uuidString.lowercased()
-            let socketPath = "/tmp/gallager-input-\(suffix.prefix(8)).sock"
-            let sessionName = "gallager-input-\(suffix)"
+            let socketPath = "/tmp/ctrlx-input-\(suffix.prefix(8)).sock"
+            let sessionName = "ctrlx-input-\(suffix)"
             defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
 
             try await withDependencies {
@@ -108,7 +108,7 @@
                 let sent = try await manager.sendKeystrokesIfConnected(
                     paneId: created.paneId,
                     sessionName: created.sessionName,
-                    keys: [.text("printf '\\nGALLAGER_%s_OK\\n' STAGE18"), .enter]
+                    keys: [.text("printf '\\nCTRLX_%s_OK\\n' STAGE18"), .enter]
                 )
 
                 #expect(sent)
@@ -116,10 +116,10 @@
                 var content = ""
                 repeat {
                     content = try await tmux.capturePaneText(created.paneId, scrollback: true)
-                    if content.contains("GALLAGER_STAGE18_OK") { break }
+                    if content.contains("CTRLX_STAGE18_OK") { break }
                     await Task.yield()
                 } while ContinuousClock.now < deadline
-                #expect(content.contains("GALLAGER_STAGE18_OK"))
+                #expect(content.contains("CTRLX_STAGE18_OK"))
 
                 await manager.disconnectAll()
                 try await tmux.killSession(created.sessionName)
@@ -270,8 +270,8 @@
         func processPathPastesLeadingHyphenArguments() async throws {
             let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
             let suffix = UUID().uuidString.lowercased()
-            let socketPath = "/tmp/gallager-paste-\(suffix.prefix(8)).sock"
-            let sessionName = "gallager-paste-\(suffix)"
+            let socketPath = "/tmp/ctrlx-paste-\(suffix.prefix(8)).sock"
+            let sessionName = "ctrlx-paste-\(suffix)"
             defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
 
             try await withDependencies {

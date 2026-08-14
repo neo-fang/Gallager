@@ -97,7 +97,7 @@
         private let fileURL: URL?
         private var records: [SavedFolderRecord.Key: SavedFolderRecord]
         private var loaded: Bool
-        private let logger = Logger(label: "com.claudespy.layoutstore")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.layoutstore")
 
         /// Disk-backed. Loads lazily on first access.
         init(directory: URL?) {
@@ -113,8 +113,8 @@
             self.loaded = true
         }
 
-        /// Stored under the Gallager state root (`~/.gallager/state/Layouts`, or
-        /// the per-instance `--gallager-state-root` under E2E) so test runs stay
+        /// Stored under the Gallager state root (`~/.ctrlx/state/Layouts`, or
+        /// the per-instance `--ctrlx-state-root` under E2E) so test runs stay
         /// isolated and auto-cleaned rather than touching the real user library.
         static var defaultDirectory: URL? {
             GallagerPaths(stateRootOverride: parseStateRootOverride())
@@ -122,13 +122,13 @@
                 .appendingPathComponent("Layouts", isDirectory: true)
         }
 
-        /// Mirror of `AppCoordinator`'s `--gallager-state-root` parse so the
+        /// Mirror of `AppCoordinator`'s `--ctrlx-state-root` parse so the
         /// static live store lands in the same isolated tree the rest of the app
         /// uses, without threading `GallagerPaths` through a `@Dependency`.
         private static func parseStateRootOverride() -> URL? {
             let args = CommandLine.arguments
             guard
-                let flagIndex = args.firstIndex(of: "--gallager-state-root"),
+                let flagIndex = args.firstIndex(of: "--ctrlx-state-root"),
                 flagIndex + 1 < args.count,
                 !args[flagIndex + 1].isEmpty
             else { return nil }

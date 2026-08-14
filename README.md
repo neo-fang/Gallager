@@ -1,72 +1,93 @@
-<img src="website/public/logo.png" width="96" alt="Gallager logo">
+# CtrlX
 
-# Gallager
-
-Monitor and drive your coding-agent sessions — **Claude Code**, **Codex CLI**, **opencode**, and **pi** — from a Mac menu-bar app, with an iOS companion that works from anywhere over an end-to-end-encrypted relay.
-
-**Website & downloads: [gallager.app](https://gallager.app)**
+CtrlX lets you monitor and control coding-agent sessions running in tmux from
+macOS and iOS. It mirrors native terminal sessions instead of wrapping one
+specific agent provider, so existing tmux workflows and provider commands stay
+available.
 
 ## What it does
 
-- **Live tmux mirroring** — every agent session runs in a tmux pane that Gallager mirrors in real time, on your Mac and on your iPhone.
-- **Session awareness** — knows when an agent is working, finished, or waiting on you (permission prompts, questions, plan approvals) and raises badges and notifications instead of making you poll terminals.
-- **Remote control** — answer permission prompts, reply to questions, send keystrokes, and start new sessions from the iOS app.
-- **Workbench** — file browser, git status, and an in-app prompt editor (Ctrl-G from the terminal) around each session.
-- **Token/cost meter** — per-session token, cost, and latency tracking via OTLP telemetry.
-- **End-to-end encrypted** — the relay only routes ciphertext; it can't read your terminals. Self-host it or use the hosted one.
-
-Anything that runs in tmux can be mirrored and streamed as a plain terminal; agents beyond the built-in ones are supported through [sidecar plugins](docs/plugins/sidecar-authoring.md) (see [`plugins/opencode`](plugins/opencode) and [`plugins/pi`](plugins/pi) for complete examples).
+- Mirrors local and remote tmux sessions, windows, and panes in real time.
+- Detects working, completed, permission, question, and plan-approval states.
+- Sends terminal input, answers agent prompts, and shows desktop or iOS notifications.
+- Provides a file browser, Git workbench, prompt editor, and token/cost telemetry.
+- Uses end-to-end encryption; the Relay routes encrypted frames and cannot read terminals.
+- Supports additional coding agents through open sidecar plugins.
 
 ## Components
 
-| Component | Description | Source |
-|---|---|---|
-| Mac app | tmux pane mirroring, agent hooks, workbench UI | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
-| Relay server | Vapor app (Docker/Linux): device pairing, WebSocket routing, E2EE passthrough | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
-| iOS app | Remote monitoring and command dispatch | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
+| Component | Responsibility | Source |
+| --- | --- | --- |
+| CtrlX for Mac | tmux mirroring, agent integration, workbench and remote host | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
+| CtrlX Relay | pairing, encrypted WebSocket routing and optional push dispatch | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
+| CtrlX for iOS | remote viewing, input and agent actions | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
 
-> Internal target and module names predate the rename to Gallager and still say "ClaudeSpy" — same project.
-
-## Install
-
-- **Mac app** — download from [gallager.app](https://gallager.app); updates arrive via Sparkle.
-- **iOS app** — [TestFlight](https://testflight.apple.com/join/yFQnxgDv).
+Internal targets and Swift modules retain their historical `ClaudeSpy*` names.
+They are implementation details and deliberately remain stable to reduce
+upstream merge risk.
 
 ## Build from source
 
-Requires a recent Xcode (Swift 6.3+ toolchain), macOS 15+, and tmux.
+Requirements:
 
-- **Mac app** — open `ClaudeSpy.xcworkspace`, build the `ClaudeSpyServer` scheme.
-- **iOS app** — same workspace, `ClaudeSpy` scheme (iOS 17+).
-- **Relay server** —
-  ```sh
-  cd ClaudeSpyPackage
-  cp .env.example .env
-  docker compose up -d
-  ```
-- **Tests** — `swift test` in `ClaudeSpyPackage`; end-to-end suite via `./scripts/e2e-test.sh` (see [docs/e2e-testing.md](docs/e2e-testing.md)).
+- A recent Xcode with Swift 6.3 or newer.
+- macOS 15 or newer.
+- tmux installed for Mac terminal sessions.
 
-Local installable packages must be built from the primary worktree. Run
-`./scripts/package-local-macos.sh` for the signed DMG. For a personal-device
-iOS IPA, copy `Config/Local.xcconfig.example` to the ignored
-`Config/Local.xcconfig`, set your development team and bundle ID, then run
-`./scripts/package-local-ios.sh`. Both scripts keep Xcode and SwiftPM caches in
-`.build-local/`, write artifacts to `dist/`, and embed a visible UTC build stamp
-and Git revision in the app's About UI.
+Open `ClaudeSpy.xcworkspace` and build:
 
-Tip: the repo carries e2e screenshot baselines, so a blobless clone is much faster: `git clone --filter=blob:none https://github.com/gpambrozio/Gallager.git`
+- `ClaudeSpyServer` for the macOS application.
+- `ClaudeSpy` for the iOS application.
 
-## Self-hosting
+Build the Relay locally:
 
-The relay is free to self-host — one lightweight Vapor server behind any TLS reverse proxy, no license keys. See [docs/self-hosting.md](docs/self-hosting.md). Prefer not to run a server? There's a [hosted relay](https://gallager.app/pricing/) with a paid subscription.
+```sh
+./sbin/auto-env.sh
+./sbin/start_server.sh
+```
 
-## Documentation
+Run package tests:
 
-- [Architecture (Mac app)](docs/architecture.md) and [distributed architecture](docs/distributed-architecture-plan.md)
-- [End-to-end encryption design](docs/e2ee-encryption-plan.md)
-- [Sidecar plugin authoring](docs/plugins/sidecar-authoring.md)
-- [E2E testing](docs/e2e-testing.md)
+```sh
+swift test --package-path ClaudeSpyPackage
+```
 
-## License
+Release artifacts must be built from the primary worktree using the checked-in
+packaging scripts. Local signing overrides and all credentials remain in ignored
+configuration files.
 
-[AGPL-3.0](LICENSE). The apps and relay are open source; run them, audit them, fork them — if you offer a modified relay as a network service, share your changes.
+## Source corresponding to binaries
+
+Every published CtrlX binary and hosted Relay version must identify an immutable
+Git tag and commit containing its complete corresponding source and build scripts.
+A release record has this shape:
+
+```text
+Release: v3.0.0
+Binary: CtrlX-3.0.0.dmg
+Source: refs/tags/v3.0.0
+Commit: <full Git commit>
+License: GNU AGPL-3.0
+```
+
+The hosted Relay must expose the same information through `/version` and `/source`.
+Links to a moving branch alone are not sufficient corresponding source.
+
+## Origin and license
+
+CtrlX is an independent distribution based on
+[Gallager](https://github.com/gpambrozio/Gallager). The distribution baseline is
+commit `919c7772928531d4d0bb266bdf275691d361901e` dated 2026-08-14. CtrlX is
+maintained by JarvisZeng and is not affiliated with or endorsed by the Gallager
+project.
+
+The complete Git history and original copyright notices are retained. CtrlX is
+distributed under [GNU AGPL-3.0](LICENSE). If you provide a modified Relay over a
+network, you must offer users the complete corresponding source for that running
+version. See [NOTICE.md](NOTICE.md), [MODIFICATIONS.md](MODIFICATIONS.md), and
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
+## Development plan
+
+The independent-distribution work is tracked in
+[`docs/v3.0.0/IMPLEMENTATION_PLAN.md`](docs/v3.0.0/IMPLEMENTATION_PLAN.md).

@@ -2,7 +2,7 @@ import Foundation
 
 /// User-assigned color for a tmux session, shown as a small dot in the sidebar.
 ///
-/// Persisted on the tmux server via the `@gallager-color` user option so the
+/// Persisted on the tmux server via the `@ctrlx-color` user option so the
 /// choice survives app restarts. The raw string values double as the wire
 /// format for the `session.set_color` API and the storage value tmux holds.
 public enum SessionColor: String, Codable, Sendable, CaseIterable, Identifiable, Hashable {

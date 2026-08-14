@@ -524,7 +524,7 @@ public extension FileSystemLoadingService {
                 if let text = fake.textContent {
                     let filename = URL(fileURLWithPath: path).lastPathComponent
                     let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("claudespy-e2e-\(filename)")
+                        .appendingPathComponent("ctrlx-e2e-\(filename)")
                     try? text.write(to: tempURL, atomically: true, encoding: .utf8)
                     return tempURL
                 }

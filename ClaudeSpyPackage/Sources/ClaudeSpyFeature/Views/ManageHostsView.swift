@@ -13,7 +13,7 @@
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
 
-        private let logger = Logger(label: "com.claudespy.managehosts")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.managehosts")
 
         @State private var showPairingSheet = false
         @State private var hostToDelete: PairedHost?

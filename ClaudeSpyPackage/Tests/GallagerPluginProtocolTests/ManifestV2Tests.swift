@@ -14,7 +14,7 @@ struct ManifestV2Tests {
         {
           "schema_version": 1, "id": "opencode", "display_name": "OpenCode",
           "short_name": "OpenCode", "version": "1.2.0", "publisher": "opencode.ai",
-          "manifest_url": "https://opencode.ai/plugins/gallager.json",
+          "manifest_url": "https://opencode.ai/plugins/ctrlx.json",
           "bundle_url": "https://opencode.ai/plugins/opencode-1.2.0.zip",
           "bundle_sha256": "abc123", "runtime": "sidecar",
           "sidecar": { "executable": "bin/sidecar", "args": ["--serve"] },

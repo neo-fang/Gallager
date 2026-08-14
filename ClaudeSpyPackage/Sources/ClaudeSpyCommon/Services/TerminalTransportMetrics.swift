@@ -112,7 +112,7 @@ final public class TerminalTransportMetrics: Sendable {
 
     private let label: String
     private let emissionInterval: Duration
-    private let logger = Logger(label: "com.claudespy.terminaltransport")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.terminaltransport")
     private let state = OSAllocatedUnfairLock(initialState: State())
 
     public init(label: String, emissionInterval: Duration = .seconds(10)) {

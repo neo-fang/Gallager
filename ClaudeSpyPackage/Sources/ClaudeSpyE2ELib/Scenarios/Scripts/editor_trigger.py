@@ -19,7 +19,7 @@ if len(sys.argv) < 3:
 
 pane_id = sys.argv[1]
 file_path = sys.argv[2]
-sock_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "gallager-e2e.sock")
+sock_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "ctrlx-e2e.sock")
 
 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 try:

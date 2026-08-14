@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The orchestrator stages a folder-dropped `echo-sidecar` plugin in the E2E
 /// sandbox before the app launches. On startup, `AppCoordinator` discovers the
-/// plugin under `<gallagerRoot>/plugins/echo-sidecar/`, spawns the
+/// plugin under `<ctrlxRoot>/plugins/echo-sidecar/`, spawns the
 /// `EchoPluginSidecar` binary, and registers it with the plugin runtime.
 ///
 /// Flow proven end-to-end:

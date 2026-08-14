@@ -80,7 +80,7 @@ enum LicensingTestSupport {
 
     static func tempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("claudespy-licensing-tests-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-licensing-tests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

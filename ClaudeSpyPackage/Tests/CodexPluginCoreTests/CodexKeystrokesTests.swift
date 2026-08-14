@@ -13,12 +13,12 @@ struct CodexKeystrokesTests {
     private func makeCore() async throws -> (CodexPluginCore, MockPluginHost) {
         let host = MockPluginHost()
         let correlationRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-ks-corr-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-ks-corr-\(UUID().uuidString)")
         let core = CodexPluginCore(correlation: CodexSessionCorrelation(root: correlationRoot))
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cx-ks-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cx-ks-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: Data(),
             marketplaceSource: URL(fileURLWithPath: "/")

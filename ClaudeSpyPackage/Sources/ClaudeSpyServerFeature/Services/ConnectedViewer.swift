@@ -47,7 +47,7 @@ final public class ConnectedViewer: Identifiable {
 
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.connectedviewer")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.connectedviewer")
 
     @ObservationIgnored
     @Dependency(PushNotificationLogService.self) private var pushNotificationLog

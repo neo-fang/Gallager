@@ -27,7 +27,7 @@ public struct PaneKey: Hashable, Sendable {
 final public class SessionStore {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.sessionstore")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.sessionstore")
 
     /// Per-pane state keyed by `(pairId, paneId)` to disambiguate panes
     /// whose IDs collide across hosts.

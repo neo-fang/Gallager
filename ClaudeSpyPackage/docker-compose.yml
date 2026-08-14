@@ -1,13 +1,25 @@
+name: ${CTRLX_COMPOSE_PROJECT_NAME:-ctrlx}
+
 services:
   relay:
-    build: .
-    container_name: claudespy-relay
+    build:
+      context: .
+      args:
+        CTRLX_VERSION: ${CTRLX_VERSION:?set CTRLX_VERSION in the selected environment file}
+        CTRLX_SOURCE_REVISION: ${CTRLX_SOURCE_REVISION:?set CTRLX_SOURCE_REVISION in the selected environment file}
+        CTRLX_SOURCE_REPOSITORY: ${CTRLX_SOURCE_REPOSITORY:-https://github.com/jicezeng/CtrlX}
     ports:
-      - "127.0.0.1:8080:8080"
+      - "${CTRLX_RELAY_HOST_ADDRESS:-127.0.0.1}:${CTRLX_RELAY_PORT:-8080}:8080"
     env_file:
-      - .env
+      - ${CTRLX_ENV_FILE:-.env.production}
     environment:
       - LOG_LEVEL=${LOG_LEVEL:-warning}
+      - CTRLX_VERSION=${CTRLX_VERSION}
+      - CTRLX_SOURCE_REVISION=${CTRLX_SOURCE_REVISION}
+      - CTRLX_SOURCE_REPOSITORY=${CTRLX_SOURCE_REPOSITORY:-https://github.com/jicezeng/CtrlX}
+      - CTRLX_PROTOCOL_VERSION=${CTRLX_PROTOCOL_VERSION:-3.0}
+      - CTRLX_RELAY_BIND_ADDRESS=0.0.0.0
+      - CTRLX_RELAY_PORT=8080
       - PAIRING_CODE_EXPIRY_SECONDS=${PAIRING_CODE_EXPIRY_SECONDS:-300}
       # Licensing (hosted-relay monetization) — leave BOTH unset for self-hosting.
       # Setting only one of the two ids fails the boot on purpose.

@@ -44,7 +44,7 @@
 
         // MARK: - Tests
 
-        /// Proves the supervisor injects GALLAGER_INGRESS_SOCK + GALLAGER_PLUGIN_ID into the
+        /// Proves the supervisor injects CTRLX_INGRESS_SOCK + CTRLX_PLUGIN_ID into the
         /// child env, and that EchoPluginSidecar.install() templates both into
         /// <pluginRoot>/generated/hook.sh.
         @Test("install writes hook.sh containing ingress socket path and plugin id")

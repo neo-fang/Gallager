@@ -15,10 +15,10 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         abstract: "E2E test coordinator for ClaudeSpy"
     )
 
-    @Option(name: .long, help: "Path to built Gallager.app (iOS simulator)")
+    @Option(name: .long, help: "Path to built CtrlX.app (iOS simulator)")
     var iosAppPath: String?
 
-    @Option(name: .long, help: "Path to built Gallager.app (macOS)")
+    @Option(name: .long, help: "Path to built CtrlX.app (macOS)")
     var macosAppPath: String?
 
     @Option(name: .long, help: "Simulator device name")
@@ -50,11 +50,11 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Base directory for per-instance --gallager-state-root (plugin ingress socket + state). Default: <tmpdir>/claudespy-e2e-gallager"
+        help: "Base directory for per-instance --ctrlx-state-root (plugin ingress socket + state). Default: <tmpdir>/ctrlx-e2e-ctrlx"
     )
-    var gallagerStateRoot: String?
+    var ctrlxStateRoot: String?
 
-    @Option(name: .long, help: "Path to write verbose logs (default: <tmpdir>/claudespy-e2e/e2e.log)")
+    @Option(name: .long, help: "Path to write verbose logs (default: <tmpdir>/ctrlx-e2e/e2e.log)")
     var logFile: String?
 
     @Option(name: .long, help: "Dashboard URL for live CI progress updates (e.g. http://localhost:3000). Fails silently if unreachable.")
@@ -90,7 +90,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         }
 
         // Redirect verbose swift-log output to a file so the terminal stays clean
-        let logPath = logFile ?? (NSTemporaryDirectory() + "claudespy-e2e/e2e.log")
+        let logPath = logFile ?? (NSTemporaryDirectory() + "ctrlx-e2e/e2e.log")
         let logDir = (logPath as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
         E2ELogging.bootstrapFileLogging(to: logPath)
@@ -126,7 +126,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
         fputs("  Recording:   \(record ? "enabled (\(recordMode))" : "disabled")\n", stderr)
         fputs("  Tmux socket: \(tmuxSocket ?? "(default)")\n", stderr)
         fputs("  E2E runner:  \(e2eRunnerPath ?? "(none)")\n", stderr)
-        fputs("  State root:  \(gallagerStateRoot ?? "(default: <tmpdir>/claudespy-e2e-gallager)")\n", stderr)
+        fputs("  State root:  \(ctrlxStateRoot ?? "(default: <tmpdir>/ctrlx-e2e-ctrlx)")\n", stderr)
         fputs("  Log file:    \(logPath)\(reset)\n\n", stderr)
 
         var reporters: [any TestProgressReporter] = []
@@ -167,7 +167,7 @@ struct ClaudeSpyE2ECommand: AsyncParsableCommand {
             e2eRunnerPath: e2eRunnerPath,
             skipComparison: noCompare,
             stageLayoutEnabled: record,
-            gallagerStateRootBase: gallagerStateRoot,
+            ctrlxStateRootBase: ctrlxStateRoot,
             reporter: reporter
         )
 

@@ -18,7 +18,7 @@ struct CodexSessionEndMonitorTests {
         closePaneOnSessionEnd: Bool = false
     ) async throws -> (CodexPluginCore, MockPluginHost, CodexSessionCorrelation, URL) {
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-mon-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-mon-\(UUID().uuidString)")
         let store = CodexSessionCorrelation(root: root)
         let core = CodexPluginCore(correlation: store)
         let host = MockPluginHost()
@@ -28,7 +28,7 @@ struct CodexSessionEndMonitorTests {
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cx-mon-state-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cx-mon-state-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: settingsData,
             marketplaceSource: URL(fileURLWithPath: "/")

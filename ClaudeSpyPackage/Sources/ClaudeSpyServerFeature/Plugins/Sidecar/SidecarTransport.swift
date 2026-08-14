@@ -41,7 +41,7 @@ public enum TransportError: Error, Equatable {
 public actor SidecarTransport {
     private let writeHandle: FileHandle
     private weak var delegate: (any SidecarTransportDelegate)?
-    private let logger = Logger(label: "com.claudespy.sidecar.transport")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.sidecar.transport")
 
     private var decoder = FrameDecoder()
     /// Pending outbound requests keyed by message id. Each continuation is resumed
@@ -52,7 +52,7 @@ public actor SidecarTransport {
     private var loop: Task<Void, Never>?
 
     /// Serialises writes; a full stdin buffer must not stall the actor.
-    private let writeQueue = DispatchQueue(label: "com.claudespy.sidecar.write", qos: .userInitiated)
+    private let writeQueue = DispatchQueue(label: "com.jicezeng.ctrlx.sidecar.write", qos: .userInitiated)
 
     /// Deadline for a single offloaded write. A write that outlives this means the
     /// peer stopped draining stdin; we treat it as peer-closed and tear down.

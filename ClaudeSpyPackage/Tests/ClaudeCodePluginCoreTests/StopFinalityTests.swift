@@ -31,7 +31,7 @@ struct StopFinalityTests {
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cc-stop-finality-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cc-stop-finality-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: settings,
             marketplaceSource: URL(fileURLWithPath: "/")

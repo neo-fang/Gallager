@@ -15,7 +15,7 @@ RESULTS_REPO="git@github.com:gpambrozio/ClaudeSpyTestResults.git"
 # Anchor to the main worktree's parent so all worktrees share one results clone.
 MAIN_WORKTREE_ROOT="$(cd "$(git -C "$PROJECT_ROOT" rev-parse --git-common-dir)/.." && pwd)"
 RESULTS_DIR="$(dirname "$MAIN_WORKTREE_ROOT")/ClaudeSpyTestResults"
-E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
+E2E_TMPDIR="${TMPDIR:-/tmp}/ctrlx-e2e"
 mkdir -p "$E2E_TMPDIR"
 JSON_OUTPUT="$E2E_TMPDIR/e2e-results.json"
 SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
@@ -29,7 +29,7 @@ E2E_ARGS=()
 # from another branch (e.g. ProjectNavigator 1.8.0 left over from a different
 # PR's build) can't carry into this run. e2e-test.sh already honors
 # SANDBOX_DERIVED_DATA as its DerivedData override.
-REPORT_DERIVED_DATA="${TMPDIR:-/tmp}/claudespy-e2e-report-derived-data"
+REPORT_DERIVED_DATA="${TMPDIR:-/tmp}/ctrlx-e2e-report-derived-data"
 export REPORT_DERIVED_DATA
 trap 'rm -rf "$REPORT_DERIVED_DATA"' EXIT
 

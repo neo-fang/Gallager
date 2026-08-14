@@ -99,7 +99,7 @@ struct RenameWindowCommand: ParsableCommand {
         Sets the tmux window name (the tab label). Always targets a specific
         window — there is no `--session` or `--pane` form, since renaming a
         single tab is the only operation that makes sense at this scope. To
-        change a session-wide title shown in the sidebar, use `gallager
+        change a session-wide title shown in the sidebar, use `ctrlx
         set-title` instead.
         """
     )

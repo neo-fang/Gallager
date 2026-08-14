@@ -3,17 +3,17 @@ import Guide from "../../layouts/Guide.astro";
 ---
 
 <Guide
-  title="Agent plugins — Gallager"
-  description="How Gallager tracks Claude Code, Codex, opencode, pi and omp sessions — and how to add any other coding agent with a sidecar plugin."
+  title="Agent plugins — CtrlX"
+  description="How CtrlX tracks Claude Code, Codex, opencode, pi and omp sessions — and how to add any other coding agent with a sidecar plugin."
   heroTitle="Agent plugins"
-  lede="Claude Code and Codex work out of the box. Everything else is a sidecar plugin — a small executable that teaches Gallager an agent's lifecycle."
+  lede="Claude Code and Codex work out of the box. Everything else is a sidecar plugin — a small executable that teaches CtrlX an agent's lifecycle."
 >
   <h2>What an integration does</h2>
   <p>
-    Gallager hooks into each agent's lifecycle so every session in the sidebar shows a
+    CtrlX hooks into each agent's lifecycle so every session in the sidebar shows a
     live status — working, needs permission, waiting for an answer, idle, done. When an
     agent asks something, the actual permission prompt or question form surfaces in
-    Gallager, on your Mac and on your phone, and your answer is delivered back into the
+    CtrlX, on your Mac and on your phone, and your answer is delivered back into the
     agent's terminal. Integrations can also feed the per-session token/cost/latency
     meter via OpenTelemetry.
   </p>
@@ -25,22 +25,20 @@ import Guide from "../../layouts/Guide.astro";
   <h2>Installing a sidecar plugin</h2>
   <p>
     Other agents are supported through sidecar plugins: standalone executables that
-    Gallager spawns and talks to over JSON-RPC. Three are published today, for
+    CtrlX spawns and talks to over JSON-RPC. Three are published today, for
     <strong>opencode</strong>, <strong>pi</strong> and <strong>omp</strong>
     (<a href="https://omp.sh">oh-my-pi</a>). Install from
-    <strong>Settings → Agents → Add Plugin from URL…</strong> by pasting the manifest
-    URL, or from the command line:
+    <strong>Settings → Agents → Add Plugin from URL…</strong> by pasting a manifest
+    URL from a publisher you trust. CtrlX does not currently operate a public plugin
+    update service.
   </p>
-  <pre>gallager plugin install https://updates.gallager.app/plugins/opencode/plugin.json
-gallager plugin install https://updates.gallager.app/plugins/pi/plugin.json
-gallager plugin install https://updates.gallager.app/plugins/omp/plugin.json</pre>
   <p>
     Installs are deliberately paranoid: HTTPS-only manifests, a trust dialog showing
     publisher, version and bundle URL before anything is downloaded, SHA-256
     verification of the bundle, and hardened unpacking. Local <code>.zip</code> installs
     (Settings → Agents → Install from Zip…) follow the same flow. Update later with
-    <code>gallager plugin update &lt;id&gt;</code>, remove with
-    <code>gallager plugin uninstall &lt;id&gt;</code>.
+    <code>ctrlx plugin update &lt;id&gt;</code>, remove with
+    <code>ctrlx plugin uninstall &lt;id&gt;</code>.
   </p>
 
   <h2>What a plugin can do</h2>
@@ -63,6 +61,6 @@ gallager plugin install https://updates.gallager.app/plugins/omp/plugin.json</pr
     A packaging script builds and checksums the distributable bundle for you.
   </p>
   <p>
-    <a href="https://github.com/gpambrozio/Gallager">Browse the source on GitHub →</a>
+    <a href="https://github.com/jicezeng/CtrlX">Browse the source on GitHub →</a>
   </p>
 </Guide>

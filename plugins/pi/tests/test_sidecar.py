@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Standalone tests for the pi Gallager sidecar.
+Standalone tests for the pi CtrlX sidecar.
 
 Drives `bin/sidecar` as a real subprocess over its stdio JSON-RPC transport and
 asserts the `translate_event` mapping (session lifecycle, working/done states),
@@ -262,9 +262,9 @@ class InstallTests(unittest.TestCase):
         self.home = tempfile.mkdtemp(prefix="pi-sidecar-test-")
         self.sc = Sidecar(env={
             "HOME": self.home,
-            "GALLAGER_INGRESS_SOCK": "/tmp/test-ingress.sock",
-            "GALLAGER_PLUGIN_ID": "pi",
-            "GALLAGER_PLUGIN_ROOT": ROOT,
+            "CTRLX_INGRESS_SOCK": "/tmp/test-ingress.sock",
+            "CTRLX_PLUGIN_ID": "pi",
+            "CTRLX_PLUGIN_ROOT": ROOT,
         })
         self.sc.request("initialize", {"otlpReceiverEndpoint": "http://127.0.0.1:9999"})
 
@@ -274,7 +274,7 @@ class InstallTests(unittest.TestCase):
         shutil.rmtree(self.home, ignore_errors=True)
 
     def bridge_path(self):
-        return os.path.join(self.home, ".pi", "agent", "extensions", "gallager.ts")
+        return os.path.join(self.home, ".pi", "agent", "extensions", "ctrlx.ts")
 
     def test_install_bakes_tokens_and_status_roundtrip(self):
         r = self.sc.request("install_status", {"configRoot": None})
@@ -287,10 +287,10 @@ class InstallTests(unittest.TestCase):
             content = f.read()
         self.assertIn('"/tmp/test-ingress.sock"', content)
         self.assertIn('"http://127.0.0.1:9999"', content)
-        self.assertNotIn("__GALLAGER_INGRESS_SOCK__", content)
-        self.assertNotIn("__GALLAGER_PLUGIN_ID__", content)
-        self.assertNotIn("__GALLAGER_OTLP_ENDPOINT__", content)
-        self.assertIn("GallagerPiBridge", content)
+        self.assertNotIn("__CTRLX_INGRESS_SOCK__", content)
+        self.assertNotIn("__CTRLX_PLUGIN_ID__", content)
+        self.assertNotIn("__CTRLX_OTLP_ENDPOINT__", content)
+        self.assertIn("CtrlXPiBridge", content)
 
         r = self.sc.request("install_status", {"configRoot": None})
         self.assertEqual(r["result"], {"installed": {"version": "0.1.0"}})
@@ -306,7 +306,7 @@ class InstallTests(unittest.TestCase):
         os.makedirs(project)
         r = self.sc.request("install", {"configRoot": project})
         self.assertIn("installed", r["result"])
-        local = os.path.join(project, ".pi", "extensions", "gallager.ts")
+        local = os.path.join(project, ".pi", "extensions", "ctrlx.ts")
         self.assertTrue(os.path.exists(local))
         r = self.sc.request("install_status", {"configRoot": project})
         self.assertEqual(r["result"], {"installed": {"version": "0.1.0"}})
@@ -326,14 +326,14 @@ class InstallTests(unittest.TestCase):
         nasty = '/tmp/a"b\\c'
         sc = Sidecar(env={
             "HOME": home,
-            "GALLAGER_INGRESS_SOCK": nasty,
-            "GALLAGER_PLUGIN_ID": "pi",
-            "GALLAGER_PLUGIN_ROOT": ROOT,
+            "CTRLX_INGRESS_SOCK": nasty,
+            "CTRLX_PLUGIN_ID": "pi",
+            "CTRLX_PLUGIN_ROOT": ROOT,
         })
         try:
             sc.request("initialize", {})
             self.assertIn("installed", sc.request("install", {"configRoot": None})["result"])
-            bridge = os.path.join(home, ".pi", "agent", "extensions", "gallager.ts")
+            bridge = os.path.join(home, ".pi", "agent", "extensions", "ctrlx.ts")
             with open(bridge, "r", encoding="utf-8") as f:
                 content = f.read()
             # The RAW_SOCK assignment is a single balanced, escaped string literal.

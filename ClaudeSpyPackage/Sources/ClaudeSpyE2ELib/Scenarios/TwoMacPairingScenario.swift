@@ -26,7 +26,7 @@ public enum TwoMacPairingScenario {
 
         TestStep.log("Opening Panes window on viewer and verifying remote pane")
         TestStep.macOpenPanesWindow(instance: 1)
-        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5, instance: 1)
+        TestStep.macWaitForWindow(titled: "CtrlX", timeout: 5, instance: 1)
 
         // The remote pane should show in the sidebar with format "session:window.pane"
         TestStep.macWaitForElement(titled: "e2e-mac-pair", timeout: 15, instance: 1)
@@ -72,7 +72,7 @@ public enum TwoMacPairingScenario {
 
         // Open the host's Panes window and select its session to visually verify
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
+        TestStep.macWaitForWindow(titled: "CtrlX", timeout: 5)
         TestStep.macWaitForElement(titled: "e2e-mac-pair", timeout: 10)
         TestStep.macClickButton(titled: "e2e-mac-pair")
 

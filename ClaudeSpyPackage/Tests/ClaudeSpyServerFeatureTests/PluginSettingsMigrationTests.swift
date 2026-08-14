@@ -12,7 +12,7 @@ struct PluginSettingsMigrationTests {
     /// A fresh temp state root + `GallagerPaths` override, auto-cleaned.
     private func makePaths() -> (GallagerPaths, URL) {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("gallager-migration-test-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-migration-test-\(UUID().uuidString)")
             .appendingPathComponent("state")
         return (GallagerPaths(stateRootOverride: root), root)
     }

@@ -121,7 +121,7 @@
             // (registry.core(pluginId)?.deliverResponse(...)).
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-resp-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-resp-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             let host = RecordingHost()

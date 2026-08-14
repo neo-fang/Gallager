@@ -646,7 +646,7 @@
                     // no restart advice — just the fact of the update.
                     #expect(body.contains("Pi updated to 2.0.0"))
                     #expect(!body.contains("restart your Pi sessions"))
-                    #expect(body.contains("restart Gallager and any Opencode sessions"))
+                    #expect(body.contains("restart CtrlX and any Opencode sessions"))
                     manager.stop()
                 }
             }
@@ -794,7 +794,7 @@
                 #expect(manager.restartNotices.first?.needsAppRestart == true)
                 #expect(manager.inlineStatus["pi"] == .updated(version: "2.0.0", needsAppRestart: true))
                 let body = try #require(harness.notifications.first)
-                #expect(body.contains("restart Gallager and any Pi sessions"))
+                #expect(body.contains("restart CtrlX and any Pi sessions"))
             }
         }
 

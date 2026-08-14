@@ -15,9 +15,9 @@ struct ApplyCommand: ParsableCommand {
         read from stdin.
 
         Examples:
-          gallager apply workers.yml
-          gallager apply ./.gallager.yaml --rebuild
-          envsubst < layout.tmpl.yaml | gallager apply -
+          ctrlx apply workers.yml
+          ctrlx apply ./.ctrlx.yaml --rebuild
+          envsubst < layout.tmpl.yaml | ctrlx apply -
         """
     )
 
@@ -111,8 +111,8 @@ struct ApplyCommand: ParsableCommand {
             // Directory lookup order — first match wins. Mirrors tmuxp's own
             // resolution so projects with both files behave predictably.
             let candidates = [
-                ".gallager.yaml",
-                ".gallager.yml",
+                ".ctrlx.yaml",
+                ".ctrlx.yml",
                 ".tmuxp.yaml",
                 ".tmuxp.yml",
             ]

@@ -123,10 +123,10 @@ public enum TerminalEnvVarsScenario {
             target: "${envPane}",
             command: #"echo "HISTCHECK=[$HISTFILE][$SAVEHIST]" && echo "ZDOTCHECK=${ZDOTDIR:t}""#
         )
-        // The wait doubles as the ZDOTDIR assertion: `ZDOTCHECK=gallager-e2e-zdotdir`
+        // The wait doubles as the ZDOTDIR assertion: `ZDOTCHECK=ctrlx-e2e-zdotdir`
         // only exists in the shell's expanded output, never in the typed line.
         TestStep.tmuxWaitForPaneContent(
-            target: "${envPane}", contains: "ZDOTCHECK=gallager-e2e-zdotdir"
+            target: "${envPane}", contains: "ZDOTCHECK=ctrlx-e2e-zdotdir"
         )
         TestStep.tmuxCapturePaneContent(target: "${envPane}", storeAs: "appPaneHist")
         TestStep.assertStoredContains(key: "appPaneHist", substring: "HISTCHECK=[][0]")
@@ -142,7 +142,7 @@ public enum TerminalEnvVarsScenario {
             command: #"echo "HISTCHECK=[$HISTFILE][$SAVEHIST]" && echo "ZDOTCHECK=${ZDOTDIR:t}""#
         )
         TestStep.tmuxWaitForPaneContent(
-            target: "${histPane}", contains: "ZDOTCHECK=gallager-e2e-zdotdir"
+            target: "${histPane}", contains: "ZDOTCHECK=ctrlx-e2e-zdotdir"
         )
         TestStep.tmuxCapturePaneContent(target: "${histPane}", storeAs: "orchPaneHist")
         TestStep.assertStoredContains(key: "orchPaneHist", substring: "HISTCHECK=[][0]")

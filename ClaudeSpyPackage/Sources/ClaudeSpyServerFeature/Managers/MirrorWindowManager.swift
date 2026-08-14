@@ -56,7 +56,7 @@ final public class MirrorWindowManager {
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
 
-    private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.mirrorwindowmanager")
     private let settings: AppSettings
     private let tmuxService: TmuxService
 

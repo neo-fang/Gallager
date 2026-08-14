@@ -18,7 +18,7 @@ never promote to one from the other's numbers. The beta-Mac suite gates the
 
 - `StopFinalityDataset` (SPM target) — schema + committed seeds
   (`Resources/seed-cases.json`, past field failures; the regression suite).
-  Mined cases: `~/.gallager/eval/stop-finality-mined.json` (env override
+  Mined cases: `~/.ctrlx/eval/stop-finality-mined.json` (env override
   `STOP_FINALITY_MINED_DATASET`). NEVER commit mined data — verbatim
   session excerpts.
 - `scripts/stop-finality-dataset.py` — `mine` → `prelabel` (claude CLI) →
@@ -53,7 +53,7 @@ side and needs no beta-Mac re-run (and vice versa). Prove it when in doubt:
 1. Edit ONLY `CandidatePrompt.instructions` in
    `Tests/StopFinalityEvaluations/StopFinalityEvaluations.swift`.
 2. `swift test --filter StopFinalityEvaluations` — compare candidate vs
-   baseline (`~/.gallager/eval/results/*.json`, or Xcode's comparison view).
+   baseline (`~/.ctrlx/eval/results/*.json`, or Xcode's comparison view).
 3. Promotion: copy the winning text into `productionInstructions27` (guide
    changes go to `productionGuide27`), reset CandidatePrompt to
    `= productionInstructions`, re-run the suite (both tests green, seeds
@@ -175,4 +175,4 @@ immune, but a first-run outlier is still worth a warm re-run.
 New field failure → find the message (`mine` + grep the candidates file),
 add it to `seed-cases.json` with the next W/F id + a dated note, bump the
 count in `StopFinalityDatasetTests`. Re-run `mine`/`prelabel`/`review`/
-`finalize` occasionally to refresh the mined set; sync ~/.gallager/eval/stop-finality-mined.json to the beta Mac (scp) when they change.
+`finalize` occasionally to refresh the mined set; sync ~/.ctrlx/eval/stop-finality-mined.json to the beta Mac (scp) when they change.

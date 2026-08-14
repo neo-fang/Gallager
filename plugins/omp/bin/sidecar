@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Gallager sidecar plugin for omp (oh-my-pi, https://omp.sh — can1357's
+CtrlX sidecar plugin for omp (oh-my-pi, https://omp.sh — can1357's
 coding-first fork of pi, shipped as a native binary).
 
-A sidecar is a long-lived child process Gallager spawns once and talks to over
+A sidecar is a long-lived child process CtrlX spawns once and talks to over
 stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sidecar
-turns omp's extension-bus events (forwarded by the companion `gallager.ts` omp
-extension → Gallager's ingress socket → here as `translate_event` calls) into the
-agent-blind `PluginEvent` shape Gallager understands.
+turns omp's extension-bus events (forwarded by the companion `ctrlx.ts` omp
+extension → CtrlX's ingress socket → here as `translate_event` calls) into the
+agent-blind `PluginEvent` shape CtrlX understands.
 
 omp inherits pi's complete event bus but diverged in three ways that shape this
 file (all verified against omp v17.1.8):
@@ -15,7 +15,7 @@ file (all verified against omp v17.1.8):
     /resume, /fork, branch/tree jumps) has its own events, which the bridge
     re-labels as session_start frames — so a session_start here never follows a
     shutdown, and `session_shutdown` means process exit ONLY (no reason
-    filtering needed; every shutdown ends the Gallager session).
+    filtering needed; every shutdown ends the CtrlX session).
   - `agent_end` carries `willContinue` for auto-retry continuations; the bridge
     drops those, so every agent_end that arrives here is a real settle.
   - omp HAS a tool-approval gate (`tools.approvalMode: always-ask|write`;
@@ -45,8 +45,8 @@ import sys
 PLUGIN_VERSION = "0.1.0"
 
 # Marker the bridge file carries; install_status greps for it to tell an
-# installed Gallager bridge from any other extension the user may have.
-BRIDGE_MARKER = "GallagerOmpBridge"
+# installed CtrlX bridge from any other extension the user may have.
+BRIDGE_MARKER = "CtrlXOmpBridge"
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ def read_message():
     while b"\r\n\r\n" not in header:
         ch = sys.stdin.buffer.read(1)
         if not ch:
-            return None  # stdin closed → Gallager is gone
+            return None  # stdin closed → CtrlX is gone
         header += ch
     length = 0
     for line in header.split(b"\r\n"):
@@ -177,9 +177,9 @@ SESSION_PENDING = {}  # session_id → set(request_id)
 # command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
 SETTINGS = {}
 
-# Gallager's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
+# CtrlX's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
 # delivered on the initialize env (PluginEnvWire.otlpReceiverEndpoint). Baked
-# into the bridge at install so omp — which does not inherit Gallager's env —
+# into the bridge at install so omp — which does not inherit CtrlX's env —
 # can POST telemetry to it (issue #617). Empty when the receiver failed to
 # bind: the install then bakes an empty endpoint and telemetry stays off.
 OTLP_ENDPOINT = ""
@@ -235,7 +235,7 @@ def _build_permission(payload):
     "always allow" row — so no suggestions. Custom instructions ARE allowed:
     deny feedback is typed into the editor after the Deny lands, arriving at the
     model as a steer message. isAutoApprovable stays False — omp only prompts
-    when the user explicitly chose a non-yolo approvalMode, so Gallager's yolo
+    when the user explicitly chose a non-yolo approvalMode, so CtrlX's yolo
     auto-approve must not override that choice.
     """
     tool_name = payload.get("toolName") or "tool"
@@ -349,7 +349,7 @@ def handle_translate_event(req_id, params):
         state = state_working()
 
     elif etype == "tool_approval_resolved":
-        # Answered (in the TUI or via Gallager) — the turn continues either way
+        # Answered (in the TUI or via CtrlX) — the turn continues either way
         # (a deny feeds the model an error and the loop keeps going), so the
         # form clears back to working; agent_end settles it later.
         request_id = payload.get("toolCallId")
@@ -360,7 +360,7 @@ def handle_translate_event(req_id, params):
     elif etype == "session_shutdown":
         # omp fires this on process exit only (session replacement has its own
         # events) — so unlike pi there is no reason filtering: every shutdown
-        # ends the Gallager session, keyed by the PANE id (the host ends
+        # ends the CtrlX session, keyed by the PANE id (the host ends
         # sessions by pane).
         _clear_session_pending(session_id)
         if tmux_pane:
@@ -542,15 +542,15 @@ def _bridge_dest(config_root=None):
     `.omp/extensions/` so omp loads it there only.
     """
     if config_root:
-        return os.path.join(os.path.expanduser(config_root), ".omp", "extensions", "gallager.ts")
-    return os.path.join(_omp_agent_dir(), "extensions", "gallager.ts")
+        return os.path.join(os.path.expanduser(config_root), ".omp", "extensions", "ctrlx.ts")
+    return os.path.join(_omp_agent_dir(), "extensions", "ctrlx.ts")
 
 
 def handle_install(req_id, params):
-    sock = os.environ.get("GALLAGER_INGRESS_SOCK", "")
-    plugin_id = os.environ.get("GALLAGER_PLUGIN_ID", "omp")
-    plugin_root = os.environ.get("GALLAGER_PLUGIN_ROOT", os.getcwd())
-    template = os.path.join(plugin_root, "omp-bridge", "gallager.ts")
+    sock = os.environ.get("CTRLX_INGRESS_SOCK", "")
+    plugin_id = os.environ.get("CTRLX_PLUGIN_ID", "omp")
+    plugin_root = os.environ.get("CTRLX_PLUGIN_ROOT", os.getcwd())
+    template = os.path.join(plugin_root, "omp-bridge", "ctrlx.ts")
     dest = _bridge_dest((params or {}).get("configRoot"))
     try:
         with open(template, "r", encoding="utf-8") as f:
@@ -560,11 +560,11 @@ def handle_install(req_id, params):
         # can't break out of the TS string and make omp silently fail to load the
         # extension. Replace the QUOTED token and let json.dumps re-supply the
         # quotes: that keeps the repo template itself valid TS (its un-substituted
-        # `"__GALLAGER…"` literal is what the bridge's startsWith() smoke-test
+        # `"__CTRLX…"` literal is what the bridge's startsWith() smoke-test
         # fallback keys on).
-        content = content.replace('"__GALLAGER_INGRESS_SOCK__"', json.dumps(sock))
-        content = content.replace('"__GALLAGER_PLUGIN_ID__"', json.dumps(plugin_id))
-        content = content.replace('"__GALLAGER_OTLP_ENDPOINT__"', json.dumps(OTLP_ENDPOINT))
+        content = content.replace('"__CTRLX_INGRESS_SOCK__"', json.dumps(sock))
+        content = content.replace('"__CTRLX_PLUGIN_ID__"', json.dumps(plugin_id))
+        content = content.replace('"__CTRLX_OTLP_ENDPOINT__"', json.dumps(OTLP_ENDPOINT))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         tmp = dest + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -599,7 +599,7 @@ def handle_install_status(req_id, params):
 
 
 # ---------------------------------------------------------------------------
-# Project discovery — surface omp's known projects in Gallager's "+" sidebar
+# Project discovery — surface omp's known projects in CtrlX's "+" sidebar
 # menu, the same way Claude Code / Codex do. omp keeps per-project session
 # directories under ~/.omp/agent/sessions/; the directory name is a lossy
 # munging of the cwd, but every session file carries a header record

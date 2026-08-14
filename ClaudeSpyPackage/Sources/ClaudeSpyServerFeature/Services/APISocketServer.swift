@@ -48,7 +48,7 @@
 
     /// Actor-based live implementation of the API socket server.
     actor LiveAPISocketServer {
-        private let logger = Logger(label: "com.claudespy.apisocket")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.apisocket")
         private(set) var socketPath: String?
         private var serverFd: Int32 = -1
         private var isRunning = false

@@ -46,21 +46,22 @@ actor APNsService {
         teamId: String? = nil,
         bundleId: String? = nil,
         environment: APNSEnvironment = .development,
-        e2eLogPath: String? = nil
+        e2eLogPath: String? = nil,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) async {
         self.pairingService = pairingService
         self.connectionHub = connectionHub
         self.metricsService = metricsService
         self.bundleId = bundleId
-            ?? ProcessInfo.processInfo.environment["APNS_BUNDLE_ID"]
-            ?? "com.yourcompany.ClaudeSpy"
+            ?? processEnvironment["APNS_BUNDLE_ID"]
+            ?? "com.jicezeng.ctrlx"
         self.e2eLogPath = e2eLogPath
-            ?? ProcessInfo.processInfo.environment["APNS_E2E_LOG_PATH"]
+            ?? processEnvironment["APNS_E2E_LOG_PATH"]
 
         // Get config from environment or parameters
-        let resolvedKeyPath = keyPath ?? ProcessInfo.processInfo.environment["APNS_KEY_PATH"]
-        let resolvedKeyId = keyId ?? ProcessInfo.processInfo.environment["APNS_KEY_ID"]
-        let resolvedTeamId = teamId ?? ProcessInfo.processInfo.environment["APNS_TEAM_ID"]
+        let resolvedKeyPath = keyPath ?? processEnvironment["APNS_KEY_PATH"]
+        let resolvedKeyId = keyId ?? processEnvironment["APNS_KEY_ID"]
+        let resolvedTeamId = teamId ?? processEnvironment["APNS_TEAM_ID"]
 
         guard
             let keyPath = resolvedKeyPath,
@@ -211,7 +212,7 @@ actor APNsService {
                 let alert = APNSAlertNotificationContent(
                     // Agent-neutral placeholder; the iOS Notification Service
                     // Extension decrypts and replaces both title and body.
-                    title: .raw("Gallager"),
+                    title: .raw("CtrlX"),
                     body: .raw("New activity") // Placeholder - extension replaces this
                 )
                 let notification = APNSAlertNotification(

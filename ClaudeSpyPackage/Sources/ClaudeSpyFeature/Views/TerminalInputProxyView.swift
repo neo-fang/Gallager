@@ -51,7 +51,7 @@ struct TerminalInputDocumentSynchronizer {
     final class TerminalInputProxyView: UITextView, UITextViewDelegate {
         private static let anchor = "\u{200B}"
         private static let anchorLength = (anchor as NSString).length
-        private static let debugEnabled = ProcessInfo.processInfo.environment["GALLAGER_TEXT_INPUT_DEBUG"] == "1"
+        private static let debugEnabled = ProcessInfo.processInfo.environment["CTRLX_TEXT_INPUT_DEBUG"] == "1"
 
         var onInsertText: ((String) -> Void)?
         var onDeleteBackward: (() -> Void)?

@@ -16,7 +16,7 @@
     /// `Sendable`, so cross-actor calls stay safe.
     @MainActor
     final public class PluginRegistry {
-        private let logger = Logger(label: "com.claudespy.plugin-registry")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.plugin-registry")
 
         /// Compile-time table: id → core factory. Adding a bundled agent edits
         /// **only** this table (spec §4.1). The `echo` reference core is added in
@@ -76,7 +76,7 @@
                     manifests[id] = manifest
                     roots[id] = root
                 } catch {
-                    Logger(label: "com.claudespy.plugin-registry")
+                    Logger(label: "com.jicezeng.ctrlx.plugin-registry")
                         .warning("Skipping plugin '\(id)': failed to load manifest: \(error)")
                 }
             }
@@ -217,7 +217,7 @@
 
         // MARK: - CLI accessors (spec §14)
 
-        /// One row of `gallager plugin list`. `source` reflects the install channel:
+        /// One row of `ctrlx plugin list`. `source` reflects the install channel:
         /// `"bundled"` for factory-table entries, or the `rawValue` of the
         /// `PluginRegistryEntry.Source` recorded at `registerSidecar` time.
         public struct CLIEntry: Sendable, Equatable {
@@ -280,7 +280,7 @@
             failedInit[id]
         }
 
-        /// Outcome of a `gallager plugin call` core-method dispatch.
+        /// Outcome of a `ctrlx plugin call` core-method dispatch.
         public enum CallOutcome: Sendable, Equatable {
             /// The method ran; `result` is a human/JSON-friendly status string.
             case ok(result: String)

@@ -47,7 +47,7 @@ public struct TmuxSession: Identifiable, Sendable {
 
     /// The custom description for this session.
     ///
-    /// Persisted at session scope via the `@gallager-description` tmux user
+    /// Persisted at session scope via the `@ctrlx-description` tmux user
     /// option, so every pane in the session reports the same value. We scan
     /// any pane in any window so a partial refresh on the active window
     /// doesn't briefly flip the value to nil.
@@ -57,7 +57,7 @@ public struct TmuxSession: Identifiable, Sendable {
 
     /// The custom color for this session.
     ///
-    /// Persisted at session scope via the `@gallager-color` tmux user option;
+    /// Persisted at session scope via the `@ctrlx-color` tmux user option;
     /// see `customDescription` for the same any-pane fallback rationale.
     public var customColor: SessionColor? {
         windows.compactMap(\.customColor).first
@@ -65,7 +65,7 @@ public struct TmuxSession: Identifiable, Sendable {
 
     /// The custom emoji icon for this session.
     ///
-    /// Persisted at session scope via the `@gallager-emoji` tmux user option;
+    /// Persisted at session scope via the `@ctrlx-emoji` tmux user option;
     /// see `customDescription` for the same any-pane fallback rationale.
     public var customEmoji: String? {
         windows.compactMap(\.customEmoji).first

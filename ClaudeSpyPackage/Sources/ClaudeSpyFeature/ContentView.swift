@@ -620,33 +620,33 @@
                     }
                 }
 
-                // Why Gallager Section
+                // Distribution provenance
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Gallager is named after Robert G. Gallager, a pioneering information theorist and close colleague of Claude Shannon, after whom Anthropic's Claude AI is named.")
+                        Text("CtrlX is an independent distribution based on Gallager and licensed under GNU AGPL-3.0. It is not affiliated with or endorsed by the Gallager project.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
 
-                    Link(destination: AboutLinks.gallagerWikipedia) {
+                    Link(destination: AppBuildInfo.current.correspondingSourceURL) {
                         HStack {
-                            Text("Robert G. Gallager")
+                            Text("CtrlX Source")
                             Spacer()
-                            Text("Wikipedia")
+                            Text("GitHub")
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                    Link(destination: AboutLinks.shannonWikipedia) {
+                    Link(destination: ProductIdentity.upstreamURL) {
                         HStack {
-                            Text("Claude Shannon")
+                            Text("Gallager Upstream")
                             Spacer()
-                            Text("Wikipedia")
+                            Text("GitHub")
                                 .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
-                    Text("Why \"Gallager\"?")
+                    Text("Origin and License")
                 }
 
                 // Licenses Section

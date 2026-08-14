@@ -149,14 +149,14 @@ struct SetTitleCommand: ParsableCommand {
         discussion: """
         Titles always apply to a whole session — every window in the session
         renders the same title. Persisted as the tmux user option
-        `@gallager-description` so it survives app restarts. Pass an empty
+        `@ctrlx-description` so it survives app restarts. Pass an empty
         string to clear the title.
 
         Targeting:
           --session SESSION  the session to update
           (none)             defaults to the calling pane's session via $TMUX_PANE
 
-        To rename the tab label of a single window, use `gallager rename-window`.
+        To rename the tab label of a single window, use `ctrlx rename-window`.
         """
     )
 
@@ -209,7 +209,7 @@ struct SetColorCommand: ParsableCommand {
         discussion: """
         Colors always apply to a whole session — every window in the session
         renders the same dot. Persisted as the tmux user option
-        `@gallager-color` so it survives app restarts. Pass an empty string
+        `@ctrlx-color` so it survives app restarts. Pass an empty string
         or "none" to clear the color.
 
         Valid colors: red, orange, yellow, green, blue, purple, pink, gray.
@@ -268,7 +268,7 @@ struct SetEmojiCommand: ParsableCommand {
         discussion: """
         Emoji always apply to a whole session — every window in the session
         renders the same icon. Persisted as the tmux user option
-        `@gallager-emoji` so it survives app restarts. Pass an empty string
+        `@ctrlx-emoji` so it survives app restarts. Pass an empty string
         or "none" to clear the emoji.
 
         Accepts either:
@@ -279,7 +279,7 @@ struct SetEmojiCommand: ParsableCommand {
         Names match CLDR keyword synonyms too, so "trash" resolves 🗑️ even
         though its Unicode name is WASTEBASKET. When a query matches multiple
         emoji the candidates are listed so you can rerun with a more specific
-        one. Use `gallager find-emoji <query>` to browse matches without
+        one. Use `ctrlx find-emoji <query>` to browse matches without
         committing.
 
         Targeting:
@@ -344,7 +344,7 @@ struct SetEmojiCommand: ParsableCommand {
         switch matches.count {
         case 0:
             throw ValidationError(
-                "\"\(input)\" doesn't match any emoji. Pass the emoji character itself, an empty string to clear, or try `gallager find-emoji \(input)` to search."
+                "\"\(input)\" doesn't match any emoji. Pass the emoji character itself, an empty string to clear, or try `ctrlx find-emoji \(input)` to search."
             )
         case 1:
             let match = matches[0]
@@ -356,7 +356,7 @@ struct SetEmojiCommand: ParsableCommand {
                 message += "  \(match.emoji)  \(match.name.lowercased())\n"
             }
             if matches.count > preview.count {
-                message += "  …and \(matches.count - preview.count) more (try `gallager find-emoji \(input)`).\n"
+                message += "  …and \(matches.count - preview.count) more (try `ctrlx find-emoji \(input)`).\n"
             }
             throw ValidationError(message)
         }
@@ -389,10 +389,10 @@ struct FindEmojiCommand: ParsableCommand {
         query must appear in the candidate's name or keywords (case-insensitive).
 
         Examples:
-          gallager find-emoji rocket
-          gallager find-emoji trash
-          gallager find-emoji "smiling face"
-          gallager find-emoji heart
+          ctrlx find-emoji rocket
+          ctrlx find-emoji trash
+          ctrlx find-emoji "smiling face"
+          ctrlx find-emoji heart
         """
     )
 
@@ -406,11 +406,11 @@ struct FindEmojiCommand: ParsableCommand {
         let matches = EmojiNameLookup.search(query: query)
         if matches.isEmpty {
             if json {
-                // Scripted callers (`gallager find-emoji foo --json | jq ...`)
+                // Scripted callers (`ctrlx find-emoji foo --json | jq ...`)
                 // treat an empty array as "success, but no results", so emit
                 // `[]` on stdout and exit 0. Interactive callers still get a
                 // non-zero exit + stderr message so shell scripts can branch
-                // on `if gallager find-emoji foo > /dev/null; then …`.
+                // on `if ctrlx find-emoji foo > /dev/null; then …`.
                 print("[]")
                 return
             }

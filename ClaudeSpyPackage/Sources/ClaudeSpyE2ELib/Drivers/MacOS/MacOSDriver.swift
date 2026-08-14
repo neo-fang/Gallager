@@ -12,7 +12,7 @@ public actor MacOSDriver {
     private let logger: Logger
 
     private var appPath: String?
-    private let appName = "Gallager"
+    private let appName = "CtrlX"
     /// PID of the app instance launched by `launchApp`. Used to scope termination,
     /// AppleScript interactions, and window lookup to the test instance only.
     private var appPID: pid_t?
@@ -835,7 +835,7 @@ public actor MacOSDriver {
     /// `"codex"` / `"echo"`); `json` is the raw host-agent event the core
     /// decodes; `tmuxPane`/`projectPath` become the harvested ingress `context`
     /// (`TMUX_PANE` / `CLAUDE_PROJECT_DIR`). `socketPath` is the per-scenario
-    /// `<gallager-state-root>/ingress.sock`.
+    /// `<ctrlx-state-root>/ingress.sock`.
     public func sendHookEvent(
         pluginID: String,
         json: String,

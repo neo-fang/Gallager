@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Standalone tests for the opencode Gallager sidecar.
+Standalone tests for the opencode CtrlX sidecar.
 
 Drives `bin/sidecar` as a real subprocess over its stdio JSON-RPC transport and
 asserts the `translate_event` mapping, the awaitingPermission form encoding, and
@@ -190,20 +190,20 @@ class TranslateEventTests(unittest.TestCase):
     # --- Turn summaries ----------------------------------------------------------
     # At turn end the bridge fetches the session's last assistant text via
     # opencode's in-process SDK client and attaches it to the idle event as
-    # properties.gallagerSummary; the sidecar surfaces it as doneWorking's
+    # properties.ctrlxSummary; the sidecar surfaces it as doneWorking's
     # summary and the notification body (like Claude's lastAssistantMessage).
     def test_idle_with_summary_uses_it(self):
         self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
         r = self.evt(
             "session.status",
-            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": "Renamed the helper."},
+            {"sessionID": "s1", "status": {"type": "idle"}, "ctrlxSummary": "Renamed the helper."},
         )
         self.assertEqual(r["state"], {"doneWorking": {"summary": "Renamed the helper."}})
         self.assertEqual(r["notification"]["body"], "Renamed the helper.")
 
     def test_session_idle_alias_with_summary(self):
         self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
-        r = self.evt("session.idle", {"sessionID": "s1", "gallagerSummary": "Done deal."})
+        r = self.evt("session.idle", {"sessionID": "s1", "ctrlxSummary": "Done deal."})
         self.assertEqual(r["state"], {"doneWorking": {"summary": "Done deal."}})
         self.assertEqual(r["notification"]["body"], "Done deal.")
 
@@ -211,7 +211,7 @@ class TranslateEventTests(unittest.TestCase):
         self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
         r = self.evt(
             "session.status",
-            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": "   "},
+            {"sessionID": "s1", "status": {"type": "idle"}, "ctrlxSummary": "   "},
         )
         self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
         self.assertIn("AcmeApp", r["notification"]["body"])
@@ -220,7 +220,7 @@ class TranslateEventTests(unittest.TestCase):
         self.evt("session.status", {"sessionID": "s1", "status": {"type": "busy"}})
         r = self.evt(
             "session.status",
-            {"sessionID": "s1", "status": {"type": "idle"}, "gallagerSummary": 42},
+            {"sessionID": "s1", "status": {"type": "idle"}, "ctrlxSummary": 42},
         )
         self.assertEqual(r["state"], {"doneWorking": {"summary": None}})
         self.assertIn("AcmeApp", r["notification"]["body"])
@@ -229,7 +229,7 @@ class TranslateEventTests(unittest.TestCase):
         # A summary must not promote a never-busy session's idle into doneWorking.
         r = self.evt(
             "session.status",
-            {"sessionID": "fresh", "status": {"type": "idle"}, "gallagerSummary": "stale"},
+            {"sessionID": "fresh", "status": {"type": "idle"}, "ctrlxSummary": "stale"},
         )
         self.assertEqual(r["state"], {"idle": {}})
 
@@ -393,7 +393,7 @@ class TranslateEventTests(unittest.TestCase):
         # The bridge's synthetic "opencode loaded me" frame (no sessionID) →
         # session appears idle immediately, keyed by the pane (mirrors Claude's
         # SessionStart → .idle), with no notification.
-        r = self.evt("gallager.lifecycle.started", {})
+        r = self.evt("ctrlx.lifecycle.started", {})
         self.assertEqual(r["state"], {"idle": {}})
         self.assertIsNone(r["notification"])
         self.assertEqual(r["appActions"], [])
@@ -403,7 +403,7 @@ class TranslateEventTests(unittest.TestCase):
         # The bridge's synthetic dispose frame → AppAction.sessionEnded keyed by
         # the PANE (the host's endAgentSession key), no state opinion, no
         # notification, pane left open by default.
-        r = self.evt("gallager.lifecycle.stopped", {})
+        r = self.evt("ctrlx.lifecycle.stopped", {})
         self.assertIsNone(r["state"])
         self.assertIsNone(r["notification"])
         self.assertEqual(r["appActions"],
@@ -411,12 +411,12 @@ class TranslateEventTests(unittest.TestCase):
 
     def test_lifecycle_stopped_honors_close_pane_setting(self):
         self.sc.request("apply_settings", {"settings": {"close_pane_on_session_end": True}})
-        r = self.evt("gallager.lifecycle.stopped", {})
+        r = self.evt("ctrlx.lifecycle.stopped", {})
         self.assertEqual(r["appActions"],
                          [{"sessionEnded": {"sessionID": PANE, "closePaneEligible": True}}])
 
     def test_lifecycle_stopped_without_pane_is_noop(self):
-        r = self.evt("gallager.lifecycle.stopped", {}, ctx={"OPENCODE_PROJECT_DIR": "/x"})
+        r = self.evt("ctrlx.lifecycle.stopped", {}, ctx={"OPENCODE_PROJECT_DIR": "/x"})
         self.assertIsNone(r)  # no pane → nothing the host can key on
 
     def test_idle_with_no_pane_still_maps(self):
@@ -552,8 +552,8 @@ class SettingsTests(unittest.TestCase):
 class InstallTests(unittest.TestCase):
     def test_project_install_honors_config_root(self):
         with tempfile.TemporaryDirectory() as proj:
-            env = {"GALLAGER_INGRESS_SOCK": "/tmp/s.sock", "GALLAGER_PLUGIN_ID": "opencode",
-                   "GALLAGER_PLUGIN_ROOT": ROOT}
+            env = {"CTRLX_INGRESS_SOCK": "/tmp/s.sock", "CTRLX_PLUGIN_ID": "opencode",
+                   "CTRLX_PLUGIN_ROOT": ROOT}
             sc = Sidecar(env)
             try:
                 sc.request("initialize", {})
@@ -561,7 +561,7 @@ class InstallTests(unittest.TestCase):
                 self.assertEqual(sc.request("install_status", {"configRoot": proj}).get("result"),
                                  {"notInstalled": {}})
                 sc.request("install", {"configRoot": proj})
-                dest = os.path.join(proj, ".opencode", "plugin", "gallager.js")
+                dest = os.path.join(proj, ".opencode", "plugin", "ctrlx.js")
                 self.assertTrue(os.path.exists(dest))
                 self.assertEqual(sc.request("install_status", {"configRoot": proj}).get("result"),
                                  {"installed": {"version": "0.2.1"}})
@@ -571,9 +571,9 @@ class InstallTests(unittest.TestCase):
     def test_install_substitutes_and_status(self):
         with tempfile.TemporaryDirectory() as cfg:
             env = {
-                "GALLAGER_INGRESS_SOCK": "/tmp/fake-ingress.sock",
-                "GALLAGER_PLUGIN_ID": "opencode",
-                "GALLAGER_PLUGIN_ROOT": ROOT,
+                "CTRLX_INGRESS_SOCK": "/tmp/fake-ingress.sock",
+                "CTRLX_PLUGIN_ID": "opencode",
+                "CTRLX_PLUGIN_ROOT": ROOT,
                 "XDG_CONFIG_HOME": cfg,
             }
             sc = Sidecar(env)
@@ -584,16 +584,16 @@ class InstallTests(unittest.TestCase):
                 res = sc.request("install").get("result")
                 self.assertIn("installed", res)
 
-                dest = os.path.join(cfg, "opencode", "plugin", "gallager.js")
+                dest = os.path.join(cfg, "opencode", "plugin", "ctrlx.js")
                 with open(dest) as f:
                     content = f.read()
                 self.assertIn("/tmp/fake-ingress.sock", content)
-                self.assertNotIn("__GALLAGER_INGRESS_SOCK__", content)
+                self.assertNotIn("__CTRLX_INGRESS_SOCK__", content)
                 # The OTLP receiver endpoint from initialize is baked in the same
-                # way (issue #617) — opencode doesn't inherit Gallager's env.
+                # way (issue #617) — opencode doesn't inherit CtrlX's env.
                 self.assertIn("http://127.0.0.1:24318", content)
-                self.assertNotIn("__GALLAGER_OTLP_ENDPOINT__", content)
-                self.assertIn("GallagerMonitor", content)
+                self.assertNotIn("__CTRLX_OTLP_ENDPOINT__", content)
+                self.assertIn("CtrlXMonitor", content)
 
                 self.assertEqual(sc.request("install_status").get("result"),
                                  {"installed": {"version": "0.2.1"}})
@@ -609,15 +609,15 @@ class InstallTests(unittest.TestCase):
         # token is substituted with "" (NOT left in place, which would trip the
         # bridge's env-var fallback on a real install).
         with tempfile.TemporaryDirectory() as cfg:
-            env = {"GALLAGER_INGRESS_SOCK": "/tmp/s.sock", "GALLAGER_PLUGIN_ID": "opencode",
-                   "GALLAGER_PLUGIN_ROOT": ROOT, "XDG_CONFIG_HOME": cfg}
+            env = {"CTRLX_INGRESS_SOCK": "/tmp/s.sock", "CTRLX_PLUGIN_ID": "opencode",
+                   "CTRLX_PLUGIN_ROOT": ROOT, "XDG_CONFIG_HOME": cfg}
             sc = Sidecar(env)
             try:
                 sc.request("initialize", {})
                 sc.request("install")
-                with open(os.path.join(cfg, "opencode", "plugin", "gallager.js")) as f:
+                with open(os.path.join(cfg, "opencode", "plugin", "ctrlx.js")) as f:
                     content = f.read()
-                self.assertNotIn("__GALLAGER_OTLP_ENDPOINT__", content)
+                self.assertNotIn("__CTRLX_OTLP_ENDPOINT__", content)
             finally:
                 sc.close()
 

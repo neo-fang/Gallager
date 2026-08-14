@@ -1,6 +1,6 @@
 import Foundation
 
-/// Validation helpers for the per-session emoji icon (`@gallager-emoji`).
+/// Validation helpers for the per-session emoji icon (`@ctrlx-emoji`).
 ///
 /// Stored as a free-form string so any platform-supported emoji works, but
 /// rejecting non-emoji input fast prevents arbitrary text from being persisted

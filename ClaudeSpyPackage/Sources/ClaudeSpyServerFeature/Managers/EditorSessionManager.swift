@@ -42,7 +42,7 @@
         /// Per-session continuations that block the API response until editing completes.
         private var completionContinuations: [UUID: CheckedContinuation<Void, Never>] = [:]
 
-        private let logger = Logger(label: "com.claudespy.editorsessionmanager")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.editorsessionmanager")
 
         /// Called when an editor session opens or closes, to push state to viewers.
         public var onSessionChanged: (@MainActor @Sendable () async -> Void)?

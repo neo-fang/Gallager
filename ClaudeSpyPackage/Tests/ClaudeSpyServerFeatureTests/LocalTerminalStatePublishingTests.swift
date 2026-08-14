@@ -144,7 +144,7 @@
 
         @Test("Empty background refresh does not replay initial loading state")
         func emptyBackgroundRefreshIsNoop() async {
-            let service = TmuxService(tmuxPath: "/nonexistent/gallager-tmux")
+            let service = TmuxService(tmuxPath: "/nonexistent/ctrlx-tmux")
             _ = await service.refreshPanes()
 
             let invalidations = LockIsolated(0)

@@ -8,8 +8,8 @@ struct EditorOverrideProbeParsingTests {
     @Test("Sentinel intact → .intact")
     func sentinelIntact() {
         let captured = """
-        ~ %  printf 'GALLAGER_PROBE=%s\\n' "$VISUAL"
-        GALLAGER_PROBE=__gallager_probe__
+        ~ %  printf 'CTRLX_PROBE=%s\\n' "$VISUAL"
+        CTRLX_PROBE=__ctrlx_probe__
         ~ %
         """
         #expect(EditorOverride.parseProbeOutput(captured) == .intact)
@@ -18,8 +18,8 @@ struct EditorOverrideProbeParsingTests {
     @Test("rc override → .conflict with the user's value")
     func overridden() {
         let captured = """
-        ➜  ~ printf 'GALLAGER_PROBE=%s\\n' "$VISUAL"
-        GALLAGER_PROBE=vim
+        ➜  ~ printf 'CTRLX_PROBE=%s\\n' "$VISUAL"
+        CTRLX_PROBE=vim
         ➜  ~
         """
         #expect(EditorOverride.parseProbeOutput(captured) == .conflict(effectiveValue: "vim"))
@@ -27,13 +27,13 @@ struct EditorOverrideProbeParsingTests {
 
     @Test("Value with spaces is preserved")
     func overriddenWithSpaces() {
-        let captured = "GALLAGER_PROBE=code --wait\n"
+        let captured = "CTRLX_PROBE=code --wait\n"
         #expect(EditorOverride.parseProbeOutput(captured) == .conflict(effectiveValue: "code --wait"))
     }
 
     @Test("rc unset → .conflict(nil)")
     func unset() {
-        let captured = "$ printf ...\nGALLAGER_PROBE=\n$ "
+        let captured = "$ printf ...\nCTRLX_PROBE=\n$ "
         #expect(EditorOverride.parseProbeOutput(captured) == .conflict(effectiveValue: nil))
     }
 
@@ -43,14 +43,14 @@ struct EditorOverrideProbeParsingTests {
         #expect(EditorOverride.parseProbeOutput("just a prompt\n~ %") == nil)
     }
 
-    /// The typed command echo contains `GALLAGER_PROBE=%s`. If a narrow terminal
+    /// The typed command echo contains `CTRLX_PROBE=%s`. If a narrow terminal
     /// wrapped it so a continuation row started at column 0 with the marker, the
     /// real output line still comes after it — "last match" wins.
     @Test("Wrapped command echo doesn't mask the real output line")
     func wrappedEchoLastMatchWins() {
         let captured = """
-        printf 'GALLAGER_PROBE=%s\\n' "$VISUAL"
-        GALLAGER_PROBE=__gallager_probe__
+        printf 'CTRLX_PROBE=%s\\n' "$VISUAL"
+        CTRLX_PROBE=__ctrlx_probe__
         """
         // The first line begins with `printf` (not the marker) so it's skipped;
         // even constructing the worst case where it begins with the marker, the
@@ -58,15 +58,15 @@ struct EditorOverrideProbeParsingTests {
         #expect(EditorOverride.parseProbeOutput(captured) == .intact)
 
         let worstCase = """
-        GALLAGER_PROBE=%s\\n' "$VISUAL"
-        GALLAGER_PROBE=nvim
+        CTRLX_PROBE=%s\\n' "$VISUAL"
+        CTRLX_PROBE=nvim
         """
         #expect(EditorOverride.parseProbeOutput(worstCase) == .conflict(effectiveValue: "nvim"))
     }
 
     @Test("Leading whitespace on the output line is tolerated")
     func leadingWhitespace() {
-        #expect(EditorOverride.parseProbeOutput("   GALLAGER_PROBE=emacs") == .conflict(effectiveValue: "emacs"))
+        #expect(EditorOverride.parseProbeOutput("   CTRLX_PROBE=emacs") == .conflict(effectiveValue: "emacs"))
     }
 }
 
@@ -74,8 +74,8 @@ struct EditorOverrideInjectionTests {
     @Test("POSIX shells get a leading-space export")
     func posixShells() {
         for shell in ["zsh", "bash", "sh", "dash", "ksh"] {
-            let cmd = EditorOverride.injectionCommand(visualValue: "/Apps/G.app/Contents/MacOS/GallagerCLI edit", shell: shell)
-            #expect(cmd == " export VISUAL='/Apps/G.app/Contents/MacOS/GallagerCLI edit'")
+            let cmd = EditorOverride.injectionCommand(visualValue: "/Apps/G.app/Contents/MacOS/CtrlXCLI edit", shell: shell)
+            #expect(cmd == " export VISUAL='/Apps/G.app/Contents/MacOS/CtrlXCLI edit'")
         }
     }
 
@@ -124,16 +124,16 @@ struct EditorOverrideInjectionTests {
 }
 
 struct EditorOverrideRcLineTests {
-    @Test("POSIX shells get the GALLAGER_SOCKET-guarded export")
+    @Test("POSIX shells get the CTRLX_SOCKET-guarded export")
     func posix() {
         let line = EditorOverride.recommendedRcLine(visualValue: "vim", shell: "zsh")
-        #expect(line == "[ -n \"$GALLAGER_SOCKET\" ] || export VISUAL='vim'")
+        #expect(line == "[ -n \"$CTRLX_SOCKET\" ] || export VISUAL='vim'")
     }
 
     @Test("fish gets the set -q guard")
     func fish() {
         let line = EditorOverride.recommendedRcLine(visualValue: "code --wait", shell: "/usr/bin/fish")
-        #expect(line == "set -q GALLAGER_SOCKET; or set -gx VISUAL 'code --wait'")
+        #expect(line == "set -q CTRLX_SOCKET; or set -gx VISUAL 'code --wait'")
     }
 }
 

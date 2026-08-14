@@ -245,7 +245,7 @@ final public class TmuxService {
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
     public var editorCLIPath: String?
 
-    /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
+    /// Socket path for the API server. The CLI reads this from `$CTRLX_SOCKET`.
     public var apiSocketPath: String?
 
     /// When set, spawned shells get `ZDOTDIR=<path>` so zsh reads its startup
@@ -281,7 +281,7 @@ final public class TmuxService {
 
     /// The `$VISUAL` value Gallager wants agents to see: the bundled CLI invoked
     /// with `edit`. Nil when the CLI isn't in the bundle.
-    private var gallagerVisualValue: String? {
+    private var ctrlxVisualValue: String? {
         guard let editorCLIPath else { return nil }
         return "\(editorCLIPath) edit"
     }
@@ -293,7 +293,7 @@ final public class TmuxService {
             vars.append("VISUAL=\(editorCLIPath) edit")
         }
         if let apiSocketPath {
-            vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
+            vars.append("CTRLX_SOCKET=\(apiSocketPath)")
         }
         if let zdotDirOverride {
             vars.append("ZDOTDIR=\(zdotDirOverride)")
@@ -303,7 +303,7 @@ final public class TmuxService {
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
-    private let logger = Logger(label: "com.claudespy.tmuxservice")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.tmuxservice")
     private var tmuxPath: String
     private var socketPath: String?
 
@@ -2030,12 +2030,12 @@ final public class TmuxService {
     ) async throws {
         // Tmux's `-` form reads from stdin, but our ProcessRunner doesn't
         // expose stdin — write to a tmp file and pass the path instead.
-        // Use a `gallager-drop-buf-` prefix so this scratch file shares the
-        // top-level `gallager-drop-` namespace AppCoordinator's startup sweep
+        // Use a `ctrlx-drop-buf-` prefix so this scratch file shares the
+        // top-level `ctrlx-drop-` namespace AppCoordinator's startup sweep
         // already cleans, but stays distinguishable from the per-drop landing
         // directories created by `handleSendDroppedFiles`.
         let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("gallager-drop-buf-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-drop-buf-\(UUID().uuidString)")
         try Data(content.utf8).write(to: tmpURL, options: .atomic)
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
@@ -2175,7 +2175,7 @@ final public class TmuxService {
         // client's current window and new-window then tries that exact index — which fails
         // with "index N in use" whenever a control-mode client is focused on an existing
         // window (i.e. always, for us). When `windowIndex` is supplied (e.g. by
-        // `gallager apply` honoring sparse `window_index:` entries) we want
+        // `ctrlx apply` honoring sparse `window_index:` entries) we want
         // exactly that index, so target it directly.
         let target: String
         if let windowIndex {
@@ -2553,19 +2553,19 @@ final public class TmuxService {
     /// The tmux user option key used to persist Gallager custom descriptions.
     /// User options must be prefixed with `@`; tmux stores them on the session
     /// and any pane resolves the lookup via the session→window→pane chain.
-    private static let descriptionOptionKey = "@gallager-description"
+    private static let descriptionOptionKey = "@ctrlx-description"
 
     /// The tmux user option key used to persist Gallager session colors.
     /// Stored at session scope just like `descriptionOptionKey`.
-    private static let colorOptionKey = "@gallager-color"
+    private static let colorOptionKey = "@ctrlx-color"
 
     /// The tmux user option key used to persist Gallager session emoji icons.
     /// Stored at session scope just like `descriptionOptionKey`.
-    private static let emojiOptionKey = "@gallager-emoji"
+    private static let emojiOptionKey = "@ctrlx-emoji"
 
     /// Persists the custom description for a session as a tmux user option.
     ///
-    /// Writes `@gallager-description` at session scope so it survives app restarts
+    /// Writes `@ctrlx-description` at session scope so it survives app restarts
     /// (the tmux server keeps the option for the session's lifetime). Any existing
     /// window-level overrides inside the session are cleared first so the new value
     /// applies uniformly across every window — defensive against stray overrides
@@ -2598,7 +2598,7 @@ final public class TmuxService {
 
     /// Persists the custom color for a session as a tmux user option.
     ///
-    /// Mirrors `setSessionDescription` — writes `@gallager-color` at session
+    /// Mirrors `setSessionDescription` — writes `@ctrlx-color` at session
     /// scope after sweeping any window-level overrides.
     /// - Parameters:
     ///   - color: The color, or `nil` to clear the option.
@@ -2628,7 +2628,7 @@ final public class TmuxService {
 
     /// Persists the custom emoji for a session as a tmux user option.
     ///
-    /// Mirrors `setSessionDescription` — writes `@gallager-emoji` at session
+    /// Mirrors `setSessionDescription` — writes `@ctrlx-emoji` at session
     /// scope after sweeping any window-level overrides.
     /// - Parameters:
     ///   - emoji: The emoji string, or `nil` to clear the option.
@@ -2678,7 +2678,7 @@ final public class TmuxService {
 
     /// Sets a tmux session-scoped environment variable.
     ///
-    /// Used by `gallager apply` to honor the `environment:` block in a layout
+    /// Used by `ctrlx apply` to honor the `environment:` block in a layout
     /// config. tmux's `set-environment -t <session>` only affects new shells
     /// spawned inside the session — already-running panes keep their existing
     /// environment.
@@ -2724,7 +2724,7 @@ final public class TmuxService {
     /// Sets a tmux option at session, window, or global scope.
     ///
     /// Mirrors `tmux set-option [-g|-w] -t <target> <name> <value>`. Used by
-    /// `gallager apply` to pass through the `options:` blocks in a layout
+    /// `ctrlx apply` to pass through the `options:` blocks in a layout
     /// config. We do not validate option names — tmux is the source of truth
     /// and surfaces unknown options as a non-zero exit that we propagate.
     /// - Parameters:
@@ -3119,8 +3119,8 @@ final public class TmuxService {
     /// when the override is active, or nil when it isn't (or the shell/CLI is
     /// unknown). Uses the user's login shell to pick the right syntax.
     private func overrideCommandPrefix() -> String? {
-        guard overrideVisualInShellPanes, let gallagerVisualValue else { return nil }
-        return EditorOverride.injectionCommand(visualValue: gallagerVisualValue, shell: Self.userShellPath)
+        guard overrideVisualInShellPanes, let ctrlxVisualValue else { return nil }
+        return EditorOverride.injectionCommand(visualValue: ctrlxVisualValue, shell: Self.userShellPath)
     }
 
     // MARK: - Editor Override (issue #591)
@@ -3154,7 +3154,7 @@ final public class TmuxService {
         // for the editor `$VISUAL` (that's the value we're testing for survival).
         var env = Self.baseEnvironmentVars
         if let apiSocketPath {
-            env.append("GALLAGER_SOCKET=\(apiSocketPath)")
+            env.append("CTRLX_SOCKET=\(apiSocketPath)")
         }
         if let zdotDirOverride {
             env.append("ZDOTDIR=\(zdotDirOverride)")
@@ -3222,7 +3222,7 @@ final public class TmuxService {
     /// never ran rc files, so their inherited `-e VISUAL` is already correct, and
     /// typing into a running program would corrupt its input.
     private func injectOverrideIntoEligibleShellPanes() async {
-        guard overrideVisualInShellPanes, let gallagerVisualValue else { return }
+        guard overrideVisualInShellPanes, let ctrlxVisualValue else { return }
 
         // Bound the dedup set to live panes so it can't grow without limit.
         let livePaneIds = Set(panes.map(\.paneId))
@@ -3232,7 +3232,7 @@ final public class TmuxService {
             guard !injectedOverridePaneIds.contains(pane.paneId) else { continue }
             guard
                 let command = EditorOverride.injectionCommand(
-                    visualValue: gallagerVisualValue,
+                    visualValue: ctrlxVisualValue,
                     shell: pane.command
                 )
             else { continue }
@@ -3328,7 +3328,7 @@ final public class TmuxService {
             // launching shell when started by hand from a tmux pane. tmux uses
             // these to bias `-t <name>` target parsing — for session-scoped
             // options it reinterprets the target as a window in the current
-            // pane's session, so e.g. `set-option -t terminal @gallager-color
+            // pane's session, so e.g. `set-option -t terminal @ctrlx-color
             // red` ends up writing to the *current* session whenever a window
             // there has a name starting with "terminal". Force them empty for
             // every subprocess invocation since the Mac app is not actually

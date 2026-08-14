@@ -1,13 +1,13 @@
 {
-    "name": "gallager",
+    "name": "ctrlx",
     "owner": {
-        "name": "Gustavo Ambrozio"
+        "name": "JarvisZeng"
     },
     "plugins": [
         {
-            "name": "gallager",
-            "source": "./gallager",
-            "description": "Gallager plugin"
+            "name": "ctrlx",
+            "source": "./ctrlx",
+            "description": "CtrlX plugin"
         }
     ]
 }

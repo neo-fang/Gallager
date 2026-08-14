@@ -12,8 +12,6 @@ public struct RemoteAccessSettingsView: View {
     @Environment(LicenseManager.self) private var licenseManager
     @Environment(\.e2eeService) private var e2eeService: E2EEService?
 
-    @Dependency(URLOpener.self) private var urlOpener
-
     @State private var showCopiedFeedback = false
 
     public init() { }
@@ -50,13 +48,13 @@ public struct RemoteAccessSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // License
+            // Relay authorization
             Section {
                 licenseSection
             } header: {
-                Text("License")
+                Text("Relay Authorization")
             } footer: {
-                Text("The hosted relay requires a subscription after a 7-day free trial. Self-hosted relays never need one.")
+                Text("Self-hosted relays do not require a key. If a custom relay requires one, obtain it from that relay's operator.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -70,7 +68,7 @@ public struct RemoteAccessSettingsView: View {
         }
         .onReceive(
             NotificationCenter.default.publisher(
-                for: .init("com.claudespy.e2e.unpairViewer")
+                for: .init("com.jicezeng.ctrlx.e2e.unpairViewer")
             )
         ) { _ in
             guard let viewer = pairingManager.pairedViewers.first else { return }
@@ -219,7 +217,7 @@ public struct RemoteAccessSettingsView: View {
 
     private var unpairedView: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Pair your iPhone to monitor Claude sessions remotely.")
+            Text("Pair your iPhone to monitor terminal sessions remotely.")
                 .foregroundStyle(.secondary)
 
             Button {
@@ -320,10 +318,6 @@ public struct RemoteAccessSettingsView: View {
                 let usage = licenseManager.status?.activationUsage {
                 LabeledContent("Activations", value: "\(usage) of \(limit) Macs")
             }
-            Button("Manage Subscription") {
-                urlOpener.openInDefaultBrowser(LicensingLinks.billingPortal)
-            }
-            .buttonStyle(.borderless)
             Button("Deactivate This Mac", role: .destructive) {
                 Task { await licenseManager.deactivate() }
             }
@@ -335,7 +329,7 @@ public struct RemoteAccessSettingsView: View {
                         .foregroundStyle(daysLeft <= 2 ? .orange : .secondary)
                 }
             } else if licenseManager.status?.state == .expired {
-                Label("Subscription required", symbol: .exclamationmarkTriangle)
+                Label("Relay authorization required", symbol: .exclamationmarkTriangle)
                     .foregroundStyle(.orange)
             }
             TextField("License Key", text: $licenseManager.licenseKeyField)
@@ -351,9 +345,6 @@ public struct RemoteAccessSettingsView: View {
                     Task { await licenseManager.activate() }
                 }
                 .disabled(licenseManager.actionState == .working)
-                Button("Buy a License…") {
-                    urlOpener.openInDefaultBrowser(LicensingLinks.checkout)
-                }
             }
             if case let .error(message) = licenseManager.actionState {
                 Label(message, symbol: .exclamationmarkTriangle)

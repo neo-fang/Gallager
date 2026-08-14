@@ -52,7 +52,7 @@ public enum StopFinalityDataset {
             return URL(fileURLWithPath: override)
         }
         return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gallager/eval/stop-finality-mined.json")
+            .appendingPathComponent(".ctrlx/eval/stop-finality-mined.json")
     }
 
     public static func seeds() throws -> [StopFinalityCase] {

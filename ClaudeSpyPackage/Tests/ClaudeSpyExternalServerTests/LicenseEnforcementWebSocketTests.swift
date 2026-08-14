@@ -244,7 +244,7 @@ extension EnvSerializedSuites {
             _ body: (Application, Int) async throws -> Void
         ) async throws {
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-license-ws-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-license-ws-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -343,7 +343,7 @@ extension EnvSerializedSuites {
 
         private func tempDirectory() throws -> URL {
             let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-license-ws-sweep-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-license-ws-sweep-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             return url
         }

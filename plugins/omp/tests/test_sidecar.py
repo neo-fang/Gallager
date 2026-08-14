@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Standalone tests for the omp Gallager sidecar.
+Standalone tests for the omp CtrlX sidecar.
 
 Drives `bin/sidecar` as a real subprocess over its stdio JSON-RPC transport and
 asserts the `translate_event` mapping (session lifecycle, working/done states,
@@ -185,7 +185,7 @@ class TranslateEventTests(unittest.TestCase):
 
     def test_shutdown_ends_session_keyed_by_pane(self):
         # omp's session_shutdown fires on process exit only (session replacement
-        # has its own events), so EVERY shutdown ends the Gallager session.
+        # has its own events), so EVERY shutdown ends the CtrlX session.
         r = self.evt("session_shutdown")
         self.assertIsNone(r["state"])
         # sessionEnded is keyed by the PANE id (the host ends sessions by pane).
@@ -297,7 +297,7 @@ class ApprovalFormTests(unittest.TestCase):
 
     def test_allow_after_local_resolution_sends_nothing(self):
         # The TUI answered first (tool_approval_resolved cleared the pending
-        # entry) — a raced Gallager answer must not inject keystrokes into a
+        # entry) — a raced CtrlX answer must not inject keystrokes into a
         # pane whose dialog is gone.
         self.request_approval()
         self.evt("tool_approval_resolved", {"toolCallId": "call-1", "approved": True})
@@ -480,9 +480,9 @@ class InstallTests(unittest.TestCase):
         self.home = tempfile.mkdtemp(prefix="omp-sidecar-test-")
         self.sc = Sidecar(env={
             "HOME": self.home,
-            "GALLAGER_INGRESS_SOCK": "/tmp/test-ingress.sock",
-            "GALLAGER_PLUGIN_ID": "omp",
-            "GALLAGER_PLUGIN_ROOT": ROOT,
+            "CTRLX_INGRESS_SOCK": "/tmp/test-ingress.sock",
+            "CTRLX_PLUGIN_ID": "omp",
+            "CTRLX_PLUGIN_ROOT": ROOT,
         })
         self.sc.request("initialize", {"otlpReceiverEndpoint": "http://127.0.0.1:9999"})
 
@@ -492,7 +492,7 @@ class InstallTests(unittest.TestCase):
         shutil.rmtree(self.home, ignore_errors=True)
 
     def bridge_path(self):
-        return os.path.join(self.home, ".omp", "agent", "extensions", "gallager.ts")
+        return os.path.join(self.home, ".omp", "agent", "extensions", "ctrlx.ts")
 
     def test_install_bakes_tokens_and_status_roundtrip(self):
         r = self.sc.request("install_status", {"configRoot": None})
@@ -505,10 +505,10 @@ class InstallTests(unittest.TestCase):
             content = f.read()
         self.assertIn('"/tmp/test-ingress.sock"', content)
         self.assertIn('"http://127.0.0.1:9999"', content)
-        self.assertNotIn("__GALLAGER_INGRESS_SOCK__", content)
-        self.assertNotIn("__GALLAGER_PLUGIN_ID__", content)
-        self.assertNotIn("__GALLAGER_OTLP_ENDPOINT__", content)
-        self.assertIn("GallagerOmpBridge", content)
+        self.assertNotIn("__CTRLX_INGRESS_SOCK__", content)
+        self.assertNotIn("__CTRLX_PLUGIN_ID__", content)
+        self.assertNotIn("__CTRLX_OTLP_ENDPOINT__", content)
+        self.assertIn("CtrlXOmpBridge", content)
 
         r = self.sc.request("install_status", {"configRoot": None})
         self.assertEqual(r["result"], {"installed": {"version": "0.1.0"}})
@@ -524,7 +524,7 @@ class InstallTests(unittest.TestCase):
         os.makedirs(project)
         r = self.sc.request("install", {"configRoot": project})
         self.assertIn("installed", r["result"])
-        local = os.path.join(project, ".omp", "extensions", "gallager.ts")
+        local = os.path.join(project, ".omp", "extensions", "ctrlx.ts")
         self.assertTrue(os.path.exists(local))
         r = self.sc.request("install_status", {"configRoot": project})
         self.assertEqual(r["result"], {"installed": {"version": "0.1.0"}})
@@ -544,14 +544,14 @@ class InstallTests(unittest.TestCase):
         nasty = '/tmp/a"b\\c'
         sc = Sidecar(env={
             "HOME": home,
-            "GALLAGER_INGRESS_SOCK": nasty,
-            "GALLAGER_PLUGIN_ID": "omp",
-            "GALLAGER_PLUGIN_ROOT": ROOT,
+            "CTRLX_INGRESS_SOCK": nasty,
+            "CTRLX_PLUGIN_ID": "omp",
+            "CTRLX_PLUGIN_ROOT": ROOT,
         })
         try:
             sc.request("initialize", {})
             self.assertIn("installed", sc.request("install", {"configRoot": None})["result"])
-            bridge = os.path.join(home, ".omp", "agent", "extensions", "gallager.ts")
+            bridge = os.path.join(home, ".omp", "agent", "extensions", "ctrlx.ts")
             with open(bridge, "r", encoding="utf-8") as f:
                 content = f.read()
             # The RAW_SOCK assignment is a single balanced, escaped string literal.

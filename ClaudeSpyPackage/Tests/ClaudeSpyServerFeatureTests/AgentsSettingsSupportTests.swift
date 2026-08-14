@@ -16,7 +16,7 @@
         /// `AppCoordinator` so settings read/write goes to an isolated directory.
         private func makeCoordinator() -> (coordinator: AppCoordinator, root: URL) {
             let root = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-agents-settings-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-agents-settings-\(UUID().uuidString)")
                 .appendingPathComponent("state")
             let paths = GallagerPaths(stateRootOverride: root)
             paths.ensureBaseDirectories()
@@ -27,7 +27,7 @@
             } operation: {
                 AppCoordinator()
             }
-            coordinator.gallagerPaths = paths
+            coordinator.ctrlxPaths = paths
             return (coordinator, root)
         }
 
@@ -57,7 +57,7 @@
 
         @Test("setPluginSettings surfaces an error when plugin state is not initialised")
         func settingsErrorWithoutPaths() async {
-            // A coordinator with no injected gallagerPaths must surface a failure
+            // A coordinator with no injected ctrlxPaths must surface a failure
             // instead of silently swallowing the write (which would leave the live
             // core diverged from disk).
             let coordinator = withDependencies {

@@ -53,7 +53,7 @@ extension Collection where Element == PaneState {
     ///
     /// Keeping this derived avoids copying agent lifecycle state into
     /// `PaneState.progress`, where hook updates could overwrite explicit
-    /// `OSC 9;4` or `gallager set-progress` values.
+    /// `OSC 9;4` or `ctrlx set-progress` values.
     public var effectiveProgress: TerminalProgressState? {
         if let terminalProgress = lazy.compactMap(\.progress).first {
             return terminalProgress

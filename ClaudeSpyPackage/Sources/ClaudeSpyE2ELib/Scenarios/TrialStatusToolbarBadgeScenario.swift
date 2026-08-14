@@ -36,7 +36,7 @@ public enum TrialStatusToolbarBadgeScenario {
         //    on-screen (not just absent because nothing rendered yet).
         TestStep.launchMacApp(licenseState: "trial")
         TestStep.macOpenPanesWindow()
-        TestStep.macWaitForWindow(titled: "Gallager", timeout: 5)
+        TestStep.macWaitForWindow(titled: "CtrlX", timeout: 5)
         TestStep.macWaitForElementQueryToDisappear(.identifier("trial-status-badge"), timeout: 5)
 
         // 3. Standard pairing flow (same steps as `FreshPairingScenario`):
