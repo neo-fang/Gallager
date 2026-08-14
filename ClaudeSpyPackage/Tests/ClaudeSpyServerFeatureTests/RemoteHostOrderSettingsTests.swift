@@ -33,6 +33,12 @@
                 AppSettings()
             }
             #expect(reloaded.pairedHosts.map(\.id) == ["b", "c", "a"])
+
+            reloaded.addHostPairing(host("d"))
+            #expect(reloaded.pairedHosts.map(\.id) == ["b", "c", "a", "d"])
+
+            reloaded.removeHostPairing(id: "c")
+            #expect(reloaded.pairedHosts.map(\.id) == ["b", "a", "d"])
         }
 
         private func host(_ id: String, name: String? = nil) -> PairedHost {
