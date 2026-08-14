@@ -469,6 +469,10 @@
         var showUsername = false
         let onNewSession: () -> Void
 
+        @Environment(IOSSettings.self) private var settings
+        @Environment(\.editMode) private var editMode
+        @State private var isDropTargeted = false
+
         var body: some View {
             HStack {
                 // Host name
@@ -491,7 +495,54 @@
                 Circle()
                     .fill(statusColor)
                     .frame(width: 8, height: 8)
+
+                if editMode?.wrappedValue.isEditing == true {
+                    Symbols.line3Horizontal.image
+                        .foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                        .draggable(host.id)
+                        .accessibilityLabel("Reorder \(host.displayName)")
+                        .accessibilityHint("Drag onto another host")
+                        .accessibilityAction(named: "Move Up") {
+                            moveHost(by: -1)
+                        }
+                        .accessibilityAction(named: "Move Down") {
+                            moveHost(by: 1)
+                        }
+                }
             }
+            .padding(.vertical, 2)
+            .background(isDropTargeted ? Color.accentColor.opacity(0.15) : .clear)
+            .clipShape(.rect(cornerRadius: 6))
+            .dropDestination(for: String.self) { sourceIDs, _ in
+                guard
+                    editMode?.wrappedValue.isEditing == true,
+                    let sourceID = sourceIDs.first(where: { sourceID in
+                        settings.pairedHosts.contains { $0.id == sourceID }
+                    }),
+                    sourceID != host.id
+                else {
+                    return false
+                }
+                settings.moveHostPairing(sourceID: sourceID, targetID: host.id)
+                return true
+            } isTargeted: { isTargeted in
+                isDropTargeted = editMode?.wrappedValue.isEditing == true && isTargeted
+            }
+        }
+
+        private func moveHost(by offset: Int) {
+            guard
+                let sourceIndex = settings.pairedHosts.firstIndex(where: { $0.id == host.id }),
+                settings.pairedHosts.indices.contains(sourceIndex + offset)
+            else {
+                return
+            }
+            settings.moveHostPairing(
+                sourceID: host.id,
+                targetID: settings.pairedHosts[sourceIndex + offset].id
+            )
         }
 
         private var statusColor: Color {
