@@ -2940,7 +2940,8 @@ public struct MainView: View {
                     mode: settings.sidebarSortMode,
                     sidebarFields: settings.sidebarFields,
                     sidebarTerminalFields: settings.sidebarTerminalFields,
-                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                    homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+                    preferredSessionNames: settings.remoteSessionOrder(for: host.id)
                 )
                 entries.append(contentsOf: sorted.map { session in
                     SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
@@ -4649,6 +4650,7 @@ public struct MainView: View {
             )
             switch result {
             case .success:
+                settings.replaceRemoteSessionName(sessionName, with: newName, for: host.id)
                 migrateRemoteSessionState(
                     hostId: host.id,
                     from: sessionName,

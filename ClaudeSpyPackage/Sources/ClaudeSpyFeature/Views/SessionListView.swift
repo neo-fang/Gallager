@@ -59,6 +59,10 @@
                 ToolbarItem(placement: .topBarTrailing) {
                     overallConnectionStatusView
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    EditButton()
+                        .accessibilityIdentifier("remote-session-order-edit-button")
+                }
             }
             .alert("Session Creation Failed", isPresented: .init(
                 get: { creationError != nil },
@@ -118,7 +122,10 @@
                                     paneId: "",
                                     hostId: host.id
                                 )
-                                if case let .failure(error) = result {
+                                switch result {
+                                case .success:
+                                    settings.replaceRemoteSessionName(sessionName, with: newName, for: host.id)
+                                case let .failure(error):
                                     renameError = error.localizedDescription
                                 }
                             }
@@ -276,6 +283,7 @@
         var onSetState: (String, CLISessionState?) -> Void = { _, _ in }
 
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(IOSSettings.self) private var settings
 
         private var hasContent: Bool {
             !sessions.isEmpty
@@ -294,7 +302,8 @@
                 mode: sessionStore.sidebarSortMode(for: host.id) ?? .statusPriorityIdleFirst,
                 sidebarFields: SidebarField.defaultFields,
                 sidebarTerminalFields: SidebarField.defaultTerminalFields,
-                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+                preferredSessionNames: settings.remoteSessionOrder(for: host.id)
             )
         }
 
@@ -324,6 +333,7 @@
                     ForEach(sortedSessions) { session in
                         sessionRow(session)
                     }
+                    .onMove(perform: moveSessions)
                 } else {
                     // Empty state for this host
                     if connection?.isHostConnected == true {
@@ -435,6 +445,17 @@
             ))
             .listRowInsets(
                 EdgeInsets(top: 15, leading: 0, bottom: 0, trailing: 16)
+            )
+        }
+
+        private func moveSessions(fromOffsets source: IndexSet, toOffset destination: Int) {
+            settings.setRemoteSessionOrder(
+                RemoteSessionOrder.moving(
+                    sortedSessions.map(\.sessionName),
+                    fromOffsets: source,
+                    toOffset: destination
+                ),
+                for: host.id
             )
         }
     }

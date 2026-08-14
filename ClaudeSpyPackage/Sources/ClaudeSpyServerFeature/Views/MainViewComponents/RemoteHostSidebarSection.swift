@@ -40,7 +40,8 @@ struct RemoteHostSidebarSection: View {
             mode: settings.sidebarSortMode,
             sidebarFields: settings.sidebarFields,
             sidebarTerminalFields: settings.sidebarTerminalFields,
-            homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+            homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+            preferredSessionNames: settings.remoteSessionOrder(for: host.id)
         )
     }
 
@@ -77,6 +78,7 @@ struct RemoteHostSidebarSection: View {
                 ForEach(sortedSessions) { session in
                     remoteSessionButton(session)
                 }
+                .onMove(perform: moveSessions)
             } else if connection?.isHostConnected == true {
                 Text("No active sessions")
                     .foregroundStyle(.secondary)
@@ -212,6 +214,17 @@ struct RemoteHostSidebarSection: View {
             hostName: host.displayName,
             sessionName: session.sessionName
         ))
+    }
+
+    private func moveSessions(fromOffsets source: IndexSet, toOffset destination: Int) {
+        settings.setRemoteSessionOrder(
+            RemoteSessionOrder.moving(
+                sortedSessions.map(\.sessionName),
+                fromOffsets: source,
+                toOffset: destination
+            ),
+            for: host.id
+        )
     }
 
     private var hostStatusColor: Color {

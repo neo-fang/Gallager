@@ -136,9 +136,10 @@ public struct SessionSortData {
         mode: SidebarSortMode,
         sidebarFields: [SidebarField],
         sidebarTerminalFields: [SidebarField],
-        homeDirectory: String?
+        homeDirectory: String?,
+        preferredSessionNames: [String] = []
     ) -> [TmuxSession] {
-        mode.sorted(sessions) { session in
+        let hostOrder = mode.sorted(sessions) { session in
             forRemoteSession(
                 session,
                 sidebarFields: sidebarFields,
@@ -146,6 +147,11 @@ public struct SessionSortData {
                 homeDirectory: homeDirectory
             )
         }
+        return RemoteSessionOrder.applying(
+            preferredSessionNames,
+            to: hostOrder,
+            sessionName: \.sessionName
+        )
     }
 }
 
