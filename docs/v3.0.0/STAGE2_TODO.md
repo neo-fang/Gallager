@@ -27,5 +27,6 @@
 
 - **Generator**：OpenAI built-in image generation tool
 - **Final master**：`Brand/CtrlX-AppIcon.png`
-- **Prompt intent**：abstract control/X mark, graphite background, cyan-to-violet ribbons,
-  no text, no Apple/Gallager marks, no watermark
+- **Prompt intent**：minimal black control/X mark, matte obsidian and gunmetal surfaces,
+  restrained silver-gray edge highlights, no color gradient, no text, no Apple/Gallager marks,
+  no watermark
