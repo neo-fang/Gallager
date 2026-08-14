@@ -76,13 +76,38 @@ public enum TabReorderScenario {
         TestStep.macWaitForElement(titled: "winC", timeout: 10)
         TestStep.macScreenshot(label: "mac-tabreorder-initial")
 
-        // ── Phase 1: "+" menu offers New Terminal and New Browser ─────
+        // ── Phase 1: Pure-terminal drag persists to tmux ──────────
+        // This must run before opening a Browser/File tab: those features
+        // materialise SessionFileTabsState and previously masked the bug.
+        TestStep.log("Phase 1: Drag winC onto winA in a pure-terminal session")
+        TestStep.macDragElement(
+            from: .labelContains("tabreorder:2 winC"),
+            to: .labelContains("tabreorder:0 winA")
+        )
+        TestStep.wait(seconds: 3)
+
+        // Assert through tmux, not just the SwiftUI tab strip, so an optimistic
+        // visual move without a backend reorder still fails the scenario.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "tabreorder",
+            format: "#{W:#{window_name}#,}",
+            storeAs: "tmuxOrderAfterDrag"
+        )
+        TestStep.assertStoredContains(
+            key: "tmuxOrderAfterDrag",
+            substring: "winC,winA,winB,"
+        )
+        TestStep.macWaitForElement(titled: "tabreorder:0 winC", timeout: 5)
+        TestStep.macWaitForElement(titled: "tabreorder:1 winA", timeout: 5)
+        TestStep.macWaitForElement(titled: "tabreorder:2 winB", timeout: 5)
+
+        // ── Phase 2: "+" menu offers New Terminal and New Browser ─────
         //
         // The "+" button is a SwiftUI Menu; AXPress on it doesn't reliably
         // open the popup on every macOS build (the menu briefly shows then
         // auto-dismisses), so we open it via a CGEvent click and then click
         // the inner menu item once it's accessible.
-        TestStep.log("Phase 1: + button opens a menu with New Terminal and New Browser")
+        TestStep.log("Phase 2: + button opens a menu with New Terminal and New Browser")
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal")
@@ -92,8 +117,8 @@ public enum TabReorderScenario {
         TestStep.macWaitForElement(titled: "terminal 1", timeout: 10)
         TestStep.macScreenshot(label: "mac-tabreorder-after-new-terminal")
 
-        // ── Phase 2: "New Browser" creates a browser tab, focuses URL ─
-        TestStep.log("Phase 2: New Browser menu item creates a browser tab with focused URL field")
+        // ── Phase 3: "New Browser" creates a browser tab, focuses URL ─
+        TestStep.log("Phase 3: New Browser menu item creates a browser tab with focused URL field")
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Browser")
@@ -110,33 +135,8 @@ public enum TabReorderScenario {
         // later phases work against the same tab set.
         TestStep.macCGClickElement(query: .labelContains("Close browser tab:"))
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Close browser tab:"), timeout: 5)
-
-        // ── Phase 3: Drag winC ahead of winA via the AX-driven helper ─
-        TestStep.log("Phase 3: Drag winC onto winA — new order becomes winC, winA, winB, terminal 1")
-        TestStep.macDragElement(
-            from: .labelContains("tabreorder:2 winC"),
-            to: .labelContains("tabreorder:0 winA")
-        )
-        TestStep.wait(seconds: 3)
-
-        // After the drag winC sits at index 0 (its label has the new id).
-        // We assert via tmux's `display-message` so the test catches a bug
-        // where the SwiftUI tab list updates but the tmux indices don't.
-        TestStep.tmuxStoreDisplayMessage(
-            target: "tabreorder",
-            // `#,` escapes the comma so tmux emits it literally — otherwise
-            // the bare `,` inside `#{W:...}` is parsed as the active/inactive
-            // format separator and no commas appear in the output.
-            format: "#{W:#{window_name}#,}",
-            storeAs: "tmuxOrderAfterDrag"
-        )
-        TestStep.assertStoredContains(
-            key: "tmuxOrderAfterDrag",
-            substring: "winC,winA,winB,terminal 1,"
-        )
-        TestStep.macWaitForElement(titled: "tabreorder:0 winC", timeout: 5)
-        TestStep.macWaitForElement(titled: "tabreorder:1 winA", timeout: 5)
-        TestStep.macWaitForElement(titled: "tabreorder:2 winB", timeout: 5)
+        // Preserve the existing screenshot sequence and baseline name. The
+        // reorder itself was already asserted against tmux in Phase 1.
         TestStep.macScreenshot(label: "mac-tabreorder-after-drag")
 
         // ── Phase 4: Session round-trip preserves the new order ───────
