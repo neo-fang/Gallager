@@ -28,6 +28,9 @@ global environment，再复制到 session environment；Codex 等 TUI 检测到�
 - `TmuxTerminalEnvironmentTests` 3/3 通过。
 - `TmuxPaneSplitTests` 与 `WindowReorderTests` 6/6 通过。
 - macOS Debug App 构建通过。
+- macOS Release App 构建、签名及 DMG 校验通过。
+- 本机覆盖安装后 CLI `ping` 通过；原 tmux server PID 与 Session 保持不变。
+- 新 App 创建的真实临时 Session 中，global 和 session 两级 `NO_COLOR` 均不存在。
 - SwiftLint 未安装；Xcode 构建脚本仅报告该工具缺失，Swift 编译无错误。
 
 ## 剩余风险
