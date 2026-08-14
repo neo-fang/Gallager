@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 4/5 tasks
+- **Status**: ✅ Completed
+- **Progress**: 5/5 tasks
 - **Dependencies**: Stage 5 backup ✅
 
 ## Tasks
@@ -12,7 +12,7 @@
 - [x] Produce the graphite-black master.
 - [x] Synchronize and validate all raster derivatives.
 - [x] Build, sign, and install the macOS preview.
-- [ ] Complete visual acceptance in Finder and Dock.
+- [x] Complete visual acceptance in Finder and Dock.
 
 ## Blockers
 
