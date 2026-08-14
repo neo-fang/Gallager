@@ -27,6 +27,14 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 3. Keep the background, slider geometry, framing, texture, and monochrome identity unchanged.
 4. Re-run the Stage 1 derivative, build, review, packaging, and tmux-preservation checks.
 
+## Stage 3
+
+1. Freeze the accepted Stage 2 background and `X` luminance.
+2. Increase controller separation: darker and slightly wider tracks, brighter knobs with stronger outlines, and modestly larger knob silhouettes.
+3. Keep both controls integrated into the existing diagonals and preserve their positions and direction.
+4. Require both slider controls to remain recognizable at 64 px; at 32 px, require at least two distinct knob marks and continuous dark tracks.
+5. Re-run derivative, build, review, packaging, and tmux-preservation checks.
+
 ## Acceptance Criteria
 
 - The `X` silhouette remains clear at Dock-scale sizes.
@@ -36,3 +44,4 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 - The macOS app builds, signs, launches, and responds after replacement.
 - Existing tmux server PID and sessions remain unchanged.
 - Stage 2 remains visibly brighter than Stage 1 at 32 px and 64 px without turning the `X` silver.
+- Stage 3 makes the embedded controls readable without further brightening the `X` or changing the overall silhouette.
