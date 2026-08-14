@@ -38,7 +38,7 @@
 - AppKit dirty-region 跟踪实验没有稳定收益，已删除；没有进入发布代码。
 - Gallager 完整 Swift package 测试通过；聚焦 URL cache 测试 5/5 通过；SwiftTerm
   CoreGraphics cache 聚焦测试 8/8 通过；macOS Release 构建和签名校验通过。
-- SwiftTerm 补丁已发布到 `jarviszeng-zjc/SwiftTerm` 的
+- SwiftTerm 补丁已发布到 `jicezeng/SwiftTerm` 的
   `2944bf55392500e165be43ed5481b7066b58f3cc`；三份 `Package.resolved` 和隔离 Xcode
   checkout 均锁定该 revision，不依赖本机绝对路径。
 - 本机覆盖安装后的真实终端交互回归由用户验收通过。
