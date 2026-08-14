@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 4/5 tasks
+- **Status**: ✅ Completed
+- **Progress**: 5/5 tasks
 - **Dependencies**: Stage 2 ✅
 
 ## Tasks
@@ -12,7 +12,7 @@
 - [x] Produce and select the controller-focused 1024×1024 master.
 - [x] Synchronize and validate all raster derivatives.
 - [x] Build and review the macOS application.
-- [ ] Merge, package, install, and verify the local application without affecting tmux.
+- [x] Merge, package, install, and verify the local application without affecting tmux.
 
 ## Blockers
 
