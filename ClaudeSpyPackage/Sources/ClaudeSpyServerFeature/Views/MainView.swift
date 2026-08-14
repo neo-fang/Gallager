@@ -1057,7 +1057,7 @@ public struct MainView: View {
             let isAnyFileViewActive = isFileBrowserActive || isGitActive
                 || selectedFileTab != nil || selectedBrowserTab != nil
             VStack(spacing: 0) {
-                if let session {
+                if let session, let sessionTabs {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
@@ -4819,10 +4819,23 @@ private extension MainView {
     /// stale per-session record (plan §4.3).
     func seedLayoutIfNeeded() {
         guard let sessionName = selectedWindow?.sessionName else { return }
+
+        // A selected session always owns tab-strip state, even when it only
+        // contains terminals. Window drag/reorder mutates this model; treating
+        // it as optional made a pure-terminal drop look successful while the
+        // tmux reorder callback silently returned.
+        let tabs: SessionFileTabsState
+        if let existing = sessionFileTabsStates[sessionName] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            sessionFileTabsStates[sessionName] = tabs
+        }
+
         guard !seededSessions.contains(sessionName) else { return }
 
         // Don't seed a session the user has already populated.
-        if let existing = sessionFileTabsStates[sessionName], !isWorkbenchEmpty(existing) {
+        if !isWorkbenchEmpty(tabs) {
             seededSessions.insert(sessionName)
             return
         }
@@ -4840,12 +4853,10 @@ private extension MainView {
             // this session down. Don't resurrect a dead session's tabs state.
             guard tmuxService.sessions.contains(where: { $0.sessionName == sessionName }) else { return }
 
-            // Re-check freshness now that we've awaited the store.
-            let tabs = sessionFileTabsStates[sessionName] ?? {
-                let new = SessionFileTabsState()
-                sessionFileTabsStates[sessionName] = new
-                return new
-            }()
+            // Re-check freshness now that we've awaited the store. Cleanup may
+            // have removed the state while the read was suspended; never
+            // resurrect a dead session from this task.
+            guard let tabs = sessionFileTabsStates[sessionName] else { return }
             guard isWorkbenchEmpty(tabs) else { return }
 
             let sessionWindows = windows(forSession: sessionName)
