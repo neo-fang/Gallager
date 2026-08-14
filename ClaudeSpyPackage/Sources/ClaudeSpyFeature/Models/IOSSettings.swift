@@ -288,9 +288,11 @@
 
         /// Add a new paired host
         public func addPairing(_ host: PairedHost) {
-            // Remove any existing pairing with same ID (update case)
-            pairedHosts.removeAll { $0.id == host.id }
-            pairedHosts.append(host)
+            if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+                pairedHosts[index] = host
+            } else {
+                pairedHosts.append(host)
+            }
         }
 
         /// Remove a paired host by ID
@@ -309,6 +311,15 @@
             if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
                 pairedHosts[index] = host
             }
+        }
+
+        public func moveHostPairing(sourceID: String, targetID: String) {
+            pairedHosts = RemoteHostOrder.moving(
+                pairedHosts,
+                sourceID: sourceID,
+                targetID: targetID,
+                id: \.id
+            )
         }
 
         /// Clear all pairings
