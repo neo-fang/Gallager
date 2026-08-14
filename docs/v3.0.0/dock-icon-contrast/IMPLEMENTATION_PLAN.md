@@ -50,6 +50,14 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 4. Regenerate every raster derivative from the resulting 1024×1024 master and inspect the 32 px, 64 px, and full-size results.
 5. Build and install the macOS app without interrupting the existing tmux server or sessions.
 
+## Stage 6
+
+1. Freeze the complete Stage 5 branch and installed application as the gunmetal rollback point.
+2. Use the original black-slider composition and Stage 1 contrast master as fixed endpoints, producing a graphite-black `X` without changing geometry.
+3. Keep the two controller knobs distinguishable at 64 px and preserve continuous tracks at 32 px.
+4. Regenerate every raster derivative from one 1024×1024 master and validate the compiled `AppIcon.icns`.
+5. Back up the installed Stage 5 application before replacing it with the signed Stage 6 preview.
+
 ## Acceptance Criteria
 
 - The `X` silhouette remains clear at Dock-scale sizes.
@@ -62,3 +70,4 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 - Stage 3 makes the embedded controls readable without further brightening the `X` or changing the overall silhouette.
 - Stage 4 restores the accepted Stage 2 appearance after Finder exposed the Stage 3 icon as too bright.
 - Stage 5 restores a darker gunmetal mood than Stage 2 without regressing to Stage 1's low small-size contrast.
+- Stage 6 makes the `X` read as graphite black while keeping the controls legible and retaining Stage 5 as an exact rollback point.
