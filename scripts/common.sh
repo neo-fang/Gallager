@@ -130,13 +130,36 @@ assert_primary_worktree() {
 
 find_apple_development_identity() {
     local team_id="${1:-}"
-    security find-identity -v -p codesigning \
-        | awk -v team_id="$team_id" '
-            /Apple Development:/ && (team_id == "" || index($0, "(" team_id ")") != 0) {
-                print $2
-                exit
-            }
-        '
+    local identity_hash certificate_name subject
+
+    while IFS=$'\t' read -r identity_hash certificate_name; do
+        [ -n "$identity_hash" ] || continue
+        if [ -z "$team_id" ]; then
+            printf '%s\n' "$identity_hash"
+            return 0
+        fi
+
+        subject=$(
+            /usr/bin/security find-certificate -c "$certificate_name" -p 2>/dev/null \
+                | /usr/bin/openssl x509 -noout -subject -nameopt RFC2253 2>/dev/null
+        ) || continue
+        case ",$subject," in
+            *",OU=$team_id,"*)
+                printf '%s\n' "$identity_hash"
+                return 0
+                ;;
+        esac
+    done < <(
+        /usr/bin/security find-identity -v -p codesigning \
+            | /usr/bin/awk -F'"' '/Apple Development:/ {
+                prefix = $1
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", prefix)
+                split(prefix, fields, /[[:space:]]+/)
+                print fields[2] "\t" $2
+            }'
+    )
+
+    return 1
 }
 
 read_xcconfig_value() {

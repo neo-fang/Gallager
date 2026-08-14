@@ -22,3 +22,10 @@
 - [x] 未配置发行基础设施时安全失败，不回退旧更新通道。
 - [x] 发布 manifest 指向完整且不可变的 Git commit。
 - [ ] CtrlX 专用 Apple/Sparkle 外部资源就绪后完成正式发布验收。
+
+## Local packaging verification
+
+- Apple Development 证书显示名称中的括号值不是 Team ID；本地打包器改为读取证书 subject
+  的 `OU`，再选择匹配 `CTRLX_MAC_DEVELOPMENT_TEAM` 的有效 identity，避免误报无签名证书。
+- 该修复同时供 macOS DMG 与 iOS 本地重签名流程复用；正式 Developer ID、Notary 和 Sparkle
+  发布门禁仍保持未完成状态。
