@@ -35,6 +35,13 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 4. Require both slider controls to remain recognizable at 64 px; at 32 px, require at least two distinct knob marks and continuous dark tracks.
 5. Re-run derivative, build, review, packaging, and tmux-preservation checks.
 
+## Stage 4
+
+1. Restore the complete raster asset set from immediately before `3fb0e1e`.
+2. Do not regenerate or reinterpret the image; the rollback must be byte-exact.
+3. Keep the Stage 3 documentation as the historical record of the rejected high-resolution appearance.
+4. Re-run derivative consistency, build, review, packaging, and tmux-preservation checks.
+
 ## Acceptance Criteria
 
 - The `X` silhouette remains clear at Dock-scale sizes.
@@ -45,3 +52,4 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 - Existing tmux server PID and sessions remain unchanged.
 - Stage 2 remains visibly brighter than Stage 1 at 32 px and 64 px without turning the `X` silver.
 - Stage 3 makes the embedded controls readable without further brightening the `X` or changing the overall silhouette.
+- Stage 4 restores the accepted Stage 2 appearance after Finder exposed the Stage 3 icon as too bright.
