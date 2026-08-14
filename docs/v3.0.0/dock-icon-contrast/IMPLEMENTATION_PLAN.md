@@ -20,6 +20,13 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 4. Review the complete change set and record the result.
 5. Merge into `develop/v3.0.0`, package, and replace `/Applications/CtrlX.app` without touching tmux sessions.
 
+## Stage 2
+
+1. Use the accepted Stage 1 icon as the immutable geometry reference.
+2. Raise only the `X` face luminance and neutral edge highlights by one restrained step.
+3. Keep the background, slider geometry, framing, texture, and monochrome identity unchanged.
+4. Re-run the Stage 1 derivative, build, review, packaging, and tmux-preservation checks.
+
 ## Acceptance Criteria
 
 - The `X` silhouette remains clear at Dock-scale sizes.
@@ -28,4 +35,4 @@ Improve the CtrlX Dock icon's small-size readability without changing its identi
 - All raster derivatives match the final master and have the dimensions declared by their asset catalogs.
 - The macOS app builds, signs, launches, and responds after replacement.
 - Existing tmux server PID and sessions remain unchanged.
-
+- Stage 2 remains visibly brighter than Stage 1 at 32 px and 64 px without turning the `X` silver.
