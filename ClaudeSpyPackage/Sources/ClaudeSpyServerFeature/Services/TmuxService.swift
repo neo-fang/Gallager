@@ -2096,6 +2096,10 @@ final public class TmuxService {
     ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
         var args = [
+            // Old CtrlX builds may have copied NO_COLOR from the app into this
+            // session. Clear it before spawning another shell in the session.
+            "set-environment", "-u", "-t", target, "NO_COLOR",
+            ";",
             "split-window",
             flag,
             "-t", target,
@@ -2184,6 +2188,11 @@ final public class TmuxService {
             target = Self.sessionTarget(sessionName)
         }
         var args = [
+            // A session created by an older CtrlX build may retain NO_COLOR
+            // even after the app is upgraded. Remove that stale session value
+            // before the new shell inherits it.
+            "set-environment", "-u", "-t", target, "NO_COLOR",
+            ";",
             "new-window",
             "-t", target,
             "-P", "-F", "#{pane_id}:#{window_index}",
@@ -3025,18 +3034,21 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
-        // Chain `set-option -g default-terminal … ; set-option -g default-command
-        // … ; new-session …` in one tmux invocation. `set-option` needs a running
-        // server, but we need both options installed *before* `new-session` so the
-        // first pane uses them. Within a single tmux call the server is started,
-        // then commands run in order — so the set-options succeed and the new
-        // session inherits them. `default-terminal` pins the pane's TERM to a
-        // 256-color entry (tmux otherwise spawns with its build default, which can
-        // be the 8-color `screen`); `screen-256color` is chosen over the richer
-        // `tmux-256color` because the latter's terminfo entry is missing on some
-        // macOS installs. Repeating this on every session create is harmless
-        // (idempotent) and avoids tracking server lifetime.
+        // Chain `set-environment -gu NO_COLOR ; set-option … ; new-session …`
+        // in one tmux invocation. A CtrlX app launched from an agent shell may
+        // inherit NO_COLOR; when this invocation starts a fresh tmux server, that
+        // value otherwise enters the server's global environment and disables
+        // color in every child TUI. Remove only the inherited global value here —
+        // a user's shell startup files can still deliberately export NO_COLOR.
+        //
+        // The options must also be installed *before* `new-session` so the first
+        // pane uses them. `default-terminal` pins TERM to a 256-color entry;
+        // `screen-256color` is chosen over `tmux-256color` because the latter's
+        // terminfo entry is missing on some macOS installs. Every operation is
+        // idempotent, so the same sequence is safe against an existing server.
         var args = [
+            "set-environment", "-gu", "NO_COLOR",
+            ";",
             "set-option", "-g", "default-terminal", "screen-256color",
             ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
@@ -3164,6 +3176,8 @@ final public class TmuxService {
         // A wide pane keeps the typed `printf` command on one row so its echo
         // can't wrap into a line that starts with the marker.
         var args = [
+            "set-environment", "-gu", "NO_COLOR",
+            ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
