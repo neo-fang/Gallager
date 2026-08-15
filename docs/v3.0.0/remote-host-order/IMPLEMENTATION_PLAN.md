@@ -46,11 +46,13 @@ Stage 8 把 `draggable/dropDestination` 直接挂在 macOS `List` 的 `Section` 
 ### 修复设计
 
 1. 保留 `pairedHosts` 作为唯一顺序来源，不修改数据模型、Relay 协议或 iOS 实现。
-2. macOS 改用手柄上的进程内 `DragGesture`，不再让 `List` 的 Section header 参与系统数据拖放；
-   普通文本以及 session/window 拖放自然无法进入 Host 排序链路。
-3. `MainView` 只保存 Host header 的实时屏幕区域和当前目标；拖拽结束时按落点解析目标并调用
+2. 将远程 Host 标题从 `List` 的 Section header 移到 Section 的第一个普通行；保留标题样式和
+   无障碍 header 语义，但彻底绕开 Section header 的事件拦截。
+3. 手柄使用高优先级的进程内 `DragGesture`；普通文本以及 session/window 拖放自然无法进入
+   Host 排序链路。
+4. `MainView` 只保存 Host 标题行的实时屏幕区域和当前目标；拖拽结束时按落点解析目标并调用
    既有 `moveHostPairing`，随后清理短生命周期拖拽状态。
-4. 保留既有无障碍 Move Up/Move Down 操作与持久化路径，不新增第二套排序状态。
+5. 保留既有无障碍 Move Up/Move Down 操作与持久化路径，不新增第二套排序状态。
 
 ### 验收标准
 

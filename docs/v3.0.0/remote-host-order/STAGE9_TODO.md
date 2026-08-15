@@ -3,14 +3,14 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 3/5 tasks
+- **Progress**: 1/5 tasks
 - **Dependencies**: Stage 8 远程 Host 顺序 ✅
 
 ## Tasks
 
 - [x] 复核真机失败路径并确定拖放容器根因
-- [x] 用进程内几何命中拖拽替换 Transferable 接线
-- [x] 覆盖拖放状态清理、顺序与持久化测试
+- [ ] 将 Host 标题迁移为普通 List 行并接入高优先级拖拽
+- [ ] 覆盖拖放状态清理、顺序与持久化测试
 - [ ] 完成 macOS 构建并覆盖本机 App 验证
 - [ ] 完成 code review、合入与发布收尾
 
@@ -25,4 +25,5 @@
 - 本机已覆盖安装 `75dcabb`，CtrlX CLI 返回 `pong`。
 - 覆盖安装前后 tmux server PID 与 pane 快照保持不变。
 - SwiftLint 未安装；Xcode 构建仅报告既有安装提示。
-- 待完成真实侧边栏拖拽交互验收。
+- 首个直接手势版本 `75dcabb` 仍位于 Section header，真实侧边栏验收失败；该方案已废弃。
+- 待完成普通 List 行版本的构建与真实侧边栏拖拽交互验收。
