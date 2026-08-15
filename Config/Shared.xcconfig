@@ -26,6 +26,7 @@ TARGETED_DEVICE_FAMILY = 1,2
 // Info PLIST
 // ==========================================
 GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_KEY_NSCameraUsageDescription = CtrlX uses the camera only to send a photo you take to the selected terminal.
 
 // ==========================================
 // Entitlements

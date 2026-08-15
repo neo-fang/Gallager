@@ -24,6 +24,7 @@ public enum Symbols: String {
     case boltFill = "bolt.fill"
     case bubbleLeftAndExclamationmarkBubbleRight = "bubble.left.and.exclamationmark.bubble.right"
     case calendar
+    case camera
     case car
     case chartBarXaxis = "chart.bar.xaxis"
     case chartLineUptrendXyaxis = "chart.line.uptrend.xyaxis"
