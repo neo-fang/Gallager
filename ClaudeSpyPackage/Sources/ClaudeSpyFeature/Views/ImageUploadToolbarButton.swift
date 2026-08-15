@@ -100,7 +100,7 @@
                 selectedPhotos = []
                 loadPhotos(items)
             }
-            .onDisappear(perform: cancelOperation)
+            .onDisappear(perform: handleDisappear)
             .alert("Image Input Failed", isPresented: .init(
                 get: { sourceErrorMessage != nil },
                 set: { if !$0 { sourceErrorMessage = nil } }
@@ -340,6 +340,16 @@
             draftImages = []
             targetPaneId = nil
             uploadErrorMessage = nil
+        }
+
+        private func handleDisappear() {
+            guard
+                !isPhotoPickerPresented,
+                !isFileImporterPresented,
+                !isCameraPresented,
+                !isPreviewPresented
+            else { return }
+            cancelOperation()
         }
 
         private func cancelOperation() {
