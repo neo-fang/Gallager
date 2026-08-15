@@ -36,7 +36,11 @@ later hit test.
 - tmux server and pane snapshot: unchanged across installation
 - `git diff --check`: passed
 - Physical macOS sidebar drag acceptance: passed
+- Merge commit on `develop/v3.0.0`: `f023877`
+- Public zero-parameter upgrade and artifact readback: passed
+- Published DMG SHA-256: `c5eb600635752b0e627d109818b7d4068a24afb023a6574cd48e8950213d9d01`
+- Shared Relay and Nginx remained healthy with zero restarts
 
 ## Assessment
 
-Approved for merge and publication. No P1, P2, or P3 findings remain.
+Approved. Merge and publication completed. No P1, P2, or P3 findings remain.
