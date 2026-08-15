@@ -53,6 +53,8 @@ Stage 8 把 `draggable/dropDestination` 直接挂在 macOS `List` 的 `Section` 
 4. `MainView` 只保存 Host 标题行的实时屏幕区域和当前目标；拖拽结束时按落点解析目标并调用
    既有 `moveHostPairing`，随后清理短生命周期拖拽状态。
 5. 保留既有无障碍 Move Up/Move Down 操作与持久化路径，不新增第二套排序状态。
+6. 手柄使用不小于 32×28pt 的命中区域；拖动源立即显示 accent 反馈，目标区域按可见标题的
+   最近垂直距离解析并允许有限容差，避免必须精确落在标题像素范围内。
 
 ### 验收标准
 
@@ -60,3 +62,4 @@ Stage 8 把 `draggable/dropDestination` 直接挂在 macOS `List` 的 `Section` 
 - 向上、向下、首位和末位移动均正确，重启后顺序保持。
 - 普通文本以及 session/window 拖放不会改变 Host 顺序。
 - Host session 点击、新建按钮、session 排序和 iOS Manage Hosts 排序不回归。
+- 拖动开始和目标命中均有明确视觉反馈；在标题上下合理容差内松手仍能完成移动。

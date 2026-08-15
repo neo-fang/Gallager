@@ -16,7 +16,9 @@
 
 **Resolution**：远程 Host 标题已成为 Section 的第一个普通 List 行，手柄改为高优先级
 `DragGesture`；Section header 不再承载任何 Host 排序交互。代码、专项测试、Release 构建、
-签名和本机安装均已通过，等待真实交互复验。
+签名和本机安装均已通过，但真实复验仅偶发成功。残余问题是手柄命中区域偏小，且目标解析
+要求落点严格位于另一个标题矩形内；需要扩大源命中并使用有限容差的最近目标，同时显示源
+拖动反馈后再次验收。
 
 The failed `draggable/dropDestination` path has been removed. Host ordering now uses one in-process gesture
 and the existing `moveHostPairing` mutation; no secondary order store, Relay message, or iOS behavior was added.
