@@ -32,6 +32,7 @@ later hit test.
 - Deep strict App signature verification: passed
 - Rejected header-based App source revision: `75dcabb`
 - Normal-row App source revision: `e40815d`
+- Expanded-hit-target App source revision: `6b7e129`
 - CtrlX CLI: `pong`
 - tmux server and pane snapshot: unchanged across installation
 - `git diff --check`: passed
