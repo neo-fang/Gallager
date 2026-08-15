@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 4/7 tasks
+- **Progress**: 6/7 tasks
 - **Dependencies**: Stage 1 ✅
 
 ## Tasks
@@ -12,8 +12,8 @@
 - [x] 提供相册多选、图片文件、相机和剪贴板入口
 - [x] 实现多图共享 Relay 预算的规范化
 - [x] 实现发送前缩略图、大小、删除和确认交互
-- [ ] 完成单元测试及 iOS/macOS 构建验证
-- [ ] 完成 code review 并清零 P1/P2/P3
+- [x] 完成单元测试及 iOS/macOS 构建验证
+- [x] 完成 code review 并清零 P1/P2/P3
 - [ ] 完成 iPhone 真机验收
 
 ## Blockers
@@ -22,6 +22,8 @@
 
 ## Verification
 
-- `RelayImagePreparerTests`：8/8 通过，含多图共享预算与无效成员回归。
+- `RelayImagePreparerTests`：9/9 通过，含多图共享预算、剩余预算重分配与无效成员回归。
 - iPhoneOS arm64 Debug 无签名构建通过。
+- macOS arm64 Debug 无签名构建通过。
 - 构建设置已包含 `NSCameraUsageDescription`。
+- `git diff --check` 通过；SwiftLint 未安装，Xcode 仅报告既有构建脚本提示。
