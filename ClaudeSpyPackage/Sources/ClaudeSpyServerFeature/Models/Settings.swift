@@ -802,9 +802,11 @@ final public class AppSettings {
 
     /// Add a new paired host (remote host to view)
     public func addHostPairing(_ host: PairedHost) {
-        // Remove any existing pairing with same ID (update case)
-        pairedHosts.removeAll { $0.id == host.id }
-        pairedHosts.append(host)
+        if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+            pairedHosts[index] = host
+        } else {
+            pairedHosts.append(host)
+        }
     }
 
     /// Remove a paired host by ID
@@ -823,6 +825,15 @@ final public class AppSettings {
         if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
             pairedHosts[index] = host
         }
+    }
+
+    public func moveHostPairing(sourceID: String, targetID: String) {
+        pairedHosts = RemoteHostOrder.moving(
+            pairedHosts,
+            sourceID: sourceID,
+            targetID: targetID,
+            id: \.id
+        )
     }
 
     /// Clear all host pairings

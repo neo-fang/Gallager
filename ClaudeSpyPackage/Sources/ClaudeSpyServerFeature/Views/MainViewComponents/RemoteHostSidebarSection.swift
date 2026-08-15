@@ -24,6 +24,7 @@ struct RemoteHostSidebarSection: View {
 
     @Environment(AppSettings.self) private var settings
     @State private var sessionRenameRequest: String?
+    @State private var isHostDropTargeted = false
 
     /// Remote sessions grouped by tmux session (mirrors local session grouping)
     private var tmuxSessions: [TmuxSession] {
@@ -95,9 +96,26 @@ struct RemoteHostSidebarSection: View {
                 isNewSessionDisabled: connection?.isHostConnected != true,
                 newSessionButtonIdentifier: "new-session-remote-\(host.id)",
                 trailing: {
-                    Circle()
-                        .fill(hostStatusColor)
-                        .frame(width: 8, height: 8)
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(hostStatusColor)
+                            .frame(width: 8, height: 8)
+
+                        Symbols.line3Horizontal.image
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, height: 20)
+                            .contentShape(Rectangle())
+                            .draggable(host.id)
+                            .accessibilityLabel("Reorder \(host.displayName)")
+                            .accessibilityHint("Drag onto another host")
+                            .accessibilityAction(named: "Move Up") {
+                                moveHost(by: -1)
+                            }
+                            .accessibilityAction(named: "Move Down") {
+                                moveHost(by: 1)
+                            }
+                            .help("Drag to reorder remote hosts")
+                    }
                 },
                 popover: {
                     NewSessionContent(
@@ -110,6 +128,22 @@ struct RemoteHostSidebarSection: View {
                     )
                 }
             )
+            .background(isHostDropTargeted ? Color.accentColor.opacity(0.15) : .clear)
+            .clipShape(.rect(cornerRadius: 6))
+            .dropDestination(for: String.self) { sourceIDs, _ in
+                guard
+                    let sourceID = sourceIDs.first(where: { sourceID in
+                        settings.pairedHosts.contains { $0.id == sourceID }
+                    }),
+                    sourceID != host.id
+                else {
+                    return false
+                }
+                settings.moveHostPairing(sourceID: sourceID, targetID: host.id)
+                return true
+            } isTargeted: { isTargeted in
+                isHostDropTargeted = isTargeted
+            }
         }
     }
 
@@ -224,6 +258,19 @@ struct RemoteHostSidebarSection: View {
                 toOffset: destination
             ),
             for: host.id
+        )
+    }
+
+    private func moveHost(by offset: Int) {
+        guard
+            let sourceIndex = settings.pairedHosts.firstIndex(where: { $0.id == host.id }),
+            settings.pairedHosts.indices.contains(sourceIndex + offset)
+        else {
+            return
+        }
+        settings.moveHostPairing(
+            sourceID: host.id,
+            targetID: settings.pairedHosts[sourceIndex + offset].id
         )
     }
 
