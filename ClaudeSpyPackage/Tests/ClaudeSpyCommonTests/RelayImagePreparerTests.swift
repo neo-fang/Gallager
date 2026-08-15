@@ -1,9 +1,11 @@
 #if os(macOS)
     import AppKit
     import ClaudeSpyCommon
+    import ImageIO
     import Testing
-    @testable import ClaudeSpyServerFeature
+    import UniformTypeIdentifiers
 
+    /// Cross-platform image payload normalization tests.
     @Suite("Relay Image Preparer")
     struct RelayImagePreparerTests {
         @Test("Small efficient images pass through unchanged")
@@ -21,6 +23,39 @@
 
                 #expect(prepared == original)
             }
+        }
+
+        @Test("Raw photo data detects its format")
+        func rawPhotoDataDetectsFormat() throws {
+            let bitmap = makeBitmap(width: 32, height: 32, noisy: false)
+
+            for (type, expectedFormat) in [
+                (NSBitmapImageRep.FileType.png, ImageFormat.png),
+                (.jpeg, .jpeg),
+            ] {
+                let data = try #require(bitmap.representation(using: type, properties: [:]))
+                let prepared = try #require(
+                    RelayImagePreparer.prepare(data, maxBytes: data.count)
+                )
+
+                #expect(prepared.data == data)
+                #expect(prepared.format == expectedFormat)
+            }
+        }
+
+        @Test("HEIC photo data is normalized to a compatible format")
+        func heicPhotoIsNormalized() throws {
+            let bitmap = makeBitmap(width: 64, height: 48, noisy: false)
+            let heic = try #require(encode(bitmap, as: .heic, orientation: 6))
+
+            let prepared = try #require(
+                RelayImagePreparer.prepare(heic, maxBytes: 100 * 1_024)
+            )
+
+            #expect(prepared.format == .png || prepared.format == .jpeg)
+            #expect(prepared.data.count <= 100 * 1_024)
+            #expect(NSImage(data: prepared.data) != nil)
+            #expect(pixelSize(of: prepared.data) == CGSize(width: 48, height: 64))
         }
 
         @Test("TIFF clipboard data is normalized to PNG")
@@ -63,6 +98,7 @@
             let invalid = ClipboardImage(data: Data(repeating: 0xFF, count: 1_024), format: .png)
 
             #expect(RelayImagePreparer.prepare(invalid, maxBytes: 512) == nil)
+            #expect(RelayImagePreparer.prepare(invalid.data, maxBytes: 512) == nil)
         }
 
         private func makeBitmap(
@@ -102,6 +138,38 @@
             }
 
             return bitmap
+        }
+
+        private func encode(
+            _ bitmap: NSBitmapImageRep,
+            as type: UTType,
+            orientation: Int? = nil
+        ) -> Data? {
+            guard let image = bitmap.cgImage else { return nil }
+            let output = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(
+                output,
+                type.identifier as CFString,
+                1,
+                nil
+            ) else { return nil }
+            let properties = orientation.map {
+                [kCGImagePropertyOrientation: $0] as CFDictionary
+            }
+            CGImageDestinationAddImage(destination, image, properties)
+            guard CGImageDestinationFinalize(destination) else { return nil }
+            return output as Data
+        }
+
+        private func pixelSize(of data: Data) -> CGSize? {
+            guard
+                let source = CGImageSourceCreateWithData(data as CFData, nil),
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                    as? [CFString: Any],
+                let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                let height = properties[kCGImagePropertyPixelHeight] as? Int
+            else { return nil }
+            return CGSize(width: width, height: height)
         }
     }
 #endif

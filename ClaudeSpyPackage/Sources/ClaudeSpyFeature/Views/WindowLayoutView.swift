@@ -260,6 +260,13 @@
                     }
                 }
 
+                ToolbarItem(placement: .topBarTrailing) {
+                    ImageUploadToolbarButton(
+                        paneId: activePaneId,
+                        relayClient: relayClient
+                    )
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
