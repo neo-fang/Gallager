@@ -27,4 +27,3 @@ Perceived contrast depends on Dock size, display brightness, and wallpaper. Loca
 ## Assessment
 
 Approved for integration and local installation.
-

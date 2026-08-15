@@ -26,4 +26,3 @@
 - 双 Mac Host/Viewer：Viewer 点击 `winC` 后 Host 的 tmux active Window 变为 `winC`，快捷键切换通过。
 - 两套旧 Tab Reorder 场景均继续通过拖拽与 active Window 阶段，之后被既有 `terminal 1` 精确 UI
   文本断言阻塞；真实 tmux 顺序断言已经通过，该失败与本 hotfix 无关。
-

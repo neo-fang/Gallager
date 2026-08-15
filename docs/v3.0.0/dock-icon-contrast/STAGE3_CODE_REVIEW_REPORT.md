@@ -27,4 +27,3 @@ Perceived detail still depends on Dock scale and display density. The installed 
 ## Assessment
 
 Approved for integration and local installation.
-

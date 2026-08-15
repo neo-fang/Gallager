@@ -27,4 +27,3 @@ Finder and Dock can independently cache icons. The app bundle contents are autho
 ## Assessment
 
 Approved for integration and local installation.
-

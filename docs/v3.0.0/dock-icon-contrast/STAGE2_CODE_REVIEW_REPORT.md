@@ -27,4 +27,3 @@ Final perceived brightness depends on Dock scale, display brightness, and wallpa
 ## Assessment
 
 Approved for integration and local installation.
-

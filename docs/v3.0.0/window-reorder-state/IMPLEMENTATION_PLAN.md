@@ -21,4 +21,3 @@
 - 纯终端 session 的 Window 可拖到指定位置，tmux 实际顺序同步更新。
 - 新建 Browser/File 标签后拖拽行为不回归。
 - Window 重排单元测试和相关构建通过。
-
