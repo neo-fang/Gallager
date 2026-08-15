@@ -1,6 +1,6 @@
 # CtrlX
 
-> **Your tmux, everywhere.**
+> **Your tmux, Your Agent, everywhere.**
 
 **多主机，全端访问。** CtrlX 是一个以 tmux 为核心的跨设备终端，让你在任意一台 Mac
 或 iPhone 上，查看并控制任意一台已配对 Mac 的 tmux 工作区。
