@@ -46,10 +46,10 @@ Stage 8 把 `draggable/dropDestination` 直接挂在 macOS `List` 的 `Section` 
 ### 修复设计
 
 1. 保留 `pairedHosts` 作为唯一顺序来源，不修改数据模型、Relay 协议或 iOS 实现。
-2. macOS 改用 AppKit-backed `NSItemProvider` 与 SwiftUI `DropDelegate`；只接受当前进程的专用
-   Host 拖放类型，避免普通文本或 session/window 拖放误触发。
-3. `MainView` 持有一次拖拽的源 Host ID，各 Host header 只负责目标命中；进入新目标时立即调用
-   既有 `moveHostPairing`，放下后清理拖拽状态。
+2. macOS 改用手柄上的进程内 `DragGesture`，不再让 `List` 的 Section header 参与系统数据拖放；
+   普通文本以及 session/window 拖放自然无法进入 Host 排序链路。
+3. `MainView` 只保存 Host header 的实时屏幕区域和当前目标；拖拽结束时按落点解析目标并调用
+   既有 `moveHostPairing`，随后清理短生命周期拖拽状态。
 4. 保留既有无障碍 Move Up/Move Down 操作与持久化路径，不新增第二套排序状态。
 
 ### 验收标准
