@@ -17,20 +17,22 @@
             #expect(target(at: CGPoint(x: 100, y: 95), source: "a") == "c")
         }
 
-        @Test("Ignores source and non-header locations")
-        func ignoresInvalidTargets() {
+        @Test("Uses bounded tolerance and ignores invalid locations")
+        func usesBoundedTolerance() {
             #expect(target(at: CGPoint(x: 100, y: 15), source: "a") == nil)
-            #expect(target(at: CGPoint(x: 100, y: 75), source: "a") == nil)
+            #expect(target(at: CGPoint(x: 100, y: 76), source: "a") == "c")
+            #expect(target(at: CGPoint(x: 100, y: 150), source: "a") == nil)
+            #expect(target(at: CGPoint(x: 220, y: 55), source: "a") == nil)
         }
 
-        @Test("Uses visible host order and ignores stale frames")
-        func ignoresStaleFrames() {
+        @Test("Uses visible host order and ignores unlisted frames")
+        func ignoresUnlistedFrames() {
             #expect(RemoteHostDropTarget.hostID(
                 at: CGPoint(x: 100, y: 55),
                 orderedHostIDs: ["a", "c"],
                 headerFrames: frames,
                 excluding: "a"
-            ) == nil)
+            ) == "c")
         }
 
         private func target(at location: CGPoint, source: String) -> String? {

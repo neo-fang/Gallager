@@ -12,6 +12,7 @@ struct RemoteHostSidebarSection: View {
     let sessionStore: SessionStore
     let creatingSelection: NewSessionCreatingState?
     @Binding var selectedRemoteSession: RemoteSessionSelection?
+    let isHostDragging: Bool
     let isHostDropTargeted: Bool
     let onHeaderFrameChange: (CGRect?) -> Void
     let onHostDragChanged: (CGPoint) -> Void
@@ -110,9 +111,12 @@ struct RemoteHostSidebarSection: View {
                         .frame(width: 8, height: 8)
 
                     Symbols.line3Horizontal.image
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20, height: 20)
-                        .padding(4)
+                        .foregroundStyle(isHostDragging ? Color.accentColor : .secondary)
+                        .frame(width: 32, height: 28)
+                        .background(
+                            isHostDragging ? Color.accentColor.opacity(0.14) : .clear,
+                            in: .rect(cornerRadius: 5)
+                        )
                         .contentShape(Rectangle())
                         .highPriorityGesture(
                             DragGesture(minimumDistance: 2, coordinateSpace: .global)
@@ -132,6 +136,7 @@ struct RemoteHostSidebarSection: View {
                             moveHost(by: 1)
                         }
                         .help("Drag to reorder remote hosts")
+                        .animation(.easeOut(duration: 0.1), value: isHostDragging)
                 }
             },
             popover: {
@@ -305,8 +310,24 @@ enum RemoteHostDropTarget {
         headerFrames: [String: CGRect],
         excluding sourceID: String
     ) -> String? {
-        orderedHostIDs.first { hostID in
-            hostID != sourceID && headerFrames[hostID]?.contains(location) == true
+        guard headerFrames[sourceID]?.contains(location) != true else { return nil }
+
+        var closest: (hostID: String, distance: CGFloat)?
+        for hostID in orderedHostIDs where hostID != sourceID {
+            guard let frame = headerFrames[hostID] else { continue }
+            let horizontalTarget = frame.insetBy(dx: -8, dy: 0)
+            guard horizontalTarget.minX ... horizontalTarget.maxX ~= location.x else { continue }
+
+            let distance = max(max(frame.minY - location.y, location.y - frame.maxY), 0)
+            guard distance <= max(frame.height, 28) else { continue }
+            if let current = closest {
+                if distance < current.distance {
+                    closest = (hostID, distance)
+                }
+            } else {
+                closest = (hostID, distance)
+            }
         }
+        return closest?.hostID
     }
 }

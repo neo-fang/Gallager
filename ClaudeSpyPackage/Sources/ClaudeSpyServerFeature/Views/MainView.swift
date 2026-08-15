@@ -49,6 +49,7 @@ public struct MainView: View {
     /// Global frames let the remote Host drag handle resolve a destination
     /// without relying on data-drop support from `List` section headers.
     @State private var remoteHostHeaderFrames: [String: CGRect] = [:]
+    @State private var remoteHostDragSourceID: String?
     @State private var remoteHostDropTargetID: String?
 
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
@@ -392,6 +393,9 @@ public struct MainView: View {
             if let targetID = remoteHostDropTargetID, !currentHostIds.contains(targetID) {
                 remoteHostDropTargetID = nil
             }
+            if let sourceID = remoteHostDragSourceID, !currentHostIds.contains(sourceID) {
+                remoteHostDragSourceID = nil
+            }
 
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
@@ -643,6 +647,7 @@ public struct MainView: View {
                     sessionStore: sessionStore,
                     creatingSelection: creatingSelection,
                     selectedRemoteSession: $selectedRemoteSession,
+                    isHostDragging: remoteHostDragSourceID == host.id,
                     isHostDropTargeted: remoteHostDropTargetID == host.id,
                     onHeaderFrameChange: { frame in
                         if let frame {
@@ -652,13 +657,17 @@ public struct MainView: View {
                         }
                     },
                     onHostDragChanged: { location in
+                        remoteHostDragSourceID = host.id
                         remoteHostDropTargetID = remoteHostTarget(
                             for: host.id,
                             at: location
                         )
                     },
                     onHostDragEnded: { location in
-                        defer { remoteHostDropTargetID = nil }
+                        defer {
+                            remoteHostDragSourceID = nil
+                            remoteHostDropTargetID = nil
+                        }
                         guard let targetID = remoteHostTarget(for: host.id, at: location) else { return }
                         settings.moveHostPairing(sourceID: host.id, targetID: targetID)
                     },
