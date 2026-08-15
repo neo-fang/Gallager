@@ -12,6 +12,10 @@ struct RemoteHostSidebarSection: View {
     let sessionStore: SessionStore
     let creatingSelection: NewSessionCreatingState?
     @Binding var selectedRemoteSession: RemoteSessionSelection?
+    let isHostDropTargeted: Bool
+    let onHeaderFrameChange: (CGRect?) -> Void
+    let onHostDragChanged: (CGPoint) -> Void
+    let onHostDragEnded: (CGPoint) -> Void
     let onSelect: (RemoteSessionSelection) -> Void
     let onCreate: (AgentProject?) -> Void
     let onRename: (String, String) -> Void
@@ -24,7 +28,6 @@ struct RemoteHostSidebarSection: View {
 
     @Environment(AppSettings.self) private var settings
     @State private var sessionRenameRequest: String?
-    @State private var isHostDropTargeted = false
 
     /// Remote sessions grouped by tmux session (mirrors local session grouping)
     private var tmuxSessions: [TmuxSession] {
@@ -105,7 +108,15 @@ struct RemoteHostSidebarSection: View {
                             .foregroundStyle(.secondary)
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
-                            .draggable(host.id)
+                            .gesture(
+                                DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                                    .onChanged { value in
+                                        onHostDragChanged(value.location)
+                                    }
+                                    .onEnded { value in
+                                        onHostDragEnded(value.location)
+                                    }
+                            )
                             .accessibilityLabel("Reorder \(host.displayName)")
                             .accessibilityHint("Drag onto another host")
                             .accessibilityAction(named: "Move Up") {
@@ -128,22 +139,16 @@ struct RemoteHostSidebarSection: View {
                     )
                 }
             )
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { frame in
+                onHeaderFrameChange(frame)
+            }
+            .onDisappear {
+                onHeaderFrameChange(nil)
+            }
             .background(isHostDropTargeted ? Color.accentColor.opacity(0.15) : .clear)
             .clipShape(.rect(cornerRadius: 6))
-            .dropDestination(for: String.self) { sourceIDs, _ in
-                guard
-                    let sourceID = sourceIDs.first(where: { sourceID in
-                        settings.pairedHosts.contains { $0.id == sourceID }
-                    }),
-                    sourceID != host.id
-                else {
-                    return false
-                }
-                settings.moveHostPairing(sourceID: sourceID, targetID: host.id)
-                return true
-            } isTargeted: { isTargeted in
-                isHostDropTargeted = isTargeted
-            }
         }
     }
 
@@ -281,5 +286,18 @@ struct RemoteHostSidebarSection: View {
         if connection.isHostConnected { return .green }
         if connection.isRelayConnected { return .yellow }
         return .red
+    }
+}
+
+enum RemoteHostDropTarget {
+    static func hostID(
+        at location: CGPoint,
+        orderedHostIDs: [String],
+        headerFrames: [String: CGRect],
+        excluding sourceID: String
+    ) -> String? {
+        orderedHostIDs.first { hostID in
+            hostID != sourceID && headerFrames[hostID]?.contains(location) == true
+        }
     }
 }
