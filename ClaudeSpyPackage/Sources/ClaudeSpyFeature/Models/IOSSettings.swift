@@ -313,12 +313,11 @@
             }
         }
 
-        public func moveHostPairing(sourceID: String, targetID: String) {
+        public func moveHostPairings(fromOffsets source: IndexSet, toOffset destination: Int) {
             pairedHosts = RemoteHostOrder.moving(
                 pairedHosts,
-                sourceID: sourceID,
-                targetID: targetID,
-                id: \.id
+                fromOffsets: source,
+                toOffset: destination
             )
         }
 

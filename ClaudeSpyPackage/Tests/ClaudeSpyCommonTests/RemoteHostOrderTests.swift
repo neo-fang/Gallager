@@ -23,6 +23,15 @@ struct RemoteHostOrderTests {
         #expect(move(hosts, source: "a", target: "missing") == hosts)
     }
 
+    @Test("Move coordinates match native list semantics")
+    func movesListRows() {
+        let hosts = ["a", "b", "c", "d"]
+        #expect(RemoteHostOrder.moving(hosts, fromOffsets: [1], toOffset: 4) == ["a", "c", "d", "b"])
+        #expect(RemoteHostOrder.moving(hosts, fromOffsets: [3], toOffset: 1) == ["a", "d", "b", "c"])
+        #expect(RemoteHostOrder.moving(hosts, fromOffsets: [1, 2], toOffset: 4) == ["a", "d", "b", "c"])
+        #expect(RemoteHostOrder.moving(hosts, fromOffsets: [9], toOffset: 0) == hosts)
+    }
+
     private func move(_ hosts: [String], source: String, target: String) -> [String] {
         RemoteHostOrder.moving(hosts, sourceID: source, targetID: target, id: { $0 })
     }
