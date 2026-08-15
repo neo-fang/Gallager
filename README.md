@@ -13,6 +13,10 @@ session model. You keep using native `tmux` to create, attach to, and manage
 sessions. CtrlX makes those existing terminals securely available on your other
 devices.
 
+<p align="center">
+  <img src="docs/assets/ctrlx-architecture.svg" width="100%" alt="CtrlX keeps agents and terminals running inside persistent tmux sessions, reuses them locally, and connects Mac and iPhone viewers through an end-to-end encrypted relay." />
+</p>
+
 ## Why CtrlX
 
 ### Native tmux reuse
@@ -53,12 +57,6 @@ This is not pure P2P. CtrlX uses an **end-to-end encrypted Relay**. Every device
 opens an outbound WebSocket connection; the Relay pairs devices and routes encrypted
 frames but cannot read terminal contents. This preserves direct-control ergonomics
 while working across NAT, corporate networks, and remote Macs without public ingress.
-
-```text
-Mac A  [tmux · Host · Viewer] ─┐
-Mac B  [tmux · Host · Viewer] ─┼── E2EE Relay (ciphertext routing only)
-iPhone [Viewer]               ─┘
-```
 
 | Device | Share local tmux | Control remote Macs |
 | --- | --- | --- |

@@ -10,6 +10,10 @@
 CtrlX 不接管终端生命周期，也不把 Coding Agent 包装进自己的会话模型。你仍然使用原生
 `tmux` 创建、挂载和管理 session；CtrlX 只是让这些已经存在的终端安全地出现在其他设备上。
 
+<p align="center">
+  <img src="docs/assets/ctrlx-architecture.svg" width="100%" alt="CtrlX 让 Agent 和普通终端持续运行在 tmux 中，支持本地复用，并通过端到端加密 Relay 连接 Mac 和 iPhone Viewer。" />
+</p>
+
 ## 为什么选择 CtrlX
 
 ### tmux 原生复用
@@ -42,12 +46,6 @@ CtrlX 在普通终端复用之上识别 Coding Agent 的运行、完成、权限
 它不是纯 P2P。技术上，CtrlX 使用 **端到端加密 Relay**：所有设备主动建立出站 WebSocket，
 Relay 负责配对和转发密文，但不能读取终端内容。这种架构保留了 P2P 般的直接控制体验，
 同时适用于 NAT、公司网络和没有公网入口的远端 Mac。
-
-```text
-Mac A  [tmux · Host · Viewer] ─┐
-Mac B  [tmux · Host · Viewer] ─┼── E2EE Relay（只路由密文）
-iPhone [Viewer]               ─┘
-```
 
 | 设备 | 共享本机 tmux | 控制远端 Mac |
 | --- | --- | --- |
