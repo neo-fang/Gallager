@@ -43,9 +43,10 @@
         /// Prepares multiple images within one shared relay payload budget.
         ///
         /// Images first keep as much quality as the complete budget permits. If
-        /// their combined size is too large, each image receives an equal slice
-        /// of the budget. The equal split is intentionally deterministic and
-        /// guarantees the resulting batch fits without adding a second protocol.
+        /// their combined size is too large, images that already fit their fair
+        /// share are fixed in place. The remaining images divide the bytes those
+        /// small images did not use, avoiding unnecessary quality loss while
+        /// still guaranteeing the final batch fits without a second protocol.
         public static func prepareBatch(
             _ images: [Data],
             maxTotalBytes: Int
@@ -60,17 +61,42 @@
                 return individuallyPrepared
             }
 
-            let perImageBudget = maxTotalBytes / images.count
-            guard
-                perImageBudget > 0,
-                let sharedBudgetPrepared = prepare(
-                    images,
-                    maxBytesPerImage: perImageBudget
-                ),
-                totalBytes(of: sharedBudgetPrepared) <= maxTotalBytes
-            else { return nil }
+            var result = [ClipboardImage?](repeating: nil, count: images.count)
+            var remainingIndices = Array(images.indices)
+            var remainingBudget = maxTotalBytes
 
-            return sharedBudgetPrepared
+            while !remainingIndices.isEmpty {
+                let fairShare = remainingBudget / remainingIndices.count
+                guard fairShare > 0 else { return nil }
+
+                let fittingIndices = remainingIndices.filter {
+                    individuallyPrepared[$0].data.count <= fairShare
+                }
+                guard !fittingIndices.isEmpty else {
+                    for index in remainingIndices {
+                        guard let image = prepare(images[index], maxBytes: fairShare) else {
+                            return nil
+                        }
+                        result[index] = image
+                    }
+                    break
+                }
+
+                for index in fittingIndices {
+                    let image = individuallyPrepared[index]
+                    result[index] = image
+                    remainingBudget -= image.data.count
+                }
+                let fixed = Set(fittingIndices)
+                remainingIndices.removeAll { fixed.contains($0) }
+            }
+
+            let prepared = result.compactMap { $0 }
+            guard
+                prepared.count == images.count,
+                totalBytes(of: prepared) <= maxTotalBytes
+            else { return nil }
+            return prepared
         }
 
         private static func prepare(

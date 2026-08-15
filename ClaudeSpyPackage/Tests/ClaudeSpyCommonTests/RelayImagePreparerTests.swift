@@ -125,6 +125,30 @@
             #expect(prepared.allSatisfy { NSImage(data: $0.data) != nil })
         }
 
+        @Test("Small images leave their unused batch budget to a large image")
+        func batchRedistributesUnusedBudget() throws {
+            let small = try #require(
+                makeBitmap(width: 128, height: 128, noisy: true)
+                    .representation(using: .png, properties: [:])
+            )
+            let large = try #require(
+                makeBitmap(width: 1_024, height: 1_024, noisy: true)
+                    .representation(using: .png, properties: [:])
+            )
+            let maxBytes = 512 * 1_024
+
+            let prepared = try #require(
+                RelayImagePreparer.prepareBatch(
+                    [small, small, small, small, large],
+                    maxTotalBytes: maxBytes
+                )
+            )
+
+            #expect(prepared.count == 5)
+            #expect(prepared.reduce(0) { $0 + $1.data.count } <= maxBytes)
+            #expect(prepared[4].data.count > maxBytes / prepared.count)
+        }
+
         @Test("Image batches reject invalid members")
         func batchRejectsInvalidMembers() throws {
             let valid = try #require(
