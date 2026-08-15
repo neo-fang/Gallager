@@ -40,6 +40,61 @@
             return prepare(source, maxBytes: maxBytes)
         }
 
+        /// Prepares multiple images within one shared relay payload budget.
+        ///
+        /// Images first keep as much quality as the complete budget permits. If
+        /// their combined size is too large, each image receives an equal slice
+        /// of the budget. The equal split is intentionally deterministic and
+        /// guarantees the resulting batch fits without adding a second protocol.
+        public static func prepareBatch(
+            _ images: [Data],
+            maxTotalBytes: Int
+        ) -> [ClipboardImage]? {
+            guard !images.isEmpty, maxTotalBytes > 0 else { return nil }
+
+            guard let individuallyPrepared = prepare(
+                images,
+                maxBytesPerImage: maxTotalBytes
+            ) else { return nil }
+            if totalBytes(of: individuallyPrepared) <= maxTotalBytes {
+                return individuallyPrepared
+            }
+
+            let perImageBudget = maxTotalBytes / images.count
+            guard
+                perImageBudget > 0,
+                let sharedBudgetPrepared = prepare(
+                    images,
+                    maxBytesPerImage: perImageBudget
+                ),
+                totalBytes(of: sharedBudgetPrepared) <= maxTotalBytes
+            else { return nil }
+
+            return sharedBudgetPrepared
+        }
+
+        private static func prepare(
+            _ images: [Data],
+            maxBytesPerImage: Int
+        ) -> [ClipboardImage]? {
+            var result: [ClipboardImage] = []
+            result.reserveCapacity(images.count)
+
+            for data in images {
+                guard let image = prepare(data, maxBytes: maxBytesPerImage) else {
+                    return nil
+                }
+                result.append(image)
+            }
+            return result
+        }
+
+        private static func totalBytes(of images: [ClipboardImage]) -> Int {
+            images.reduce(into: 0) { total, image in
+                total += image.data.count
+            }
+        }
+
         private static func prepareDecoded(_ data: Data, maxBytes: Int) -> ClipboardImage? {
             guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
                 return nil

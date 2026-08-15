@@ -7,6 +7,7 @@ import os.log
     import AppKit
 #elseif os(iOS)
     import UIKit
+    import UniformTypeIdentifiers
 #endif
 
 /// Image encoding format for a `ClipboardImage`. Determines the file
@@ -60,11 +61,11 @@ public struct ClipboardClient: Sendable {
     /// Copies a file URL to the clipboard for Finder paste (macOS only).
     public var setFileURL: @Sendable (_ url: URL) -> Void
 
-    /// Returns true if the clipboard contains image data (macOS only).
+    /// Returns true if the clipboard contains image data.
     public var hasImage: @Sendable () -> Bool = { false }
 
-    /// Returns the current image on the clipboard, or nil if there is none
-    /// (macOS only). Prefers PNG when available, falls back to TIFF.
+    /// Returns the current image on the clipboard, or nil if there is none.
+    /// Prefers an existing efficient representation before decoding pixels.
     public var getImage: @Sendable () -> ClipboardImage? = { nil }
 }
 
@@ -225,8 +226,22 @@ extension ClipboardClient: DependencyKey {
                 },
                 setRichText: { _, _ in },
                 setFileURL: { _ in },
-                hasImage: { false },
-                getImage: { nil }
+                hasImage: {
+                    UIPasteboard.general.hasImages
+                },
+                getImage: {
+                    let pasteboard = UIPasteboard.general
+                    if let png = pasteboard.data(forPasteboardType: UTType.png.identifier) {
+                        return ClipboardImage(data: png, format: .png)
+                    }
+                    if let jpeg = pasteboard.data(forPasteboardType: UTType.jpeg.identifier) {
+                        return ClipboardImage(data: jpeg, format: .jpeg)
+                    }
+                    if let image = pasteboard.image, let png = image.pngData() {
+                        return ClipboardImage(data: png, format: .png)
+                    }
+                    return nil
+                }
             )
         #endif
     }

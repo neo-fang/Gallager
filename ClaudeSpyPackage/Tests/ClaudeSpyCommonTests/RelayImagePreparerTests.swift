@@ -101,6 +101,46 @@
             #expect(RelayImagePreparer.prepare(invalid.data, maxBytes: 512) == nil)
         }
 
+        @Test("Image batches share one relay budget")
+        func batchSharesRelayBudget() throws {
+            let first = try #require(
+                makeBitmap(width: 512, height: 512, noisy: true)
+                    .representation(using: .png, properties: [:])
+            )
+            let second = try #require(
+                makeBitmap(width: 480, height: 480, noisy: true)
+                    .representation(using: .png, properties: [:])
+            )
+            let maxBytes = 512 * 1_024
+
+            let prepared = try #require(
+                RelayImagePreparer.prepareBatch(
+                    [first, second],
+                    maxTotalBytes: maxBytes
+                )
+            )
+
+            #expect(prepared.count == 2)
+            #expect(prepared.reduce(0) { $0 + $1.data.count } <= maxBytes)
+            #expect(prepared.allSatisfy { NSImage(data: $0.data) != nil })
+        }
+
+        @Test("Image batches reject invalid members")
+        func batchRejectsInvalidMembers() throws {
+            let valid = try #require(
+                makeBitmap(width: 32, height: 32, noisy: false)
+                    .representation(using: .png, properties: [:])
+            )
+
+            #expect(RelayImagePreparer.prepareBatch([], maxTotalBytes: 1_024) == nil)
+            #expect(
+                RelayImagePreparer.prepareBatch(
+                    [valid, Data(repeating: 0xFF, count: 100)],
+                    maxTotalBytes: 1_024
+                ) == nil
+            )
+        }
+
         private func makeBitmap(
             width: Int,
             height: Int,
