@@ -46,6 +46,12 @@ public struct MainView: View {
     /// ID to scroll to in the sidebar when a window moves between sections
     @State private var scrollToWindowId: String?
 
+    /// Global frames let the remote Host drag handle resolve a destination
+    /// without relying on data-drop support from `List` section headers.
+    @State private var remoteHostHeaderFrames: [String: CGRect] = [:]
+    @State private var remoteHostDragSourceID: String?
+    @State private var remoteHostDropTargetID: String?
+
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
     /// Per-session auto-resize opt-out when global setting is on
@@ -383,6 +389,14 @@ public struct MainView: View {
             onPrune: pruneStaleRemoteRightSideEntries
         ))
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
+            remoteHostHeaderFrames = remoteHostHeaderFrames.filter { currentHostIds.contains($0.key) }
+            if let targetID = remoteHostDropTargetID, !currentHostIds.contains(targetID) {
+                remoteHostDropTargetID = nil
+            }
+            if let sourceID = remoteHostDragSourceID, !currentHostIds.contains(sourceID) {
+                remoteHostDragSourceID = nil
+            }
+
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
             // forever. Per-session cleanup for sessions killed on a still-
@@ -633,6 +647,30 @@ public struct MainView: View {
                     sessionStore: sessionStore,
                     creatingSelection: creatingSelection,
                     selectedRemoteSession: $selectedRemoteSession,
+                    isHostDragging: remoteHostDragSourceID == host.id,
+                    isHostDropTargeted: remoteHostDropTargetID == host.id,
+                    onHeaderFrameChange: { frame in
+                        if let frame {
+                            remoteHostHeaderFrames[host.id] = frame
+                        } else {
+                            remoteHostHeaderFrames.removeValue(forKey: host.id)
+                        }
+                    },
+                    onHostDragChanged: { location in
+                        remoteHostDragSourceID = host.id
+                        remoteHostDropTargetID = remoteHostTarget(
+                            for: host.id,
+                            at: location
+                        )
+                    },
+                    onHostDragEnded: { location in
+                        defer {
+                            remoteHostDragSourceID = nil
+                            remoteHostDropTargetID = nil
+                        }
+                        guard let targetID = remoteHostTarget(for: host.id, at: location) else { return }
+                        settings.moveHostPairing(sourceID: host.id, targetID: targetID)
+                    },
                     onSelect: { selection in
                         selectedRemoteSession = selection
                         selectedRemoteWindowId = nil
@@ -690,6 +728,15 @@ public struct MainView: View {
                 )
             }
         }
+    }
+
+    private func remoteHostTarget(for sourceID: String, at location: CGPoint) -> String? {
+        RemoteHostDropTarget.hostID(
+            at: location,
+            orderedHostIDs: settings.pairedHosts.map(\.id),
+            headerFrames: remoteHostHeaderFrames,
+            excluding: sourceID
+        )
     }
 
     private func sessionButton(session: LocalTmuxSession, help: String? = nil) -> some View {
