@@ -51,6 +51,8 @@ struct RemoteHostSidebarSection: View {
 
     var body: some View {
         Section {
+            hostHeader
+
             if connection?.hostSubscriptionInactive == true {
                 HStack(alignment: .top, spacing: 8) {
                     Symbols.exclamationmarkTriangle.image
@@ -92,64 +94,71 @@ struct RemoteHostSidebarSection: View {
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
-        } header: {
-            SectionHeader(
-                title: host.displayName(showUsername: settings.hasDuplicateHostName(for: host)),
-                symbol: .laptopcomputer,
-                isNewSessionDisabled: connection?.isHostConnected != true,
-                newSessionButtonIdentifier: "new-session-remote-\(host.id)",
-                trailing: {
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(hostStatusColor)
-                            .frame(width: 8, height: 8)
-
-                        Symbols.line3Horizontal.image
-                            .foregroundStyle(.secondary)
-                            .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                            .gesture(
-                                DragGesture(minimumDistance: 2, coordinateSpace: .global)
-                                    .onChanged { value in
-                                        onHostDragChanged(value.location)
-                                    }
-                                    .onEnded { value in
-                                        onHostDragEnded(value.location)
-                                    }
-                            )
-                            .accessibilityLabel("Reorder \(host.displayName)")
-                            .accessibilityHint("Drag onto another host")
-                            .accessibilityAction(named: "Move Up") {
-                                moveHost(by: -1)
-                            }
-                            .accessibilityAction(named: "Move Down") {
-                                moveHost(by: 1)
-                            }
-                            .help("Drag to reorder remote hosts")
-                    }
-                },
-                popover: {
-                    NewSessionContent(
-                        title: "New Session on \(host.displayName)",
-                        projects: sessionStore.projects(for: host.id),
-                        isLoadingProjects: !sessionStore.hasReceivedState(for: host.id),
-                        creatingSelection: creatingSelection,
-                        onCreate: onCreate,
-                        pluginShortName: { sessionStore.presentation(forPluginID: $0)?.shortName ?? $0 }
-                    )
-                }
-            )
-            .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .global)
-            } action: { frame in
-                onHeaderFrameChange(frame)
-            }
-            .onDisappear {
-                onHeaderFrameChange(nil)
-            }
-            .background(isHostDropTargeted ? Color.accentColor.opacity(0.15) : .clear)
-            .clipShape(.rect(cornerRadius: 6))
         }
+    }
+
+    private var hostHeader: some View {
+        SectionHeader(
+            title: host.displayName(showUsername: settings.hasDuplicateHostName(for: host)),
+            symbol: .laptopcomputer,
+            isNewSessionDisabled: connection?.isHostConnected != true,
+            newSessionButtonIdentifier: "new-session-remote-\(host.id)",
+            trailing: {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(hostStatusColor)
+                        .frame(width: 8, height: 8)
+
+                    Symbols.line3Horizontal.image
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20, height: 20)
+                        .padding(4)
+                        .contentShape(Rectangle())
+                        .highPriorityGesture(
+                            DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                                .onChanged { value in
+                                    onHostDragChanged(value.location)
+                                }
+                                .onEnded { value in
+                                    onHostDragEnded(value.location)
+                                }
+                        )
+                        .accessibilityLabel("Reorder \(host.displayName)")
+                        .accessibilityHint("Drag onto another host")
+                        .accessibilityAction(named: "Move Up") {
+                            moveHost(by: -1)
+                        }
+                        .accessibilityAction(named: "Move Down") {
+                            moveHost(by: 1)
+                        }
+                        .help("Drag to reorder remote hosts")
+                }
+            },
+            popover: {
+                NewSessionContent(
+                    title: "New Session on \(host.displayName)",
+                    projects: sessionStore.projects(for: host.id),
+                    isLoadingProjects: !sessionStore.hasReceivedState(for: host.id),
+                    creatingSelection: creatingSelection,
+                    onCreate: onCreate,
+                    pluginShortName: { sessionStore.presentation(forPluginID: $0)?.shortName ?? $0 }
+                )
+            }
+        )
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            onHeaderFrameChange(frame)
+        }
+        .onDisappear {
+            onHeaderFrameChange(nil)
+        }
+        .background(isHostDropTargeted ? Color.accentColor.opacity(0.15) : .clear)
+        .clipShape(.rect(cornerRadius: 6))
+        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0))
+        .listRowBackground(Color.clear)
+        .listRowSeparator(.hidden)
+        .accessibilityAddTraits(.isHeader)
     }
 
     @ViewBuilder
