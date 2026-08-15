@@ -1,7 +1,55 @@
 #if os(macOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
     import Foundation
     import Logging
+
+    /// Coalesces concurrent attempts to start the same pane reader.
+    ///
+    /// Pane discovery and a newly-created terminal view can observe an unknown
+    /// pane at the same time. Starting two readers would make both instances
+    /// replace the same tmux `pipe-pane` and FIFO, leaving one retained reader
+    /// permanently disconnected. MainActor isolation makes a task table enough;
+    /// no lock or second actor is needed.
+    @MainActor
+    final class PaneReaderStartGate {
+        private struct Flight {
+            let token: UUID
+            let task: Task<Bool, Never>
+        }
+
+        private var flights: [String: Flight] = [:]
+
+        func run(
+            paneId: String,
+            operation: @escaping @MainActor () async -> Bool
+        ) async -> Bool {
+            if let flight = flights[paneId] {
+                return await flight.task.value
+            }
+
+            let token = UUID()
+            let task = Task { await operation() }
+            flights[paneId] = Flight(token: token, task: task)
+
+            let result = await task.value
+            if flights[paneId]?.token == token {
+                flights.removeValue(forKey: paneId)
+            }
+            return result
+        }
+
+        func cancelAll() async {
+            let active = Array(flights.values)
+            flights.removeAll()
+            for flight in active {
+                flight.task.cancel()
+            }
+            for flight in active {
+                _ = await flight.task.value
+            }
+        }
+    }
 
     /// Manages a single persistent `PipePaneReader` per tmux pane and routes its
     /// events to subscribers.
@@ -32,6 +80,7 @@
             let onTitleChange: (@MainActor (String) -> Void)?
             let onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)?
             let onClipboard: (@MainActor (String) -> Void)?
+            let onResync: (@MainActor (Result<SubscriptionResult, Error>) -> Void)?
         }
 
         /// Per-pane state owned by the manager.
@@ -43,8 +92,8 @@
         /// subscriber.
         private struct ReaderContext {
             let reader: PipePaneReader
-            let target: String
-            let sessionName: String
+            var target: String
+            var sessionName: String
             var width: Int
             var height: Int
             var subscriberIds: Set<UUID>
@@ -60,7 +109,7 @@
 
         // MARK: - Properties
 
-        private let logger = Logger(label: "com.claudespy.panestreammanager")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.panestreammanager")
         private let tmuxService: TmuxService
         private let controlClientManager: TmuxControlClientManager
 
@@ -72,6 +121,21 @@
 
         /// Task for periodic pane discovery (needed to detect new tmux sessions)
         private var paneRefreshTask: Task<Void, Never>?
+
+        /// Per-pane single-flight for reader startup. Without this, an on-demand
+        /// subscribe can race pane discovery and both replace the same FIFO.
+        private let readerStartGate = PaneReaderStartGate()
+
+        /// Overload recovery is coalesced per pane. While a snapshot is being
+        /// captured, incremental callbacks are suppressed and the reader buffers
+        /// the post-snapshot boundary for an ordered flush.
+        private var pendingResyncSubscribers: [String: Set<UUID>] = [:]
+        private var resyncTasks: [String: Task<Void, Never>] = [:]
+        private var resyncingPaneIds: Set<String> = []
+
+        /// `disconnectAll` is terminal for this manager. Keep late callbacks
+        /// from restarting readers while shutdown drains in-flight work.
+        private var isShuttingDown = false
 
         /// Global notification handler — called for any notification on any pane,
         /// regardless of which subscribers are active. Used by macOS to show desktop notifications.
@@ -107,6 +171,23 @@
         /// Get current terminal title for a pane (if a title has been seen).
         public func terminalTitle(for paneId: String) -> String? {
             readers[paneId]?.terminalTitle
+        }
+
+        /// Sends local interactive input through the pane's existing control client.
+        /// Returns `false` when the reader or connection is not ready so the caller
+        /// can safely use the process-based tmux fallback.
+        func sendKeystrokesIfConnected(
+            paneId: String,
+            keys: [TmuxKey],
+            onFirstCommandWritten: (@Sendable () -> Void)? = nil
+        ) async throws -> Bool {
+            guard let context = readers[paneId] else { return false }
+            return try await controlClientManager.sendKeystrokesIfConnected(
+                paneId: paneId,
+                sessionName: context.sessionName,
+                keys: keys,
+                onFirstCommandWritten: onFirstCommandWritten
+            )
         }
 
         /// Known default pane titles to filter out when seeding from tmux state.
@@ -190,7 +271,8 @@
             onDimensionChange: (@MainActor (Int, Int) -> Void)? = nil,
             onTitleChange: (@MainActor (String) -> Void)? = nil,
             onNotification: (@MainActor (TerminalStreamMessage.TerminalNotification) -> Void)? = nil,
-            onClipboard: (@MainActor (String) -> Void)? = nil
+            onClipboard: (@MainActor (String) -> Void)? = nil,
+            onResync: (@MainActor (Result<SubscriptionResult, Error>) -> Void)? = nil
         ) async throws -> SubscriptionResult {
             let subscriptionId = UUID()
             let subscription = Subscription(
@@ -200,7 +282,8 @@
                 onDimensionChange: onDimensionChange,
                 onTitleChange: onTitleChange,
                 onNotification: onNotification,
-                onClipboard: onClipboard
+                onClipboard: onClipboard,
+                onResync: onResync
             )
 
             let sessionName = TmuxControlClientManager.extractSessionName(from: target)
@@ -211,7 +294,7 @@
             // viewer doesn't have to wait for the periodic refresh tick.
             if readers[paneId] == nil {
                 let dims = (try? await tmuxService.getPaneDimensions(target)) ?? (width: 80, height: 24)
-                await startReader(
+                await ensureReader(
                     paneId: paneId,
                     sessionName: sessionName,
                     target: target,
@@ -248,11 +331,11 @@
                 subscriptions[subscriptionId] = subscription
 
                 // 1. Retain live bytes during the snapshot so we don't drop any
-                //    between "buffering on" and "snapshot taken". Bytes that
-                //    arrive in this window also appear in the capture's screen
-                //    state — the duplicate is intentional and idempotent in
-                //    SwiftTerm; tightening the fence is tracked as future work
-                //    in issue #476.
+                //    between "buffering on" and "snapshot taken". Some bytes may
+                //    also be represented by the captured screen state; terminal
+                //    output is not generally idempotent, so remote viewers stage
+                //    this bootstrap offscreen instead of presenting intermediate
+                //    redraws. Exact scrollback de-duplication remains issue #476.
                 await context.reader.setBuffering(true)
 
                 // 2. Refresh dimensions from tmux. capture-pane uses these to
@@ -385,6 +468,7 @@
             }
 
             let paneId = subscription.paneId
+            pendingResyncSubscribers[paneId]?.remove(subscriptionId)
 
             guard var context = readers[paneId] else {
                 logger.warning("Reader not found for pane: \(paneId)")
@@ -459,6 +543,28 @@
             return (content, context.width, context.height)
         }
 
+        /// Requests an authoritative snapshot for one subscription after its
+        /// downstream queue crossed the high-water mark. Concurrent requests for
+        /// the same pane share one capture and are notified before buffered live
+        /// bytes are flushed.
+        func requestResync(subscriptionId: UUID) {
+            guard
+                let subscription = subscriptions[subscriptionId],
+                let context = readers[subscription.paneId]
+            else { return }
+            let paneId = subscription.paneId
+            // Buffering and forward suppression are pane-wide. Every existing
+            // subscriber therefore crosses the same snapshot boundary, even
+            // when only one downstream queue reported overload.
+            pendingResyncSubscribers[paneId, default: []].formUnion(context.subscriberIds)
+            resyncingPaneIds.insert(paneId)
+            guard resyncTasks[paneId] == nil else { return }
+
+            resyncTasks[paneId] = Task { @MainActor [weak self] in
+                await self?.runResyncLoop(paneId: paneId)
+            }
+        }
+
         /// Returns DEC private mode escape sequences to enable the pane's current mouse tracking mode.
         ///
         /// `capture-pane` only records text and SGR attributes, not terminal state like mouse
@@ -499,11 +605,16 @@
 
         /// Disconnect all readers (called on app shutdown).
         public func disconnectAll() async {
+            isShuttingDown = true
+            await readerStartGate.cancelAll()
+
             let paneIds = Array(readers.keys)
             for paneId in paneIds {
                 await tearDownReader(paneId: paneId)
             }
             subscriptions.removeAll()
+            pendingResyncSubscribers.removeAll()
+            resyncingPaneIds.removeAll()
             paneRefreshTask?.cancel()
             paneRefreshTask = nil
             logger.info("Disconnected all pane readers")
@@ -516,7 +627,7 @@
         public func startMonitoring(panes: [PaneInfo]) async {
             for pane in panes where readers[pane.paneId] == nil {
                 let seedTitle = isCustomPaneTitle(pane.paneTitle) ? pane.paneTitle : nil
-                await startReader(
+                await ensureReader(
                     paneId: pane.paneId,
                     sessionName: pane.sessionName,
                     target: pane.target,
@@ -534,6 +645,21 @@
         /// (e.g. set during async startup before pipe-pane attached).
         public func updateMonitoring(panes: [PaneInfo]) async {
             let currentPaneIds = Set(panes.map(\.paneId))
+            let previousSessionPaneIds = Dictionary(grouping: readers, by: { $0.value.sessionName })
+                .mapValues { Set($0.map(\.key)) }
+            let currentSessionPaneIds = Dictionary(grouping: panes, by: \.sessionName)
+                .mapValues { Set($0.map(\.paneId)) }
+
+            // A moved pane also changes its textual target. Only rekey the
+            // session-wide control client when the old session disappeared and
+            // its complete pane-ID set reappeared under one new name.
+            let renamedSessions = SessionRenameMapping.detectNames(
+                from: previousSessionPaneIds,
+                to: currentSessionPaneIds
+            )
+            for (oldName, newName) in renamedSessions {
+                await controlClientManager.sessionRenamed(from: oldName, to: newName)
+            }
 
             let staleIds = readers.keys.filter { !currentPaneIds.contains($0) }
             for paneId in staleIds {
@@ -542,7 +668,7 @@
 
             for pane in panes where readers[pane.paneId] == nil {
                 let seedTitle = isCustomPaneTitle(pane.paneTitle) ? pane.paneTitle : nil
-                await startReader(
+                await ensureReader(
                     paneId: pane.paneId,
                     sessionName: pane.sessionName,
                     target: pane.target,
@@ -550,6 +676,17 @@
                     initialHeight: pane.height,
                     seedTitle: seedTitle
                 )
+            }
+
+            // `rename-session` preserves pane IDs and live pipe-pane readers,
+            // but every textual target changes. Update the reader context so
+            // capture, mouse-mode and teardown commands stop using the old target.
+            for pane in panes {
+                guard var context = readers[pane.paneId] else { continue }
+                guard context.target != pane.target || context.sessionName != pane.sessionName else { continue }
+                context.target = pane.target
+                context.sessionName = pane.sessionName
+                readers[pane.paneId] = context
             }
 
             // Seed/update custom titles missed by the OSC reader (e.g. titles
@@ -581,6 +718,32 @@
 
         // MARK: - Reader Lifecycle Helpers
 
+        @discardableResult
+        private func ensureReader(
+            paneId: String,
+            sessionName: String,
+            target: String,
+            initialWidth: Int,
+            initialHeight: Int,
+            seedTitle: String?
+        ) async -> Bool {
+            guard !isShuttingDown else { return false }
+            if readers[paneId] != nil { return true }
+
+            return await readerStartGate.run(paneId: paneId) { [weak self] in
+                guard let self, !self.isShuttingDown else { return false }
+                if self.readers[paneId] != nil { return true }
+                return await self.startReader(
+                    paneId: paneId,
+                    sessionName: sessionName,
+                    target: target,
+                    initialWidth: initialWidth,
+                    initialHeight: initialHeight,
+                    seedTitle: seedTitle
+                )
+            }
+        }
+
         private func startReader(
             paneId: String,
             sessionName: String,
@@ -588,7 +751,7 @@
             initialWidth: Int,
             initialHeight: Int,
             seedTitle: String?
-        ) async {
+        ) async -> Bool {
             let reader = PipePaneReader(paneId: paneId)
             await reader.setDelegate(self)
 
@@ -597,6 +760,13 @@
                     controlClientManager: controlClientManager,
                     sessionName: sessionName
                 )
+                guard !Task.isCancelled, !isShuttingDown else {
+                    await reader.stopPipePane(
+                        controlClientManager: controlClientManager,
+                        sessionName: sessionName
+                    )
+                    return false
+                }
                 readers[paneId] = ReaderContext(
                     reader: reader,
                     target: target,
@@ -611,15 +781,24 @@
                     onTitleChange?(paneId, target, seedTitle)
                 }
                 logger.debug("Started reader", metadata: ["paneId": "\(paneId)"])
+                return true
             } catch {
                 logger.debug("Failed to start reader", metadata: [
                     "paneId": "\(paneId)",
                     "error": "\(error)",
                 ])
+                return false
             }
         }
 
         private func tearDownReader(paneId: String) async {
+            if let task = resyncTasks.removeValue(forKey: paneId) {
+                task.cancel()
+                _ = await task.value
+            }
+            pendingResyncSubscribers.removeValue(forKey: paneId)
+            resyncingPaneIds.remove(paneId)
+
             guard let context = readers.removeValue(forKey: paneId) else { return }
 
             // Drop subscriptions belonging to this pane (caller likely already
@@ -646,7 +825,15 @@
         // MARK: - PipePaneReaderDelegate
 
         public func pipePaneReader(_ paneId: String, didReceiveData data: Data) {
+            TerminalTransportMetrics.shared.recordLocalOutput(paneId: paneId)
             forwardData(paneId: paneId, data: data)
+        }
+
+        public func pipePaneReaderDidOverflow(_ paneId: String) {
+            guard let context = readers[paneId] else { return }
+            for subscriptionId in context.subscriberIds {
+                requestResync(subscriptionId: subscriptionId)
+            }
         }
 
         public func pipePaneReader(
@@ -671,12 +858,82 @@
         // MARK: - Private Forwarding
 
         private func forwardData(paneId: String, data: Data) {
+            guard !resyncingPaneIds.contains(paneId) else { return }
             guard let context = readers[paneId] else { return }
 
             for subscriberId in context.subscriberIds {
                 if let subscription = subscriptions[subscriberId] {
                     subscription.onData(data)
                 }
+            }
+        }
+
+        private func runResyncLoop(paneId: String) async {
+            defer {
+                resyncTasks[paneId] = nil
+                resyncingPaneIds.remove(paneId)
+            }
+
+            while !Task.isCancelled {
+                guard
+                    pendingResyncSubscribers[paneId]?.isEmpty == false,
+                    var context = readers[paneId]
+                else { return }
+
+                await context.reader.setBuffering(true)
+                if let dimensions = try? await tmuxService.getPaneDimensions(context.target) {
+                    context.width = dimensions.width
+                    context.height = dimensions.height
+                    readers[paneId] = context
+                }
+
+                let captured: Data
+                do {
+                    captured = try await tmuxService.capturePaneViaControlMode(
+                        paneId: paneId,
+                        width: context.width,
+                        height: context.height,
+                        controlClientManager: controlClientManager,
+                        sessionName: context.sessionName
+                    )
+                } catch {
+                    let targets = pendingResyncSubscribers.removeValue(forKey: paneId) ?? []
+                    await context.reader.setBuffering(false)
+                    for subscriptionId in targets {
+                        subscriptions[subscriptionId]?.onResync?(.failure(error))
+                    }
+                    logger.error("Failed to resynchronize pane stream", metadata: [
+                        "paneId": "\(paneId)",
+                        "error": "\(error)",
+                    ])
+                    return
+                }
+
+                guard !Task.isCancelled else {
+                    await context.reader.setBuffering(false)
+                    return
+                }
+
+                // Include requests that arrived while capture-pane was suspended.
+                let targets = pendingResyncSubscribers.removeValue(forKey: paneId) ?? []
+                TerminalTransportMetrics.shared.recordResync()
+                for subscriptionId in targets {
+                    guard let subscription = subscriptions[subscriptionId] else { continue }
+                    subscription.onResync?(.success(SubscriptionResult(
+                        subscriptionId: subscriptionId,
+                        initialContent: captured,
+                        width: context.width,
+                        height: context.height
+                    )))
+                }
+
+                // Reset callbacks are synchronous MainActor work. Once they all
+                // ran, allow the reader's buffered post-snapshot bytes through.
+                resyncingPaneIds.remove(paneId)
+                await context.reader.flushBuffer()
+
+                guard pendingResyncSubscribers[paneId]?.isEmpty == false else { return }
+                resyncingPaneIds.insert(paneId)
             }
         }
 

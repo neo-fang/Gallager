@@ -33,10 +33,10 @@ Coding-agent integration is gated by a `CodingAgent` enum (`.claudeCode` / `.cod
 
 | Component | Type | Responsibility |
 |-----------|------|----------------|
-| **DeviceConnectionManager** | `@Observable @MainActor` | Manages connections to all paired iOS devices |
+| **ConnectedViewerManager** | `@Observable @MainActor` | Manages connections to all paired Viewer devices |
 | **DeviceConnection** | `@Observable @MainActor` | WebSocket connection to a single paired iOS device |
 | **PairingManager** | `@Observable @MainActor` | Device pairing flow — code generation, server registration, polling |
-| **TerminalStreamService** | `@Observable @MainActor` | Batches and streams terminal data to iOS devices via DeviceConnectionManager |
+| **TerminalStreamService** | `@Observable @MainActor` | Batches and routes terminal data via ConnectedViewerManager |
 | **TmuxCommandExecutor** | `actor` | Executes commands from iOS (keystrokes, cancel, session creation) |
 
 ### Hook Integration
@@ -91,7 +91,7 @@ The app entry point (`TmuxPaneMirrorApp`) creates the coordinator and defines th
    E2EEService (from Keychain if available)
 
 2. **Async (`setupAllServices`)** — Completes initialization requiring async work:
-   E2EEService (if not loaded), PairingManager, DeviceConnectionManager,
+   E2EEService (if not loaded), PairingManager, ConnectedViewerManager,
    TmuxCommandExecutor, hook server start, auto-connect to paired devices,
    periodic session validation, system wake observer
 
@@ -101,7 +101,7 @@ AppCoordinator connects services via callbacks:
 
 ```
 HookServerService events → MirrorWindowManager.handleHookEvent()
-                         → DeviceConnectionManager.sendHookEventToAll()
+                         → ConnectedViewerManager.sendAgentSessionStatusToAll()
                          → SleepPreventionManager.updateForSessionCount()
 
 TmuxControlClientManager dimension changes → PaneStreamManager.updateDimensions(paneId:width:height:)
@@ -109,12 +109,12 @@ TmuxControlClientManager pane exits       → MirrorWindowManager.updatePaneStat
                                           → TerminalStreamService.stopStreamsForClosedPanes()
                                           → SleepPreventionManager.updateForSessionCount()
 
-TmuxService pane changes → DeviceConnectionManager.pushSessionStateToAll()
+TmuxService pane changes → ConnectedViewerManager.pushSessionStateToAll()
 
 iOS commands → TmuxCommandExecutor.execute()
              → TerminalStreamService.startStreaming() / stopStreaming()
 
-System wake → DeviceConnectionManager.reconnectAllImmediately()
+System wake → ConnectedViewerManager.reconnectAllImmediately()
 ```
 
 ## Data Flow: Tmux Output to Terminal Display
@@ -138,11 +138,11 @@ PaneStreamManager (delegate + multiplexer)
     │
     ├──→ Mirror Window (SwiftTerm) — immediate display
     │
-    └──→ TerminalStreamService — batches (8KB / 50ms)
+    └──→ TerminalStreamService — batches (8KB / 16ms)
               │
               ▼
-         DeviceConnectionManager.sendTerminalStreamToAll()
-              │ WebSocket per device, E2EE encrypted
+         ConnectedViewerManager.sendTerminalStream(_:to:)
+              │ WebSocket per subscribed Viewer, E2EE encrypted
               │
               ▼
          Relay Server → iOS devices
@@ -164,7 +164,7 @@ AppCoordinator event handler
     │       SessionStart → add to activeSessions, open mirror window
     │       SessionEnd   → remove from activeSessions, close window
     │
-    ├──→ DeviceConnectionManager.sendHookEventToAll()
+    ├──→ ConnectedViewerManager.sendAgentSessionStatusToAll()
     │       Forwards to all connected iOS devices (E2EE encrypted)
     │
     └──→ SleepPreventionManager.updateForSessionCount()
@@ -176,15 +176,16 @@ The same bridge script (`plugin/gallager/scripts/hook.py`) backs both agents. Cl
 
 Multiple iOS devices can watch the same pane simultaneously:
 
-- **TerminalStreamService** uses reference counting (`deviceSubscriberCount` per stream)
+- **TerminalStreamService** uses an idempotent Viewer-ID ownership set per stream
 - First subscriber creates the PaneStreamManager subscription, which switches the per-pane reader from scan-only into live mode
-- Additional subscribers reuse the existing stream and receive current content
-- Each `stopStreaming` decrements the count; the manager subscription is dropped when count reaches 0, returning the reader to scan-only mode (it stays attached to the FIFO for the pane's full lifetime)
+- Additional subscribers reuse the existing stream and receive a private initial snapshot plus capture-time buffered data
+- The start command succeeds only after the requesting Viewer crosses the ordered bootstrap barrier
+- Each `stopStreaming` removes one owner; the manager subscription is dropped when the owner set becomes empty, returning the reader to scan-only mode (it stays attached to the FIFO for the pane's full lifetime)
 - System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true` to bypass count
 
-**DeviceConnectionManager** broadcasts to all connected devices:
+**ConnectedViewerManager** broadcasts shared state but routes terminal bytes:
 - `sendHookEventToAll()` — hook events
-- `sendTerminalStreamToAll()` — terminal data
+- `sendTerminalStream(_:to:)` — terminal data to explicit subscribers
 - `pushSessionStateToAll()` — session state sync
 
 See `docs/streaming-architecture.md` for the full streaming data flow.
@@ -201,7 +202,7 @@ TerminalStreamService                    TmuxCommandExecutor
                                          HookServerService
                                          ClaudeProjectScanner
                                          CodexProjectScanner
-DeviceConnectionManager
+ConnectedViewerManager
 DeviceConnection
 PairingManager
 AppCoordinator
@@ -239,7 +240,7 @@ ClaudeSpyPackage/Sources/ClaudeSpyServerFeature/
 │   ├── CodexProjectScanner.swift      # Project discovery from ~/.codex/sessions/**/rollout-*.jsonl
 │   ├── CodexPluginInstaller.swift     # Bundled `gallager` Codex plugin install/uninstall via `codex plugin`
 │   ├── DeviceConnection.swift         # Single iOS device WebSocket
-│   ├── DeviceConnectionManager.swift  # Multi-device coordinator
+│   ├── ConnectedViewerManager.swift   # Multi-Viewer coordinator
 │   ├── ExternalServerClient.swift     # Legacy single-device client
 │   ├── LoginItemService.swift         # Launch at login (SMAppService)
 │   ├── PairingManager.swift           # Device pairing flow

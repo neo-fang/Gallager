@@ -47,11 +47,11 @@ struct MetricsServiceTests {
             uptimeSeconds: 0
         )
         let body = await service.render(snapshot: snapshot, buildVersion: "test-v1")
-        #expect(body.contains("claudespy_trial_starts_total 1"))
-        #expect(body.contains("claudespy_license_activations_total 1"))
-        #expect(body.contains("claudespy_license_deactivations_total 1"))
-        #expect(body.contains("claudespy_license_validation_failures_total 1"))
-        #expect(body.contains("claudespy_blocked_host_attempts_total 1"))
+        #expect(body.contains("ctrlx_trial_starts_total 1"))
+        #expect(body.contains("ctrlx_license_activations_total 1"))
+        #expect(body.contains("ctrlx_license_deactivations_total 1"))
+        #expect(body.contains("ctrlx_license_validation_failures_total 1"))
+        #expect(body.contains("ctrlx_blocked_host_attempts_total 1"))
     }
 
     @Test("incrementPausedPairingAttempts increments by one and renders")
@@ -68,8 +68,8 @@ struct MetricsServiceTests {
             uptimeSeconds: 0
         )
         let output = await service.render(snapshot: snapshot, buildVersion: "1.0-test")
-        #expect(output.contains("claudespy_paused_pairing_attempts_total 2"))
-        #expect(output.contains("# TYPE claudespy_paused_pairing_attempts_total counter"))
+        #expect(output.contains("ctrlx_paused_pairing_attempts_total 2"))
+        #expect(output.contains("# TYPE ctrlx_paused_pairing_attempts_total counter"))
     }
 
     @Test("render escapes \\, \", and newline in buildVersion label value")
@@ -83,7 +83,7 @@ struct MetricsServiceTests {
         )
         // Hostile input: every char that would break the Prometheus label syntax.
         let body = await service.render(snapshot: snapshot, buildVersion: #"a"b\c\#nd"#)
-        #expect(body.contains(#"claudespy_build_info{version="a\"b\\c\nd"} 1"#))
+        #expect(body.contains(#"ctrlx_build_info{version="a\"b\\c\nd"} 1"#))
     }
 
     @Test("render returns Prometheus text format with all metrics")
@@ -99,15 +99,15 @@ struct MetricsServiceTests {
         )
         let body = await service.render(snapshot: snapshot, buildVersion: "test-v1")
 
-        #expect(body.contains("# HELP claudespy_messages_relayed_total"))
-        #expect(body.contains("# TYPE claudespy_messages_relayed_total counter"))
-        #expect(body.contains("claudespy_messages_relayed_total 1"))
-        #expect(body.contains("claudespy_push_notifications_total 1"))
-        #expect(body.contains("claudespy_active_pairs 3"))
-        #expect(body.contains("claudespy_ws_connections{device_type=\"host\"} 2"))
-        #expect(body.contains("claudespy_ws_connections{device_type=\"viewer\"} 1"))
-        #expect(body.contains("claudespy_uptime_seconds 42"))
-        #expect(body.contains("claudespy_build_info{version=\"test-v1\"} 1"))
+        #expect(body.contains("# HELP ctrlx_messages_relayed_total"))
+        #expect(body.contains("# TYPE ctrlx_messages_relayed_total counter"))
+        #expect(body.contains("ctrlx_messages_relayed_total 1"))
+        #expect(body.contains("ctrlx_push_notifications_total 1"))
+        #expect(body.contains("ctrlx_active_pairs 3"))
+        #expect(body.contains("ctrlx_ws_connections{device_type=\"host\"} 2"))
+        #expect(body.contains("ctrlx_ws_connections{device_type=\"viewer\"} 1"))
+        #expect(body.contains("ctrlx_uptime_seconds 42"))
+        #expect(body.contains("ctrlx_build_info{version=\"test-v1\"} 1"))
     }
 }
 

@@ -4,10 +4,10 @@ import Foundation
 ///
 /// Verifies that:
 /// 1. Tabs show the tmux window name (not the running command).
-/// 2. Right-clicking a tab on the host opens a "Rename Window" context menu
-///    item; saving a new name updates both the host and the paired viewer.
-/// 3. Right-clicking a tab on the viewer opens the same "Rename Window" item;
-///    saving relays the rename back through the host and both ends update.
+/// 2. Double-clicking a tab on the host opens "Rename Window"; saving a new
+///    name updates both the host and the paired viewer.
+/// 3. Double-clicking a tab on the viewer opens the same editor; saving relays
+///    the rename back through the host and both ends update.
 /// 4. Creating a new window via the "+" button gives it a `"terminal N"` name
 ///    picked by counting existing `terminal N` names in the session.
 public enum WindowRenameScenario {
@@ -63,12 +63,12 @@ public enum WindowRenameScenario {
         TestStep.macWaitForElement(titled: "win1", timeout: 10, instance: 1)
         TestStep.macScreenshot(label: "viewer-initial-tabs", instance: 1)
 
-        // ── Phase 5: Host renames window 0 via context menu ────
-        TestStep.log("Phase 5: Host right-clicks tab and renames window 0")
+        // ── Phase 5: Host renames window 0 via double-click ────
+        TestStep.log("Phase 5: Host double-clicks tab and renames window 0")
         // The tab's accessibility label is "{windowId} {windowName}" (e.g.
         // "e2e-rename:0 win0"); matching by the windowId prefix via `contains`
         // is enough and keeps this step independent of the current name.
-        TestStep.macContextMenuClick(elementTitle: "e2e-rename:0", menuItem: "Rename Window")
+        TestStep.macCGClickElement(query: .labelContains("e2e-rename:0"), clickCount: 2)
         TestStep.macWaitForElement(titled: "Rename Window", timeout: 5)
         TestStep.wait(seconds: 0.5)
         TestStep.macPressKey(.character("a"), modifiers: .command)
@@ -84,9 +84,9 @@ public enum WindowRenameScenario {
         TestStep.macWaitForElement(titled: "HostRenamed", timeout: 15, instance: 1)
         TestStep.macScreenshot(label: "viewer-after-host-rename", instance: 1)
 
-        // ── Phase 6: Viewer renames window 1 via context menu ──
-        TestStep.log("Phase 6: Viewer right-clicks tab and renames window 1")
-        TestStep.macContextMenuClick(elementTitle: "e2e-rename:1", menuItem: "Rename Window", instance: 1)
+        // ── Phase 6: Viewer renames window 1 via double-click ──
+        TestStep.log("Phase 6: Viewer double-clicks tab and renames window 1")
+        TestStep.macCGClickElement(query: .labelContains("e2e-rename:1"), clickCount: 2, instance: 1)
         TestStep.macWaitForElement(titled: "Rename Window", timeout: 5, instance: 1)
         TestStep.wait(seconds: 0.5)
         TestStep.macPressKey(.character("a"), modifiers: .command, instance: 1)

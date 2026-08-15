@@ -170,7 +170,7 @@ extension EnvSerializedSuites {
             _ body: (Application, Int) async throws -> Void
         ) async throws {
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-minversion-ws-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-minversion-ws-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
 

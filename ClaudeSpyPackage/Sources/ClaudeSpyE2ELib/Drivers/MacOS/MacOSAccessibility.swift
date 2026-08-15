@@ -282,24 +282,33 @@ enum MacOSAccessibility {
     }
 
     /// Post a CGEvent mouse click at the given screen coordinates.
-    static func clickAtPoint(_ point: CGPoint) {
-        logger.info("CGEvent click at (\(point.x), \(point.y))")
-        let mouseDown = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .leftMouseDown,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        )
-        let mouseUp = CGEvent(
-            mouseEventSource: nil,
-            mouseType: .leftMouseUp,
-            mouseCursorPosition: point,
-            mouseButton: .left
-        )
-        mouseDown?.post(tap: .cghidEventTap)
-        // Small delay between down and up for reliable click registration
-        usleep(50_000) // 50ms
-        mouseUp?.post(tap: .cghidEventTap)
+    static func clickAtPoint(_ point: CGPoint, clickCount: Int = 1) {
+        guard clickCount > 0 else { return }
+        logger.info("CGEvent click at (\(point.x), \(point.y)), count: \(clickCount)")
+
+        for clickIndex in 1...clickCount {
+            let mouseDown = CGEvent(
+                mouseEventSource: nil,
+                mouseType: .leftMouseDown,
+                mouseCursorPosition: point,
+                mouseButton: .left
+            )
+            let mouseUp = CGEvent(
+                mouseEventSource: nil,
+                mouseType: .leftMouseUp,
+                mouseCursorPosition: point,
+                mouseButton: .left
+            )
+            mouseDown?.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex))
+            mouseUp?.setIntegerValueField(.mouseEventClickState, value: Int64(clickIndex))
+            mouseDown?.post(tap: .cghidEventTap)
+            usleep(50_000)
+            mouseUp?.post(tap: .cghidEventTap)
+
+            if clickIndex < clickCount {
+                usleep(100_000)
+            }
+        }
     }
 
     /// Post a CGEvent right-click at the given screen coordinates.
@@ -447,7 +456,8 @@ enum MacOSAccessibility {
     static func cgClick(
         appPID: pid_t,
         matching query: ElementQuery,
-        pointInRect: (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) }
+        pointInRect: (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        clickCount: Int = 1
     ) -> Bool {
         let matches = findAllRawElements(appPID: appPID, matching: query)
         guard let frame = matches.lazy.compactMap({ frameOfElement($0) }).first else {
@@ -456,7 +466,7 @@ enum MacOSAccessibility {
         }
         focusApp(appPID: appPID)
         usleep(200_000) // 200ms for focus
-        clickAtPoint(pointInRect(frame))
+        clickAtPoint(pointInRect(frame), clickCount: clickCount)
         return true
     }
 

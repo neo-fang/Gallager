@@ -43,6 +43,6 @@ struct StopFinalityDatasetTests {
     @Test func minedURLDefaultPathShape() {
         // The env override itself is untestable here (setenv breaks
         // posix_spawn — see memory); this only pins the default path.
-        #expect(StopFinalityDataset.minedURL.path.hasSuffix(".gallager/eval/stop-finality-mined.json"))
+        #expect(StopFinalityDataset.minedURL.path.hasSuffix(".ctrlx/eval/stop-finality-mined.json"))
     }
 }

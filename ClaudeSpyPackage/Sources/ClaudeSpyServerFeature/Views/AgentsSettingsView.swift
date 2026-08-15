@@ -154,7 +154,7 @@
             // sessions were active, so there is nothing to tell the user to
             // restart — just report the update.
             notice.needsAppRestart
-                ? "\(notice.displayName) updated to \(notice.newVersion) — restart Gallager and your \(notice.displayName) sessions"
+                ? "\(notice.displayName) updated to \(notice.newVersion) — restart CtrlX and your \(notice.displayName) sessions"
                 : "\(notice.displayName) updated to \(notice.newVersion)"
         }
 
@@ -369,7 +369,7 @@
                             .onChange(of: exportTelemetry) { _, _ in persist() }
                             .accessibilityIdentifier("agentExportTelemetry-\(pluginID)")
                             .help(
-                                "Point this agent's OpenTelemetry export at Gallager's loopback receiver "
+                                "Point this agent's OpenTelemetry export at CtrlX's loopback receiver "
                                     + "so the session's token meter, latency, and model show in the UI. "
                                     + "One-way and local only — no prompt or tool content leaves your Mac."
                             )
@@ -499,7 +499,7 @@
             case let .updated(version, needsAppRestart):
                 Text(
                     needsAppRestart
-                        ? "Updated to \(version) — restart Gallager and your \(agentDisplayName) sessions"
+                        ? "Updated to \(version) — restart CtrlX and your \(agentDisplayName) sessions"
                         : "Updated to \(version)"
                 )
                 .font(.caption)

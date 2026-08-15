@@ -17,31 +17,41 @@ import Foundation
 /// debounce (see `KeystrokeDebouncer`) it adds no perceptible latency to local
 /// typing.
 ///
-/// Must be driven from the main actor (the terminal input path is); the
-/// `@unchecked Sendable` mirrors the owning `TerminalContainerView.Coordinator`.
-final class KeystrokeCoalescer: @unchecked Sendable {
-    private let flush: @MainActor ([TmuxKey]) -> Void
+@MainActor
+final class KeystrokeCoalescer {
+    struct Batch: Sendable {
+        let keys: [TmuxKey]
+        let acceptedAt: ContinuousClock.Instant
+    }
+
+    private let flush: @MainActor (Batch) -> Void
     private var buffer: [TmuxKey] = []
+    private var firstEnqueuedAt: ContinuousClock.Instant?
     private var flushScheduled = false
 
     /// - Parameter flush: invoked once per coalesced batch, on the main actor.
-    init(flush: @escaping @MainActor ([TmuxKey]) -> Void) {
+    init(flush: @escaping @MainActor (Batch) -> Void) {
         self.flush = flush
+    }
+
+    var hasPendingKeys: Bool {
+        !buffer.isEmpty
     }
 
     /// Buffer `keys` and schedule a single flush for the next runloop turn.
     /// Calls within the same turn accumulate into that one flush.
     func enqueue(_ keys: [TmuxKey]) {
+        guard !keys.isEmpty else { return }
+        if buffer.isEmpty {
+            firstEnqueuedAt = .now
+        }
         buffer.append(contentsOf: keys)
         guard !flushScheduled else { return }
         flushScheduled = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.flushScheduled = false
-            let batch = self.buffer
-            self.buffer.removeAll()
-            guard !batch.isEmpty else { return }
-            self.flush(batch)
+            self.flushBufferedKeys()
         }
     }
 
@@ -52,12 +62,8 @@ final class KeystrokeCoalescer: @unchecked Sendable {
     /// buffered keys' send first, so the caller's send chains after it (FIFO).
     /// The already-scheduled flush still fires but finds an empty buffer and is
     /// a harmless no-op.
-    @MainActor
     func flushPending() {
-        guard !buffer.isEmpty else { return }
-        let batch = buffer
-        buffer.removeAll()
-        flush(batch)
+        flushBufferedKeys()
     }
 
     /// Drop any buffered keys and clear the pending-flush flag (teardown).
@@ -68,6 +74,15 @@ final class KeystrokeCoalescer: @unchecked Sendable {
     /// the downstream sends), not the coalescer's.
     func reset() {
         buffer.removeAll()
+        firstEnqueuedAt = nil
         flushScheduled = false
+    }
+
+    private func flushBufferedKeys() {
+        guard !buffer.isEmpty, let acceptedAt = firstEnqueuedAt else { return }
+        let batch = Batch(keys: buffer, acceptedAt: acceptedAt)
+        buffer.removeAll(keepingCapacity: true)
+        firstEnqueuedAt = nil
+        flush(batch)
     }
 }

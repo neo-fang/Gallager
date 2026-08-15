@@ -12,7 +12,7 @@ graph TB
         PPR[PipePaneReader<br/>one per pane]
         PSM[PaneStreamManager<br/>delegate + multiplexer]
         TSS[TerminalStreamService]
-        DCM[DeviceConnectionManager]
+        DCM[ConnectedViewerManager]
         MV[Mac Mirror View<br/>SwiftTerm]
     end
 
@@ -159,39 +159,40 @@ flowchart LR
 
 ### 4. Remote Streaming (Mac → Server)
 
-**TerminalStreamService** bridges local streams to all connected iOS devices via **DeviceConnectionManager**:
+**TerminalStreamService** bridges local streams to the viewers that subscribed
+to each pane via **ConnectedViewerManager**:
 
 ```mermaid
 sequenceDiagram
     participant PSM as PaneStreamManager
     participant TSS as TerminalStreamService
-    participant DCM as DeviceConnectionManager
-    participant DC1 as DeviceConnection A
-    participant DC2 as DeviceConnection B
+    participant CVM as ConnectedViewerManager
+    participant V1 as Subscribed Viewer A
+    participant V2 as Unsubscribed Viewer B
 
     PSM->>TSS: onData (raw bytes)
     TSS->>TSS: Buffer data
 
-    alt Batch ready (8KB or 50ms)
+    alt Batch ready (8KB or 16ms)
         TSS->>TSS: Create TerminalStreamMessage
-        TSS->>DCM: sendTerminalStreamToAll()
-        par Encrypt & send per device
-            DCM->>DC1: sendTerminalStream() (E2EE)
-            DCM->>DC2: sendTerminalStream() (E2EE)
-        end
+        TSS->>CVM: sendTerminalStream(to: subscribers)
+        CVM->>V1: sendTerminalStream() (E2EE)
+        Note over CVM,V2: no terminal payload for unrelated viewers
     end
 ```
 
 **Batching Strategy:**
-- Minimum interval: 50ms (max 20 updates/sec)
+- Maximum wait: 16ms fixed cadence (not trailing debounce)
 - Maximum batch size: 8KB
-- Prevents network saturation from high-frequency terminal updates
+- Prevents network saturation without starving a continuously updating TUI
 
-**Multi-Device Reference Counting:**
-- `TerminalStreamService` tracks `deviceSubscriberCount` per pane
-- First iOS device subscribing creates the PaneStreamManager subscription
-- Additional devices reuse the existing stream (count incremented, current content sent)
-- `stopStreaming()` decrements count; stream only fully stops when count reaches 0
+**Multi-Viewer Ownership:**
+- `TerminalStreamService` tracks an idempotent set of Viewer IDs per pane
+- The first Viewer creates the PaneStreamManager subscription
+- Additional Viewers reuse that stream and receive a private bootstrap snapshot
+- Bootstrap data is drained before `StartTerminalStream` returns success
+- Live chunks and terminal control events are sent only to ready subscribers; a joining Viewer cannot refresh others or receive pre-initial updates
+- `stopStreaming()` removes one owner; the stream stops when the set becomes empty
 - System-level cleanups (`stopAllStreams`, `stopStreamsForClosedPanes`) use `force: true`
 
 **Message Types:**
@@ -206,7 +207,7 @@ enum StreamUpdateType {
 
 **Key Files:**
 - `ClaudeSpyServerFeature/Services/TerminalStreamService.swift`
-- `ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`
+- `ClaudeSpyServerFeature/Services/ConnectedViewerManager.swift`
 - `ClaudeSpyServerFeature/Services/DeviceConnection.swift`
 
 ### 5. External Relay Server
@@ -253,7 +254,7 @@ graph TB
 ```
 
 **Message Routing:**
-1. Mac's `DeviceConnectionManager` sends encrypted terminal data per device
+1. Mac's `ConnectedViewerManager` sends encrypted terminal data per subscribed Viewer
 2. Each `DeviceConnection` sends via its own WebSocket (unique pairId)
 3. RelayService receives message, looks up iOS connection by pairId
 4. ConnectionHub forwards to iOS (encrypted payload is pass-through)
@@ -363,7 +364,7 @@ sequenceDiagram
     participant PSM as PaneStreamManager
     participant MV as Mac Mirror
     participant TSS as TerminalStreamService
-    participant DCM as DeviceConnectionManager
+    participant DCM as ConnectedViewerManager
     participant SRV as Relay Server
     participant RC as RelayClient
     participant SC as StreamCoordinator
@@ -390,13 +391,17 @@ sequenceDiagram
     TCC-->>PSM: initial content
     PSM->>PPR: flushBuffer()
     PPR->>PSM: didReceiveData (queued bytes, in order)
+    Note over PPR,PSM: flush returns after delegate delivery barrier
     Note over PPR: subsequent bytes flow live to delegate
     PSM-->>TSS: subscriber callback (initial + buffered)
-    TSS->>DCM: sendTerminalStreamToAll(initialState)
+    TSS->>DCM: sendTerminalStream(initialState, to: requester)
     DCM->>SRV: Encrypted per device
     SRV->>RC: Forward to iOS
     RC->>SC: onTerminalStream(initialState)
-    SC->>IV: feed(content)
+    SC->>IV: feed(content) while hidden
+    TSS->>DCM: drain pre-barrier data to requester
+    DCM-->>RC: StartTerminalStream success (bootstrap ready)
+    SC->>IV: reveal once
 
     Note over TMUX,IV: Second Device Subscribes
 
@@ -405,10 +410,12 @@ sequenceDiagram
     DCM->>TSS: startStreaming() — stream exists
     TSS->>PSM: currentContent(for: paneId)
     PSM-->>TSS: current terminal content
-    TSS->>TSS: Increment deviceSubscriberCount
-    TSS->>DCM: sendTerminalStreamToAll(initialState)
+    TSS->>TSS: Add Viewer ID in bootstrapping state
+    TSS->>DCM: sendTerminalStream(initialState, to: requester)
+    TSS->>DCM: drain private bootstrap data to requester
+    DCM-->>RC: StartTerminalStream success
 
-    Note over TMUX,IV: Live Updates (to all devices)
+    Note over TMUX,IV: Live Updates (to ready subscribers only)
 
     loop Terminal Output
         TMUX->>PPR: raw PTY bytes via FIFO
@@ -416,7 +423,7 @@ sequenceDiagram
         PSM-->>MV: subscriber callback (immediate)
         PSM-->>TSS: subscriber callback
         TSS->>TSS: Buffer (batch)
-        TSS->>DCM: sendTerminalStreamToAll(dataChunk)
+        TSS->>DCM: sendTerminalStream(dataChunk, to: ready subscribers)
         DCM->>SRV: Encrypted per device
         SRV->>RC: Forward
         RC->>SC: onTerminalStream(dataChunk)
@@ -441,7 +448,7 @@ sequenceDiagram
 | **One persistent reader per pane** | PipePaneReader is created at pane discovery and lives until the pane is removed. Mirror toggling switches its delivery mode (`scanOnly`/`buffering`/`live`) instead of detaching/reattaching `pipe-pane`, eliminating the FIFO swap window where bytes could be lost. All event wiring lives on a single `PipePaneReaderDelegate` so missing a handler is a compile error |
 | **Buffering during initial capture** | PipePaneReader queues raw bytes during the `capture-pane` snapshot, then `flushBuffer()` drains the queue to the delegate in order before switching to live mode — eliminates the gap between capture and live stream |
 | **Stream manager decoupling** | Streaming works without mirror window open, only needs iOS connection |
-| **Data batching (8KB/50ms)** | Prevents network saturation from high-frequency output |
+| **Data batching (8KB/16ms)** | Bounds latency without saturating the relay |
 | **Subscription model** | Multiple consumers (UI + remote) share one stream efficiently |
 | **Multi-device ref counting** | Multiple iOS devices watch the same pane without interfering; iOS ignores duplicate `initialState` when already streaming |
 | **Per-device E2EE** | Each DeviceConnection has its own E2EE session; server cannot decrypt |
@@ -459,7 +466,7 @@ sequenceDiagram
 | `TmuxControlClient` | ServerFeature | Control mode connection for commands and event notifications |
 | `PaneStreamManager` | ServerFeature | Owns one reader per pane, conforms to `PipePaneReaderDelegate`, multiplexes events to subscribers |
 | `TerminalStreamService` | ServerFeature | Batches and sends to remote, ref-counted per device |
-| `DeviceConnectionManager` | ServerFeature | Multi-device WebSocket coordinator |
+| `ConnectedViewerManager` | ServerFeature | Multi-Viewer WebSocket coordinator |
 | `DeviceConnection` | ServerFeature | Single iOS device WebSocket + E2EE |
 | `ConnectionHub` | ExternalServer | Server-side routing |
 | `RelayService` | ExternalServer | Message handling |

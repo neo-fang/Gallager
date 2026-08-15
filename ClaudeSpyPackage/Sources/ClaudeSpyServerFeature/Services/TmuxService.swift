@@ -8,6 +8,9 @@ import Logging
 enum TmuxError: Error, LocalizedError {
     case tmuxNotFound
     case invalidPane(target: String)
+    case invalidSessionName(reason: String)
+    case sessionAlreadyExists(name: String)
+    case invalidWindowOrder(reason: String)
     case commandFailed(message: String)
 
     var errorDescription: String? {
@@ -16,6 +19,12 @@ enum TmuxError: Error, LocalizedError {
             return "tmux is not installed or not in PATH"
         case let .invalidPane(target):
             return "Session '\(target)' not found"
+        case let .invalidSessionName(reason):
+            return "Invalid session name: \(reason)"
+        case let .sessionAlreadyExists(name):
+            return "A session named '\(name)' already exists"
+        case let .invalidWindowOrder(reason):
+            return "Invalid window order: \(reason)"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
         }
@@ -71,6 +80,33 @@ enum PaneSurfaceRetry {
     static let attempts = 20
     /// Delay between attempts.
     static let delay = Duration.milliseconds(150)
+
+    /// Waits until the local pane cache contains the window owning `paneId`.
+    /// A concurrent periodic refresh can make `refreshPanes()` return its old
+    /// snapshot, so creation callers must not assume one refresh is sufficient.
+    @MainActor
+    static func localWindow(
+        containing paneId: String,
+        attempts: Int = PaneSurfaceRetry.attempts,
+        delay: Duration = PaneSurfaceRetry.delay,
+        windows: @escaping @MainActor () -> [LocalTmuxWindow],
+        refresh: @escaping @MainActor () async -> Void
+    ) async -> LocalTmuxWindow? {
+        guard attempts > 0 else { return nil }
+
+        for attempt in 0..<attempts {
+            if let window = windows().first(where: { window in
+                window.panes.contains(where: { $0.paneId == paneId })
+            }) {
+                return window
+            }
+            guard attempt < attempts - 1 else { break }
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return nil }
+            await refresh()
+        }
+        return nil
+    }
 }
 
 /// Service for interacting with tmux via CLI
@@ -188,11 +224,9 @@ final public class TmuxService {
     /// to hardcoded colors — including bold + RGB(0,0,0) for the "● Working"
     /// status, invisible on dark mirror themes.
     ///
-    /// The fg/bg values match the actual colors the mirror's renderer
-    /// applies for the user's currently-selected theme (see
-    /// `TerminalContainerView.applyDarkTheme` / `applyLightTheme`), so the
-    /// cached value and the rendered bg can't drift if the user toggles
-    /// between dark and light themes.
+    /// The fg/bg values come from the same palette as the renderer, so the
+    /// cached value and the rendered background cannot drift when the user
+    /// changes themes.
     private var defaultCommandWrapper: String {
         let shell = Self.userShellPath.posixSingleQuoted
         let (fgHex, bgHex) = Self.oscColors(for: themeProvider())
@@ -201,28 +235,17 @@ final public class TmuxService {
     }
 
     /// Returns the `RRRR/GGGG/BBBB` strings tmux expects in an OSC 10/11
-    /// setter for the given mirror theme. Values mirror exactly what
-    /// `TerminalContainerView.applyDarkTheme` and `applyLightTheme` push
-    /// into SwiftTerm so the cached value in tmux matches what the user
-    /// actually sees rendered.
+    /// setter. The renderer and tmux declaration share the same palette.
     private static func oscColors(for theme: TerminalTheme) -> (fg: String, bg: String) {
-        switch theme {
-        case .defaultDark,
-             .solarizedDark:
-            // applyDarkTheme: fg = NSColor(0.9), bg = NSColor(0.1)
-            return ("e6e6/e6e6/e6e6", "1a1a/1a1a/1a1a")
-        case .defaultLight,
-             .solarizedLight:
-            // applyLightTheme: fg = NSColor(0.1), bg = NSColor(0.95)
-            return ("1a1a/1a1a/1a1a", "f2f2/f2f2/f2f2")
-        }
+        let palette = theme.palette
+        return (palette.foreground.oscValue, palette.background.oscValue)
     }
 
     /// Path to the Gallager CLI for the `$VISUAL` environment variable.
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
     public var editorCLIPath: String?
 
-    /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
+    /// Socket path for the API server. The CLI reads this from `$CTRLX_SOCKET`.
     public var apiSocketPath: String?
 
     /// When set, spawned shells get `ZDOTDIR=<path>` so zsh reads its startup
@@ -258,7 +281,7 @@ final public class TmuxService {
 
     /// The `$VISUAL` value Gallager wants agents to see: the bundled CLI invoked
     /// with `edit`. Nil when the CLI isn't in the bundle.
-    private var gallagerVisualValue: String? {
+    private var ctrlxVisualValue: String? {
         guard let editorCLIPath else { return nil }
         return "\(editorCLIPath) edit"
     }
@@ -270,7 +293,7 @@ final public class TmuxService {
             vars.append("VISUAL=\(editorCLIPath) edit")
         }
         if let apiSocketPath {
-            vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
+            vars.append("CTRLX_SOCKET=\(apiSocketPath)")
         }
         if let zdotDirOverride {
             vars.append("ZDOTDIR=\(zdotDirOverride)")
@@ -280,7 +303,7 @@ final public class TmuxService {
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
-    private let logger = Logger(label: "com.claudespy.tmuxservice")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.tmuxservice")
     private var tmuxPath: String
     private var socketPath: String?
 
@@ -303,8 +326,29 @@ final public class TmuxService {
     /// Error from the last refresh attempt, if any
     public private(set) var lastError: String?
 
-    /// Whether a refresh is currently in progress
+    /// Whether the initial pane discovery is in progress. Permanent background
+    /// polling is deliberately kept out of the SwiftUI observation graph.
     public private(set) var isRefreshing = false
+
+    /// Serializes refreshes without publishing every background poll into the
+    /// SwiftUI observation graph. `isRefreshing` is UI state; this is I/O state.
+    @ObservationIgnored private var refreshInFlight = false
+
+    /// A reorder spans several tmux subprocesses and therefore several actor
+    /// suspension points. Reject a second transaction for the same session
+    /// instead of interleaving two otherwise-valid swap plans.
+    @ObservationIgnored private var windowReordersInFlight: Set<String> = []
+
+    /// The loading indicator is only for the first snapshot after configuration,
+    /// not for the permanent discovery poll (including a legitimately empty tmux).
+    @ObservationIgnored private var hasCompletedInitialRefresh = false
+
+    /// Both the app-wide reconciler and agent plugins inspect the same process
+    /// tree. Share one short-lived snapshot so coincident 5s/10s polls do not
+    /// launch duplicate `tmux list-panes` and `ps` processes.
+    @ObservationIgnored private var cachedAgentProcessSnapshot: AgentProcessSnapshot?
+    @ObservationIgnored private var agentProcessSnapshotTask: Task<AgentProcessSnapshot?, Error>?
+    @ObservationIgnored private var agentProcessSnapshotGeneration: UInt64 = 0
 
     /// Sessions that currently have terminal clients attached (resize is controlled by the client)
     public private(set) var attachedSessionNames: Set<String> = []
@@ -333,6 +377,11 @@ final public class TmuxService {
     public func configure(tmuxPath: String, socketPath: String?) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath?.isEmpty == true ? nil : socketPath
+        hasCompletedInitialRefresh = false
+        cachedAgentProcessSnapshot = nil
+        agentProcessSnapshotTask?.cancel()
+        agentProcessSnapshotTask = nil
+        agentProcessSnapshotGeneration &+= 1
     }
 
     /// Sets a handler to be called when the pane list changes.
@@ -371,14 +420,21 @@ final public class TmuxService {
     /// - Returns: The refreshed list of panes.
     @discardableResult
     public func refreshPanes() async -> [PaneInfo] {
-        guard !isRefreshing else { return panes }
+        guard !refreshInFlight else { return panes }
 
-        isRefreshing = true
-        lastError = nil
+        refreshInFlight = true
+        let reportsInitialLoading = !hasCompletedInitialRefresh
+        if reportsInitialLoading {
+            isRefreshing = true
+        }
         let oldPanes = panes
 
         defer {
-            isRefreshing = false
+            refreshInFlight = false
+            hasCompletedInitialRefresh = true
+            if reportsInitialLoading {
+                isRefreshing = false
+            }
 
             // Notify if panes changed (compare sets to ignore order)
             if Set(panes) != Set(oldPanes), let handler = onPanesChanged {
@@ -389,23 +445,31 @@ final public class TmuxService {
         }
 
         guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
+            if lastError != nil {
+                lastError = nil
+            }
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
                     "reason": "tmux binary not found at \(tmuxPath)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            panes = []
+            publishPanesIfChanged([])
             return panes
         }
 
         // Get sessions with attached clients to prefer them during deduplication
         let attachedSessions = await getAttachedSessionNames()
-        attachedSessionNames = attachedSessions
+        if attachedSessionNames != attachedSessions {
+            attachedSessionNames = attachedSessions
+        }
 
         switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
         case let .assign(newPanes):
-            panes = newPanes
+            if lastError != nil {
+                lastError = nil
+            }
+            publishPanesIfChanged(newPanes)
             // When the override is active, type `export VISUAL=…` into any new
             // shell pane (issue #591 §5). Fired detached so it never blocks the
             // refresh; the per-pane dedup set keeps it idempotent.
@@ -413,13 +477,16 @@ final public class TmuxService {
                 Task { await injectOverrideIntoEligibleShellPanes() }
             }
         case let .empty(reason):
+            if lastError != nil {
+                lastError = nil
+            }
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
                     "reason": "\(reason)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            panes = []
+            publishPanesIfChanged([])
         case let .keep(reason, err):
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: keeping old panes", metadata: [
@@ -427,11 +494,21 @@ final public class TmuxService {
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            lastError = err
+            if lastError != err {
+                lastError = err
+            }
             // panes intentionally untouched — observers see no change
         }
 
         return panes
+    }
+
+    /// Observation emits on assignment, not semantic change. tmux output order
+    /// is not UI state, so compare as sets and preserve the current ordering when
+    /// the snapshot contains the same pane metadata.
+    private func publishPanesIfChanged(_ newPanes: [PaneInfo]) {
+        guard Set(panes) != Set(newPanes) else { return }
+        panes = newPanes
     }
 
     /// Queries tmux and folds every signal into a single `RefreshOutcome`.
@@ -454,7 +531,7 @@ final public class TmuxService {
         // soon as `pane_title` contained a `|` (Codex CLI does this when it
         // surfaces "Action Required | <session>" titles).
         let sep = String(PaneInfo.fieldSeparator)
-        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}"
+        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}\(sep)#{window_id}"
 
         let result: ProcessResult
         do {
@@ -547,6 +624,14 @@ final public class TmuxService {
         public let pluginID: String
     }
 
+    private struct AgentProcessSnapshot: Sendable {
+        let capturedAt: ContinuousClock.Instant
+        let paneInfo: [String: (pid: String, path: String)]
+        let processTree: ProcessTree?
+    }
+
+    private static let agentProcessSnapshotLifetime = Duration.seconds(1)
+
     /// Gets each pane's shell PID and current path via tmux, then walks the process tree
     /// from `ps` output to find any descendant process whose name is one of an enabled
     /// plugin's manifest `process_names`. This handles cases where the agent CLI is
@@ -560,6 +645,15 @@ final public class TmuxService {
     public func detectAgentPanes(
         processNamesByPlugin: [String: [String]]
     ) async -> [String: DetectedAgentPane] {
+        await detectAgentPanesIfAvailable(processNamesByPlugin: processNamesByPlugin) ?? [:]
+    }
+
+    /// Reliable variant used by periodic reconciliation. `nil` means tmux or
+    /// `ps` could not produce a trustworthy snapshot, which must not be treated
+    /// as proof that every previously detected agent exited.
+    func detectAgentPanesIfAvailable(
+        processNamesByPlugin: [String: [String]]
+    ) async -> [String: DetectedAgentPane]? {
         guard !processNamesByPlugin.isEmpty else { return [:] }
 
         // Invert to processName → pluginID for O(1) lookup while walking the tree.
@@ -574,27 +668,10 @@ final public class TmuxService {
         guard !pluginByProcessName.isEmpty else { return [:] }
 
         do {
-            // Get pane IDs, shell PIDs, and current paths in one tmux call.
-            // Joined with U+001F so a `|` in a working-directory path can't
-            // shift fields — see `PaneInfo.fieldSeparator`.
-            let sep = String(PaneInfo.fieldSeparator)
-            let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
-            ])
-            guard result.isSuccess else { return [:] }
-
-            // Build paneId -> (panePid, currentPath) mapping
-            var paneInfo: [String: (pid: String, path: String)] = [:]
-            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
-                guard parts.count == 3 else { continue }
-                paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
-            }
-
+            guard let snapshot = try await agentProcessSnapshot() else { return nil }
+            let paneInfo = snapshot.paneInfo
             guard !paneInfo.isEmpty else { return [:] }
-
-            let tree = try await processTree()
-            guard let tree else { return [:] }
+            guard let tree = snapshot.processTree else { return nil }
 
             // Walk the subtree of each pane shell, collecting every descendant
             // whose process name a plugin claims. A pane can match more than one
@@ -620,10 +697,68 @@ final public class TmuxService {
             }
 
             return detected
+        } catch is CancellationError {
+            return nil
         } catch {
             logger.warning("detectAgentPanes failed: \(error)")
-            return [:]
+            return nil
         }
+    }
+
+    private func agentProcessSnapshot() async throws -> AgentProcessSnapshot? {
+        if
+            let cachedAgentProcessSnapshot,
+            ContinuousClock.now - cachedAgentProcessSnapshot.capturedAt < Self.agentProcessSnapshotLifetime {
+            return cachedAgentProcessSnapshot
+        }
+        if let agentProcessSnapshotTask {
+            return try await agentProcessSnapshotTask.value
+        }
+
+        let generation = agentProcessSnapshotGeneration
+        let task = Task { @MainActor [weak self] () throws -> AgentProcessSnapshot? in
+            try await self?.captureAgentProcessSnapshot()
+        }
+        agentProcessSnapshotTask = task
+        do {
+            let snapshot = try await task.value
+            guard agentProcessSnapshotGeneration == generation else {
+                throw CancellationError()
+            }
+            agentProcessSnapshotTask = nil
+            cachedAgentProcessSnapshot = snapshot
+            return snapshot
+        } catch {
+            if agentProcessSnapshotGeneration == generation {
+                agentProcessSnapshotTask = nil
+            }
+            throw error
+        }
+    }
+
+    private func captureAgentProcessSnapshot() async throws -> AgentProcessSnapshot? {
+        // Get pane IDs, shell PIDs, and current paths in one tmux call. Joined
+        // with U+001F so a `|` in a path cannot shift fields.
+        let sep = String(PaneInfo.fieldSeparator)
+        let result = try await runTmuxCommand([
+            "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
+        ])
+        guard result.isSuccess else { return nil }
+
+        var paneInfo: [String: (pid: String, path: String)] = [:]
+        for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+            let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
+            guard parts.count == 3 else { continue }
+            paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
+        }
+
+        let tree = paneInfo.isEmpty ? nil : try await processTree()
+        guard paneInfo.isEmpty || tree != nil else { return nil }
+        return AgentProcessSnapshot(
+            capturedAt: .now,
+            paneInfo: paneInfo,
+            processTree: tree
+        )
     }
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
@@ -1801,6 +1936,11 @@ final public class TmuxService {
         var args = ["send-keys", "-t", target]
         if literal {
             args.append("-l") // Disable key name lookup
+            // Literal input may itself begin with "-" (for example a pasted
+            // shell argument such as "--set"). Without an option terminator,
+            // tmux parses that user text as another send-keys flag and drops
+            // this and every later input batch after returning an error.
+            args.append("--")
         }
         args.append(escapeTmuxSemicolon(keys))
 
@@ -1890,12 +2030,12 @@ final public class TmuxService {
     ) async throws {
         // Tmux's `-` form reads from stdin, but our ProcessRunner doesn't
         // expose stdin — write to a tmp file and pass the path instead.
-        // Use a `gallager-drop-buf-` prefix so this scratch file shares the
-        // top-level `gallager-drop-` namespace AppCoordinator's startup sweep
+        // Use a `ctrlx-drop-buf-` prefix so this scratch file shares the
+        // top-level `ctrlx-drop-` namespace AppCoordinator's startup sweep
         // already cleans, but stays distinguishable from the per-drop landing
         // directories created by `handleSendDroppedFiles`.
         let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("gallager-drop-buf-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-drop-buf-\(UUID().uuidString)")
         try Data(content.utf8).write(to: tmpURL, options: .atomic)
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
@@ -1945,7 +2085,8 @@ final public class TmuxService {
     /// - Parameters:
     ///   - target: The pane target to split (e.g., "%5")
     ///   - horizontal: If true, splits left-right (-h); if false, splits top-bottom (-v)
-    ///   - workingDirectory: Optional starting directory for the new pane
+    ///   - workingDirectory: Starting directory for the new pane. When omitted, the new pane
+    ///     inherits the target pane's current directory.
     /// - Returns: The pane ID of the newly created pane
     public func splitPane(
         _ target: String,
@@ -1955,15 +2096,22 @@ final public class TmuxService {
     ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
         var args = [
+            // Old CtrlX builds may have copied NO_COLOR from the app into this
+            // session. Clear it before spawning another shell in the session.
+            "set-environment", "-u", "-t", target, "NO_COLOR",
+            ";",
             "split-window",
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
-        if let workingDirectory, !workingDirectory.isEmpty {
-            args.append(contentsOf: ["-c", workingDirectory])
+        let startDirectory = if let workingDirectory, !workingDirectory.isEmpty {
+            workingDirectory
+        } else {
+            "#{pane_current_path}"
         }
+        args.append(contentsOf: ["-c", startDirectory])
 
         // Trailing positional becomes the new pane's command (tmux runs it
         // instead of the user's default-shell). Pass the shell here so the
@@ -2031,7 +2179,7 @@ final public class TmuxService {
         // client's current window and new-window then tries that exact index — which fails
         // with "index N in use" whenever a control-mode client is focused on an existing
         // window (i.e. always, for us). When `windowIndex` is supplied (e.g. by
-        // `gallager apply` honoring sparse `window_index:` entries) we want
+        // `ctrlx apply` honoring sparse `window_index:` entries) we want
         // exactly that index, so target it directly.
         let target: String
         if let windowIndex {
@@ -2040,6 +2188,11 @@ final public class TmuxService {
             target = Self.sessionTarget(sessionName)
         }
         var args = [
+            // A session created by an older CtrlX build may retain NO_COLOR
+            // even after the app is upgraded. Remove that stale session value
+            // before the new shell inherits it.
+            "set-environment", "-u", "-t", target, "NO_COLOR",
+            ";",
             "new-window",
             "-t", target,
             "-P", "-F", "#{pane_id}:#{window_index}",
@@ -2103,48 +2256,216 @@ final public class TmuxService {
         }
     }
 
-    /// Reorders a tmux window inside a single session so the windows match the
-    /// supplied id list. `windowIds` lists the windows of `sessionName` (each in
-    /// the form `sessionName:N`) in the order the caller wants them to appear.
+    /// Renames an existing tmux session without recreating its panes.
     ///
-    /// tmux only supports moving a window to one specific index at a time, so
-    /// the implementation rewrites every window index in two steps: first
-    /// parking each window at a high temporary index (offset by 1000) to free
-    /// up the lower indices, then moving each window into its target slot 0…N-1
-    /// in the desired order. After all moves complete a single `refreshPanes`
-    /// brings the in-memory model back in sync with tmux.
-    public func moveWindows(in sessionName: String, to windowIds: [String]) async throws {
-        guard !windowIds.isEmpty else { return }
-        // Park every window at a unique high index so the lower indices are
-        // free for re-assignment. -k forces tmux to overwrite the destination
-        // if it's already in use, which shouldn't happen at +1000 but keeps
-        // the call defensive against future renumbering.
-        for (offset, id) in windowIds.enumerated() {
-            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + offset)")
-            let result = try await runTmuxCommand([
-                "move-window", "-k",
-                "-s", id,
-                "-t", parkTarget,
-            ])
+    /// The caller owns the subsequent pane refresh because it also needs to
+    /// migrate UI state keyed by the old session name before observers prune it.
+    public func renameSession(from sessionName: String, to requestedName: String) async throws {
+        let currentName = sessionName
+        guard !currentName.isEmpty else {
+            throw TmuxError.invalidSessionName(reason: "the current name is empty")
+        }
+
+        let newName = try Self.validatedSessionName(requestedName)
+        guard newName != currentName else { return }
+
+        let existingNames = await getExistingSessionNames()
+        guard existingNames.contains(currentName) else {
+            throw TmuxError.invalidPane(target: currentName)
+        }
+        guard !existingNames.contains(newName) else {
+            throw TmuxError.sessionAlreadyExists(name: newName)
+        }
+
+        let result = try await runTmuxCommand([
+            "rename-session",
+            "-t", Self.sessionTarget(currentName),
+            newName,
+        ])
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Trims and validates a tmux session name supplied by the user.
+    nonisolated static func validatedSessionName(_ rawName: String) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw TmuxError.invalidSessionName(reason: "name must not be empty")
+        }
+        guard !name.contains(":"), !name.contains(".") else {
+            throw TmuxError.invalidSessionName(reason: "':' and '.' are not allowed")
+        }
+        guard !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw TmuxError.invalidSessionName(reason: "control characters are not allowed")
+        }
+        return name
+    }
+
+    struct WindowPosition: Equatable, Sendable {
+        let stableId: String
+        var index: Int
+    }
+
+    struct WindowSwap: Equatable, Sendable {
+        let sourceId: String
+        let targetIndex: Int
+    }
+
+    /// Produces the minimal left-to-right swap sequence while preserving the
+    /// session's actual index slots (including base-index 1 and sparse slots).
+    nonisolated static func windowReorderSwaps(
+        current: [WindowPosition],
+        desiredIds: [String]
+    ) throws -> [WindowSwap] {
+        guard !current.isEmpty else {
+            throw TmuxError.invalidWindowOrder(reason: "session has no windows")
+        }
+        let currentIds = current.map(\.stableId)
+        guard Set(currentIds).count == currentIds.count else {
+            throw TmuxError.invalidWindowOrder(reason: "tmux returned duplicate window ids")
+        }
+        guard Set(current.map(\.index)).count == current.count else {
+            throw TmuxError.invalidWindowOrder(reason: "tmux returned duplicate window indices")
+        }
+        guard desiredIds.count == current.count, Set(desiredIds).count == desiredIds.count else {
+            throw TmuxError.invalidWindowOrder(reason: "every window must appear exactly once")
+        }
+        guard Set(desiredIds) == Set(currentIds) else {
+            throw TmuxError.invalidWindowOrder(reason: "window set changed during drag")
+        }
+
+        let targetIndices = current.map(\.index).sorted()
+        var indexById = Dictionary(uniqueKeysWithValues: current.map { ($0.stableId, $0.index) })
+        var idByIndex = Dictionary(uniqueKeysWithValues: current.map { ($0.index, $0.stableId) })
+        var swaps: [WindowSwap] = []
+
+        for (desiredId, targetIndex) in zip(desiredIds, targetIndices) {
+            guard let sourceIndex = indexById[desiredId] else {
+                throw TmuxError.invalidWindowOrder(reason: "window \(desiredId) disappeared")
+            }
+            guard sourceIndex != targetIndex else { continue }
+            guard let displacedId = idByIndex[targetIndex] else {
+                throw TmuxError.invalidWindowOrder(reason: "target index \(targetIndex) disappeared")
+            }
+
+            swaps.append(WindowSwap(sourceId: desiredId, targetIndex: targetIndex))
+            indexById[desiredId] = targetIndex
+            indexById[displacedId] = sourceIndex
+            idByIndex[targetIndex] = desiredId
+            idByIndex[sourceIndex] = displacedId
+        }
+        return swaps
+    }
+
+    /// Reorders every window in one session using tmux's stable `#{window_id}`.
+    /// Existing index slots are retained; no destination is overwritten.
+    ///
+    /// Returns the old `session:index` to new `session:index` mapping so local
+    /// UI state that intentionally stores executable tmux targets can migrate
+    /// before the refreshed pane snapshot is published.
+    @discardableResult
+    public func moveWindows(in sessionName: String, to requestedIds: [String]) async throws -> [String: String] {
+        guard windowReordersInFlight.insert(sessionName).inserted else {
+            throw TmuxError.invalidWindowOrder(reason: "another reorder is already in progress")
+        }
+        defer { windowReordersInFlight.remove(sessionName) }
+
+        let sep = String(PaneInfo.fieldSeparator)
+        let listed = try await runTmuxCommand([
+            "list-windows", "-t", Self.sessionTarget(sessionName),
+            "-F", "#{window_id}\(sep)#{window_index}",
+        ])
+        guard listed.isSuccess else {
+            throw TmuxError.commandFailed(message: listed.stderrString)
+        }
+
+        let original = try listed.stdoutString
+            .split(separator: "\n")
+            .map(String.init)
+            .map { line -> WindowPosition in
+                let fields = line.split(separator: PaneInfo.fieldSeparator, omittingEmptySubsequences: false)
+                guard fields.count == 2, let index = Int(fields[1]) else {
+                    throw TmuxError.invalidWindowOrder(reason: "could not parse tmux window list")
+                }
+                return WindowPosition(stableId: String(fields[0]), index: index)
+            }
+
+        // Accept legacy `session:index` requests from an older viewer, but
+        // normalize immediately so every actual swap is addressed by @id.
+        let stableIds = Set(original.map(\.stableId))
+        let legacyToStable = Dictionary(uniqueKeysWithValues: original.map {
+            ("\(sessionName):\($0.index)", $0.stableId)
+        })
+        let normalizedIds = requestedIds.map { id in
+            stableIds.contains(id) ? id : (legacyToStable[id] ?? id)
+        }
+        let swaps = try Self.windowReorderSwaps(current: original, desiredIds: normalizedIds)
+
+        var applied = 0
+        for swap in swaps {
+            let result: ProcessResult
+            do {
+                result = try await runTmuxCommand([
+                    "swap-window", "-d",
+                    "-s", swap.sourceId,
+                    "-t", Self.windowTarget(in: sessionName, windowIndex: "\(swap.targetIndex)"),
+                ])
+            } catch {
+                if applied > 0 {
+                    await restoreWindowOrder(original, in: sessionName)
+                }
+                throw error
+            }
             guard result.isSuccess else {
+                // A sequence of tmux commands is not atomic. Restore the
+                // original logical order after a partial failure whenever the
+                // socket is still usable, then report the original error.
+                if applied > 0 {
+                    await restoreWindowOrder(original, in: sessionName)
+                }
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
+            applied += 1
         }
-        // Now move each parked window into its final slot. Iterate in the new
-        // order so the final tmux indices match the caller's intent.
-        for newIndex in windowIds.indices {
-            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + newIndex)")
-            let finalTarget = Self.windowTarget(in: sessionName, windowIndex: "\(newIndex)")
-            let result = try await runTmuxCommand([
-                "move-window", "-k",
-                "-s", parkTarget,
-                "-t", finalTarget,
-            ])
-            guard result.isSuccess else {
-                throw TmuxError.commandFailed(message: result.stderrString)
-            }
+
+        let targetIndices = original.map(\.index).sorted()
+        let newIndexById = Dictionary(uniqueKeysWithValues: zip(normalizedIds, targetIndices))
+        return Dictionary(uniqueKeysWithValues: original.compactMap { position in
+            guard let newIndex = newIndexById[position.stableId] else { return nil }
+            return (
+                "\(sessionName):\(position.index)",
+                "\(sessionName):\(newIndex)"
+            )
+        })
+    }
+
+    private func restoreWindowOrder(_ original: [WindowPosition], in sessionName: String) async {
+        let desired = original.sorted { $0.index < $1.index }.map(\.stableId)
+        let sep = String(PaneInfo.fieldSeparator)
+        guard
+            let listed = try? await runTmuxCommand([
+                "list-windows", "-t", Self.sessionTarget(sessionName),
+                "-F", "#{window_id}\(sep)#{window_index}",
+            ]),
+            listed.isSuccess
+        else { return }
+        let current = listed.stdoutString.split(separator: "\n").compactMap { line -> WindowPosition? in
+            let fields = line.split(separator: PaneInfo.fieldSeparator, omittingEmptySubsequences: false)
+            guard fields.count == 2, let index = Int(fields[1]) else { return nil }
+            return WindowPosition(stableId: String(fields[0]), index: index)
         }
-        await refreshPanes()
+        guard let rollback = try? Self.windowReorderSwaps(current: current, desiredIds: desired) else { return }
+        for swap in rollback {
+            guard
+                let result = try? await runTmuxCommand([
+                    "swap-window", "-d",
+                    "-s", swap.sourceId,
+                    "-t", Self.windowTarget(in: sessionName, windowIndex: "\(swap.targetIndex)"),
+                ]),
+                result.isSuccess
+            else { return }
+        }
     }
 
     /// Lists window names for a session in window-index order.
@@ -2241,19 +2562,19 @@ final public class TmuxService {
     /// The tmux user option key used to persist Gallager custom descriptions.
     /// User options must be prefixed with `@`; tmux stores them on the session
     /// and any pane resolves the lookup via the session→window→pane chain.
-    private static let descriptionOptionKey = "@gallager-description"
+    private static let descriptionOptionKey = "@ctrlx-description"
 
     /// The tmux user option key used to persist Gallager session colors.
     /// Stored at session scope just like `descriptionOptionKey`.
-    private static let colorOptionKey = "@gallager-color"
+    private static let colorOptionKey = "@ctrlx-color"
 
     /// The tmux user option key used to persist Gallager session emoji icons.
     /// Stored at session scope just like `descriptionOptionKey`.
-    private static let emojiOptionKey = "@gallager-emoji"
+    private static let emojiOptionKey = "@ctrlx-emoji"
 
     /// Persists the custom description for a session as a tmux user option.
     ///
-    /// Writes `@gallager-description` at session scope so it survives app restarts
+    /// Writes `@ctrlx-description` at session scope so it survives app restarts
     /// (the tmux server keeps the option for the session's lifetime). Any existing
     /// window-level overrides inside the session are cleared first so the new value
     /// applies uniformly across every window — defensive against stray overrides
@@ -2286,7 +2607,7 @@ final public class TmuxService {
 
     /// Persists the custom color for a session as a tmux user option.
     ///
-    /// Mirrors `setSessionDescription` — writes `@gallager-color` at session
+    /// Mirrors `setSessionDescription` — writes `@ctrlx-color` at session
     /// scope after sweeping any window-level overrides.
     /// - Parameters:
     ///   - color: The color, or `nil` to clear the option.
@@ -2316,7 +2637,7 @@ final public class TmuxService {
 
     /// Persists the custom emoji for a session as a tmux user option.
     ///
-    /// Mirrors `setSessionDescription` — writes `@gallager-emoji` at session
+    /// Mirrors `setSessionDescription` — writes `@ctrlx-emoji` at session
     /// scope after sweeping any window-level overrides.
     /// - Parameters:
     ///   - emoji: The emoji string, or `nil` to clear the option.
@@ -2366,7 +2687,7 @@ final public class TmuxService {
 
     /// Sets a tmux session-scoped environment variable.
     ///
-    /// Used by `gallager apply` to honor the `environment:` block in a layout
+    /// Used by `ctrlx apply` to honor the `environment:` block in a layout
     /// config. tmux's `set-environment -t <session>` only affects new shells
     /// spawned inside the session — already-running panes keep their existing
     /// environment.
@@ -2412,7 +2733,7 @@ final public class TmuxService {
     /// Sets a tmux option at session, window, or global scope.
     ///
     /// Mirrors `tmux set-option [-g|-w] -t <target> <name> <value>`. Used by
-    /// `gallager apply` to pass through the `options:` blocks in a layout
+    /// `ctrlx apply` to pass through the `options:` blocks in a layout
     /// config. We do not validate option names — tmux is the source of truth
     /// and surfaces unknown options as a non-zero exit that we propagate.
     /// - Parameters:
@@ -2486,7 +2807,7 @@ final public class TmuxService {
 
     /// Snapshot of the system process tree, built from `ps` output.
     /// Shared by `detectClaudePanes` and `runningProcesses`.
-    private struct ProcessTree {
+    private struct ProcessTree: Sendable {
         private let childrenOf: [String: [String]]
         private let names: [String: String]
 
@@ -2713,18 +3034,21 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
-        // Chain `set-option -g default-terminal … ; set-option -g default-command
-        // … ; new-session …` in one tmux invocation. `set-option` needs a running
-        // server, but we need both options installed *before* `new-session` so the
-        // first pane uses them. Within a single tmux call the server is started,
-        // then commands run in order — so the set-options succeed and the new
-        // session inherits them. `default-terminal` pins the pane's TERM to a
-        // 256-color entry (tmux otherwise spawns with its build default, which can
-        // be the 8-color `screen`); `screen-256color` is chosen over the richer
-        // `tmux-256color` because the latter's terminfo entry is missing on some
-        // macOS installs. Repeating this on every session create is harmless
-        // (idempotent) and avoids tracking server lifetime.
+        // Chain `set-environment -gu NO_COLOR ; set-option … ; new-session …`
+        // in one tmux invocation. A CtrlX app launched from an agent shell may
+        // inherit NO_COLOR; when this invocation starts a fresh tmux server, that
+        // value otherwise enters the server's global environment and disables
+        // color in every child TUI. Remove only the inherited global value here —
+        // a user's shell startup files can still deliberately export NO_COLOR.
+        //
+        // The options must also be installed *before* `new-session` so the first
+        // pane uses them. `default-terminal` pins TERM to a 256-color entry;
+        // `screen-256color` is chosen over `tmux-256color` because the latter's
+        // terminfo entry is missing on some macOS installs. Every operation is
+        // idempotent, so the same sequence is safe against an existing server.
         var args = [
+            "set-environment", "-gu", "NO_COLOR",
+            ";",
             "set-option", "-g", "default-terminal", "screen-256color",
             ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
@@ -2807,8 +3131,8 @@ final public class TmuxService {
     /// when the override is active, or nil when it isn't (or the shell/CLI is
     /// unknown). Uses the user's login shell to pick the right syntax.
     private func overrideCommandPrefix() -> String? {
-        guard overrideVisualInShellPanes, let gallagerVisualValue else { return nil }
-        return EditorOverride.injectionCommand(visualValue: gallagerVisualValue, shell: Self.userShellPath)
+        guard overrideVisualInShellPanes, let ctrlxVisualValue else { return nil }
+        return EditorOverride.injectionCommand(visualValue: ctrlxVisualValue, shell: Self.userShellPath)
     }
 
     // MARK: - Editor Override (issue #591)
@@ -2842,7 +3166,7 @@ final public class TmuxService {
         // for the editor `$VISUAL` (that's the value we're testing for survival).
         var env = Self.baseEnvironmentVars
         if let apiSocketPath {
-            env.append("GALLAGER_SOCKET=\(apiSocketPath)")
+            env.append("CTRLX_SOCKET=\(apiSocketPath)")
         }
         if let zdotDirOverride {
             env.append("ZDOTDIR=\(zdotDirOverride)")
@@ -2852,6 +3176,8 @@ final public class TmuxService {
         // A wide pane keeps the typed `printf` command on one row so its echo
         // can't wrap into a line that starts with the marker.
         var args = [
+            "set-environment", "-gu", "NO_COLOR",
+            ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
@@ -2910,7 +3236,7 @@ final public class TmuxService {
     /// never ran rc files, so their inherited `-e VISUAL` is already correct, and
     /// typing into a running program would corrupt its input.
     private func injectOverrideIntoEligibleShellPanes() async {
-        guard overrideVisualInShellPanes, let gallagerVisualValue else { return }
+        guard overrideVisualInShellPanes, let ctrlxVisualValue else { return }
 
         // Bound the dedup set to live panes so it can't grow without limit.
         let livePaneIds = Set(panes.map(\.paneId))
@@ -2920,7 +3246,7 @@ final public class TmuxService {
             guard !injectedOverridePaneIds.contains(pane.paneId) else { continue }
             guard
                 let command = EditorOverride.injectionCommand(
-                    visualValue: gallagerVisualValue,
+                    visualValue: ctrlxVisualValue,
                     shell: pane.command
                 )
             else { continue }
@@ -3016,7 +3342,7 @@ final public class TmuxService {
             // launching shell when started by hand from a tmux pane. tmux uses
             // these to bias `-t <name>` target parsing — for session-scoped
             // options it reinterprets the target as a window in the current
-            // pane's session, so e.g. `set-option -t terminal @gallager-color
+            // pane's session, so e.g. `set-option -t terminal @ctrlx-color
             // red` ends up writing to the *current* session whenever a window
             // there has a name starting with "terminal". Force them empty for
             // every subprocess invocation since the Mac app is not actually

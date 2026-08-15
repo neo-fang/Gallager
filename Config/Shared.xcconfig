@@ -7,9 +7,12 @@
 // ==========================================
 // Project Identity
 // ==========================================
-PRODUCT_NAME = Gallager
-PRODUCT_DISPLAY_NAME = Gallager
-PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy
+PRODUCT_NAME = CtrlX
+PRODUCT_DISPLAY_NAME = CtrlX
+CTRLX_IOS_DEVELOPMENT_TEAM =
+CTRLX_IOS_APP_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx
+CTRLX_IOS_NOTIFICATION_EXTENSION_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.notification-service
+PRODUCT_BUNDLE_IDENTIFIER = $(CTRLX_IOS_APP_BUNDLE_IDENTIFIER)
 
 // ==========================================
 // Platform Configuration
@@ -28,7 +31,9 @@ GENERATE_INFOPLIST_FILE = YES
 // Entitlements
 // ==========================================
 // AI agents can modify Config/ClaudeSpy.entitlements to add capabilities
-CODE_SIGN_ENTITLEMENTS = Config/ClaudeSpy.entitlements
+CTRLX_IOS_APP_ENTITLEMENTS = Config/ClaudeSpy.entitlements
+CTRLX_IOS_NOTIFICATION_EXTENSION_ENTITLEMENTS = ClaudeSpyNotificationExtension/ClaudeSpyNotificationExtension.entitlements
+CODE_SIGN_ENTITLEMENTS = $(CTRLX_IOS_APP_ENTITLEMENTS)
 
 // ==========================================
 // Sparkle Auto-Update Support

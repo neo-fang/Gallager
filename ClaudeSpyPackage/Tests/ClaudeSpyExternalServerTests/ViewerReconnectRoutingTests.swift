@@ -114,7 +114,7 @@ extension EnvSerializedSuites {
             // Isolate each run's `pairs.json` into a fresh temp dir. Config is
             // injected (never setenv — see `configure(_:env:)`).
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-reconnect-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reconnect-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
 

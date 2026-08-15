@@ -67,7 +67,7 @@ struct CodexCLIInstallerTests {
         // Second call: plugin add
         let addCall = calls[1]
         #expect(addCall.executable == "/usr/bin/env")
-        #expect(addCall.arguments == ["codex", "plugin", "add", "gallager@gallager"])
+        #expect(addCall.arguments == ["codex", "plugin", "add", "ctrlx@ctrlx"])
     }
 
     @Test("install sets CODEX_HOME when configRoot is non-nil")
@@ -119,8 +119,8 @@ struct CodexCLIInstallerTests {
             // marketplace add (tolerated); plugin add reports already-added. The
             // stderr must carry both "already" AND "add" to satisfy the tightened
             // heuristic (so unrelated "already running" messages don't match).
-            if args.contains("add") && args.contains("gallager@gallager") {
-                return .failure(exitCode: 1, stderr: "Error: plugin gallager@gallager already added")
+            if args.contains("add") && args.contains("ctrlx@ctrlx") {
+                return .failure(exitCode: 1, stderr: "Error: plugin ctrlx@ctrlx already added")
             }
             return .success()
         }
@@ -140,7 +140,7 @@ struct CodexCLIInstallerTests {
     @Test("install throws executionFailed when plugin add fails for an unrelated reason")
     func installThrowsOnFailure() async throws {
         let processRunner = ProcessRunner { _, args, _, _ in
-            if args.contains("add") && args.contains("gallager@gallager") {
+            if args.contains("add") && args.contains("ctrlx@ctrlx") {
                 return .failure(exitCode: 2, stderr: "Error: network unreachable")
             }
             return .success()
@@ -161,7 +161,7 @@ struct CodexCLIInstallerTests {
         // "already running" carries "already" but not "add"; the tightened
         // heuristic must reject it and surface the failure instead.
         let processRunner = ProcessRunner { _, args, _, _ in
-            if args.contains("add") && args.contains("gallager@gallager") {
+            if args.contains("add") && args.contains("ctrlx@ctrlx") {
                 return .failure(exitCode: 1, stderr: "Error: codex is already running")
             }
             return .success()
@@ -179,7 +179,7 @@ struct CodexCLIInstallerTests {
 
     // MARK: - uninstall(configRoot:)
 
-    @Test("uninstall runs plugin remove gallager@gallager, wrapped in /usr/bin/env")
+    @Test("uninstall runs plugin remove ctrlx@ctrlx, wrapped in /usr/bin/env")
     func uninstallCommand() async throws {
         let recorder = CallRecorder()
         let processRunner = ProcessRunner { exe, args, env, _ in
@@ -197,7 +197,7 @@ struct CodexCLIInstallerTests {
         let calls = await recorder.calls
         #expect(calls.count == 1)
         #expect(calls[0].executable == "/usr/bin/env")
-        #expect(calls[0].arguments == ["codex", "plugin", "remove", "gallager@gallager"])
+        #expect(calls[0].arguments == ["codex", "plugin", "remove", "ctrlx@ctrlx"])
         #expect(calls[0].environment == nil)
     }
 
@@ -223,14 +223,14 @@ struct CodexCLIInstallerTests {
 
     // MARK: - installStatus(configRoot:)
 
-    @Test("installStatus returns .installed(version:) when gallager line with x.y.z is present")
+    @Test("installStatus returns .installed(version:) when ctrlx line with x.y.z is present")
     func installStatusParsesInstalledVersion() async throws {
         let listing = """
-        Marketplace `gallager`
-        /Applications/Gallager.app/Contents/Resources/plugin/codex/.agents/plugins/marketplace.json
+        Marketplace `ctrlx`
+        /Applications/CtrlX.app/Contents/Resources/plugin/codex/.agents/plugins/marketplace.json
 
         PLUGIN             STATUS     VERSION  PATH
-        gallager@gallager  installed  1.3.0    /Applications/Gallager.app/Contents/Resources/plugin/codex/gallager
+        ctrlx@ctrlx  installed  1.3.0    /Applications/CtrlX.app/Contents/Resources/plugin/codex/ctrlx
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -249,13 +249,13 @@ struct CodexCLIInstallerTests {
         #expect(version == "1.3.0")
     }
 
-    @Test("installStatus returns .installed(version: nil) when gallager line has no x.y.z token")
+    @Test("installStatus returns .installed(version: nil) when ctrlx line has no x.y.z token")
     func installStatusInstalledWithoutVersion() async throws {
-        // An installed gallager row with no dot-bearing numeric token → version is
+        // An installed ctrlx row with no dot-bearing numeric token → version is
         // nil but the plugin is still reported installed.
         let listing = """
         PLUGIN             STATUS     VERSION  PATH
-        gallager@gallager  installed           /Applications/Gallager.app/Contents/Resources/plugin/codex/gallager
+        ctrlx@ctrlx  installed           /Applications/CtrlX.app/Contents/Resources/plugin/codex/ctrlx
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -276,15 +276,15 @@ struct CodexCLIInstallerTests {
 
     @Test("installStatus is .notInstalled when the row STATUS says 'not installed' (marketplace header present)")
     func installStatusNotInstalledFromStatusColumn() async throws {
-        // Real `codex plugin list -m gallager` output: the marketplace IS registered
-        // (header + path lines mention `gallager`) but the plugin row's STATUS is
+        // Real `codex plugin list -m ctrlx` output: the marketplace IS registered
+        // (header + path lines mention `ctrlx`) but the plugin row's STATUS is
         // "not installed". The marketplace header must NOT be read as installed.
         let listing = """
-        Marketplace `gallager`
-        /Applications/Gallager.app/Contents/Resources/plugin/codex/.agents/plugins/marketplace.json
+        Marketplace `ctrlx`
+        /Applications/CtrlX.app/Contents/Resources/plugin/codex/.agents/plugins/marketplace.json
 
         PLUGIN             STATUS         VERSION  PATH
-        gallager@gallager  not installed           /Applications/Gallager.app/Contents/Resources/plugin/codex/gallager
+        ctrlx@ctrlx  not installed           /Applications/CtrlX.app/Contents/Resources/plugin/codex/ctrlx
         """
         let processRunner = ProcessRunner { _, _, _, _ in
             .success(listing)
@@ -299,7 +299,7 @@ struct CodexCLIInstallerTests {
         #expect(status == .notInstalled)
     }
 
-    @Test("installStatus returns .notInstalled when gallager is absent from listing")
+    @Test("installStatus returns .notInstalled when ctrlx is absent from listing")
     func installStatusNotInstalled() async throws {
         let listing = """
         PLUGIN        STATUS     VERSION  PATH
@@ -365,7 +365,7 @@ struct CodexCLIInstallerTests {
 
         let calls = await recorder.calls
         #expect(calls.count == 1)
-        #expect(calls[0].arguments == ["codex", "plugin", "list", "-m", "gallager"])
+        #expect(calls[0].arguments == ["codex", "plugin", "list", "-m", "ctrlx"])
         #expect(calls[0].environment?["CODEX_HOME"] == "/some/dir")
     }
 

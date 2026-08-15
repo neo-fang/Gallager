@@ -67,7 +67,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macCGClick(_, instance):
             return .macOS(instance: instance)
-        case let .macCGClickElement(_, _, instance, _):
+        case let .macCGClickElement(_, _, _, instance, _):
             return .macOS(instance: instance)
         case let .macRightClick(_, instance):
             return .macOS(instance: instance)
@@ -127,7 +127,7 @@ public extension TestStep {
             return .macOS(instance: instance)
         case let .macScrollWheelAtElement(_, _, _, instance):
             return .macOS(instance: instance)
-        case let .macClickAtPoint(_, _, instance):
+        case let .macClickAtPoint(_, _, _, instance):
             return .macOS(instance: instance)
         case let .macDrag(_, _, _, _, instance):
             return .macOS(instance: instance)

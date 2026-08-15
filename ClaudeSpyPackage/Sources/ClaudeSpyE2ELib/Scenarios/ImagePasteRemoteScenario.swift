@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Image paste rides the same `SendDroppedFiles` flow Finder drops use — the
 /// viewer wraps the clipboard image as a single synthetic `pasted-image-<UUID>.<ext>`
-/// file, the host saves it under `$TMPDIR/gallager-drop-<UUID>/`, and the
+/// file, the host saves it under `$TMPDIR/ctrlx-drop-<UUID>/`, and the
 /// resolved path is bracketed-pasted into the target tmux pane via
 /// `tmux load-buffer` + `paste-buffer -p`.
 ///
@@ -14,7 +14,7 @@ import Foundation
 ///    is enabled when the relay round-trip completes.
 /// 4. Press Cmd+V on the viewer's remote terminal mirror.
 /// 5. Verify the listener captured a paste whose payload mentions both the
-///    `gallager-drop-` landing prefix and a `pasted-image-…png` filename,
+///    `ctrlx-drop-` landing prefix and a `pasted-image-…png` filename,
 ///    proving the image was saved and its path was bracketed-pasted.
 public enum ImagePasteRemoteScenario {
     /// Smallest valid PNG: a 1×1 fully-transparent pixel. Hard-coded so the
@@ -101,7 +101,7 @@ public enum ImagePasteRemoteScenario {
         )
         // The listener prints `PASTED:` followed by the bytes between
         // `ESC[200~` and `ESC[201~`, which should be the host-side
-        // `gallager-drop-<UUID>/pasted-image-<UUID>.png` path produced by
+        // `ctrlx-drop-<UUID>/pasted-image-<UUID>.png` path produced by
         // `DroppedPathFormatter`.
         TestStep.assertStoredContains(
             key: "imagePaste.bracketed",
@@ -109,7 +109,7 @@ public enum ImagePasteRemoteScenario {
         )
         TestStep.assertStoredContains(
             key: "imagePaste.bracketed",
-            substring: "gallager-drop-"
+            substring: "ctrlx-drop-"
         )
         TestStep.assertStoredContains(
             key: "imagePaste.bracketed",

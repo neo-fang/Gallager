@@ -14,7 +14,7 @@ struct ClaudeCodeScannerTests {
     /// Creates a throwaway home directory and returns its URL.
     private func makeTempHome() throws -> URL {
         let home = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cc-scan-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cc-scan-\(UUID().uuidString)")
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         return home
     }

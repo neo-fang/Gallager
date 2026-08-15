@@ -11,7 +11,7 @@ struct CodexPluginCoreTests {
         PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cx-core-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cx-core-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: settings,
             marketplaceSource: URL(fileURLWithPath: "/"),
@@ -20,10 +20,10 @@ struct CodexPluginCoreTests {
     }
 
     /// A core whose correlation store points at a throwaway temp dir so tests
-    /// never touch the real `~/.claudespy/codex-sessions/`.
+    /// never touch the real `~/.ctrlx/codex-sessions/`.
     private func makeCore() -> CodexPluginCore {
         let correlationRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-core-corr-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-core-corr-\(UUID().uuidString)")
         return CodexPluginCore(correlation: CodexSessionCorrelation(root: correlationRoot))
     }
 

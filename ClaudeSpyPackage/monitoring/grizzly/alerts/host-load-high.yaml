@@ -1,7 +1,7 @@
 apiVersion: grizzly.grafana.com/v1alpha1
 kind: AlertRuleGroup
 metadata:
-  folder: ClaudeSpy
+  folder: CtrlX
   name: host-load-high
 spec:
   title: host-load-high
@@ -21,9 +21,9 @@ spec:
             # vector matching against node_load5's labels otherwise produces
             # an empty result (which fires DatasourceNoData every evaluation).
             expr: |
-              node_load5{instance="hetzner-1"}
+              node_load5{instance="ctrlx-relay-host"}
                 /
-              scalar(count(count by (cpu) (node_cpu_seconds_total{instance="hetzner-1",mode="idle"})))
+              scalar(count(count by (cpu) (node_cpu_seconds_total{instance="ctrlx-relay-host",mode="idle"})))
             instant: true
             refId: A
         - refId: B

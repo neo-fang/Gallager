@@ -35,7 +35,7 @@ public enum TabCycleReorderScenario {
         TestStep.tmuxCommand(arguments: ["select-window", "-t", "tabcycle:0"])
         // Stable session title so the window/sidebar labels don't fall back to
         // the working-directory path (which varies by checkout folder).
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabcycle:", "@gallager-description", "Tab Cycle"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabcycle:", "@ctrlx-description", "Tab Cycle"])
 
         // ── Launch app and select the session ────────────────────────
         Shortcut.macOnlySetup

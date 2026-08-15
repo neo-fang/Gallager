@@ -8,7 +8,7 @@
 
         public init() {
             if
-                let url = Bundle.module.url(forResource: "gallager-cli-api", withExtension: "md"),
+                let url = Bundle.module.url(forResource: "ctrlx-cli-api", withExtension: "md"),
                 let content = try? String(contentsOf: url, encoding: .utf8) {
                 self.markdown = content
             } else {

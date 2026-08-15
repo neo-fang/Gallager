@@ -12,7 +12,7 @@ public actor MacOSDriver {
     private let logger: Logger
 
     private var appPath: String?
-    private let appName = "Gallager"
+    private let appName = "CtrlX"
     /// PID of the app instance launched by `launchApp`. Used to scope termination,
     /// AppleScript interactions, and window lookup to the test instance only.
     private var appPID: pid_t?
@@ -296,10 +296,11 @@ public actor MacOSDriver {
     public func cgClick(
         matching query: ElementQuery,
         pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        clickCount: Int = 1,
         timeout: TimeInterval = 5
     ) async throws {
         let pid = try requirePID()
-        logger.info("CGEvent clicking element matching query")
+        logger.info("CGEvent clicking element matching query (count: \(clickCount))")
         // Poll the click itself instead of a separate find gate. The old form
         // gated on `findElement` → `describeUI(maxDepth: 15)` and then clicked via
         // `cgClick` → `findAllRawElements(maxDepth: 20)` — two different traversals
@@ -318,7 +319,12 @@ public actor MacOSDriver {
             timeout: timeout,
             pollInterval: 0.5
         ) {
-            MacOSAccessibility.cgClick(appPID: pid, matching: query, pointInRect: pointInRect)
+            MacOSAccessibility.cgClick(
+                appPID: pid,
+                matching: query,
+                pointInRect: pointInRect,
+                clickCount: clickCount
+            )
         }
     }
 
@@ -708,14 +714,14 @@ public actor MacOSDriver {
     }
 
     /// Click at a specific screen coordinate after focusing the app.
-    public func clickAtScreenPoint(x: Double, y: Double) async throws {
+    public func clickAtScreenPoint(x: Double, y: Double, clickCount: Int = 1) async throws {
         let pid = try requirePID()
-        logger.info("Click at screen point (\(x), \(y))")
+        logger.info("Click at screen point (\(x), \(y)), count: \(clickCount)")
 
         MacOSAccessibility.focusApp(appPID: pid)
         try await Task.sleep(for: .milliseconds(200))
 
-        MacOSAccessibility.clickAtPoint(CGPoint(x: x, y: y))
+        MacOSAccessibility.clickAtPoint(CGPoint(x: x, y: y), clickCount: clickCount)
     }
 
     /// Drag from one screen coordinate to another after focusing the app.
@@ -829,7 +835,7 @@ public actor MacOSDriver {
     /// `"codex"` / `"echo"`); `json` is the raw host-agent event the core
     /// decodes; `tmuxPane`/`projectPath` become the harvested ingress `context`
     /// (`TMUX_PANE` / `CLAUDE_PROJECT_DIR`). `socketPath` is the per-scenario
-    /// `<gallager-state-root>/ingress.sock`.
+    /// `<ctrlx-state-root>/ingress.sock`.
     public func sendHookEvent(
         pluginID: String,
         json: String,

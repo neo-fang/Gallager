@@ -3,18 +3,19 @@
     import ClaudeSpyNetworking
     import Foundation
     import Logging
+    import os.lock
 
     /// Receives events parsed by `PipePaneReader`.
     ///
-    /// All methods are called on the main actor. The reader dispatches each
-    /// chunk's events as a single fire-and-forget Task to MainActor, so the
-    /// FIFO consumer pulling from the pipe-pane stream is never blocked
-    /// waiting on rendering. MainActor Tasks of the same priority dispatched
-    /// from the reader actor run in submission order, preserving stream
-    /// ordering across chunks.
+    /// All methods are called on the main actor. The reader coalesces pending
+    /// events into one MainActor delivery loop. Normal live delivery remains
+    /// fire-and-forget; `flushBuffer()` inserts a barrier when a subscriber
+    /// needs proof that bootstrap bytes reached the delegate. Individual data
+    /// chunks remain separate delegate calls and retain their FIFO order.
     @MainActor
     protocol PipePaneReaderDelegate: AnyObject, Sendable {
         func pipePaneReader(_ paneId: String, didReceiveData data: Data)
+        func pipePaneReaderDidOverflow(_ paneId: String)
         func pipePaneReader(
             _ paneId: String,
             didReceiveNotification notification: TerminalStreamMessage.TerminalNotification
@@ -54,13 +55,13 @@
         ///   between "buffering on" and "snapshot taken" aren't dropped.
         /// - `live`: parser builds `filteredData` and bytes flow directly to the
         ///   delegate. The state after `flushBuffer()` returns.
-        private enum Mode { case scanOnly, buffering, live }
+        private enum Mode: Equatable { case scanOnly, buffering, live }
 
         /// `paneId` never changes after init; expose nonisolated so the delegate
         /// (which receives the id with every callback) doesn't need to cross
         /// actor boundaries to read it.
         nonisolated let paneId: String
-        private let logger: Logger
+        private let logger: Logging.Logger
 
         // FIFO state
         private let fifoPath: String
@@ -71,13 +72,30 @@
         private weak var delegate: (any PipePaneReaderDelegate)?
         private var mode: Mode = .scanOnly
         private var buffer: [Data] = []
+        private var bufferedBytes = 0
+        private var bufferOverflowed = false
+        private var pendingDelegateEvents: [DelegateEvent] = []
+        private var pendingDelegateHeadIndex = 0
+        private var pendingDelegateBytes = 0
+        private var delegateDeliveryScheduled = false
+        private var delegateBackpressured = false
 
         // AsyncStream for FIFO-ordered data processing.
         // readabilityHandler yields into this stream; a single consumer task
         // processes chunks in order, preventing the reordering that occurs
         // with unstructured Task {} per callback.
-        private var dataContinuation: AsyncStream<Data>.Continuation?
+        private var dataContinuation: AsyncStream<Void>.Continuation?
         private var consumerTask: Task<Void, Never>?
+        private let ingressBuffer: PipeIngressBuffer
+
+        /// Eight maximum-size FIFO reads keep at most 512 KiB before the parser.
+        /// An overflow resets parser state and asks subscribers for a snapshot;
+        /// continuing with a byte gap would corrupt ANSI state.
+        private static let ingressBufferChunks = 8
+        private static let maximumCaptureBufferBytes = 2 * 1_024 * 1_024
+        private static let maximumPendingDelegateBytes = 512 * 1_024
+        private static let maximumDelegateEventsPerTurn = 32
+        private static let maximumDelegateBytesPerTurn = 256 * 1_024
 
         /// Incomplete tmux escape sequence buffer (ESC k ... ESC \ split across reads)
         private var tmuxEscapeBuffer = Data()
@@ -88,7 +106,11 @@
 
         init(paneId: String) {
             self.paneId = paneId
-            self.logger = Logger(label: "com.claudespy.pipepane.\(paneId)")
+            self.logger = Logging.Logger(label: "com.jicezeng.ctrlx.pipepane.\(paneId)")
+            self.ingressBuffer = PipeIngressBuffer(
+                paneId: paneId,
+                maximumChunks: Self.ingressBufferChunks
+            )
 
             // Sanitize pane ID for filesystem: "%5" -> "5"
             let sanitized = paneId.replacingOccurrences(of: "%", with: "")
@@ -97,7 +119,7 @@
                 "Pane ID must contain only digits after stripping '%', got: \(paneId)"
             )
             let tmpDir = FileManager.default.temporaryDirectory.path
-            self.fifoPath = "\(tmpDir)/claudespy-pipe-\(sanitized).fifo"
+            self.fifoPath = "\(tmpDir)/ctrlx-pipe-\(sanitized).fifo"
         }
 
         // MARK: - Public API
@@ -128,6 +150,8 @@
             mode = .scanOnly
             notificationParser.scanOnly = true
             buffer = []
+            bufferedBytes = 0
+            bufferOverflowed = false
 
             // Clean up any stale FIFO from a previous crash
             cleanupFifo()
@@ -182,7 +206,9 @@
             // readabilityHandler fires on a dispatch queue — yielding into the stream
             // is synchronous and non-blocking. A single consumer task drains the stream
             // in order, guaranteeing no data reordering.
-            let (stream, continuation) = AsyncStream<Data>.makeStream()
+            let (stream, continuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
             dataContinuation = continuation
 
             // Note: readabilityHandler captures `continuation` strongly, so the handler
@@ -204,13 +230,16 @@
                     }
                     return
                 }
-                continuation.yield(Data(buf[..<bytesRead]))
+                let data = Data(buf[..<bytesRead])
+                self?.ingressBuffer.enqueue(data)
+                continuation.yield()
             }
 
             // Single consumer task — processes data in strict FIFO order
             consumerTask = Task { [weak self] in
-                for await data in stream {
-                    await self?.processIncomingData(data)
+                for await _ in stream {
+                    guard let self else { break }
+                    await self.drainIngressBuffer()
                 }
             }
 
@@ -231,7 +260,15 @@
         /// (bytes flow directly to the delegate).
         func setBuffering(_ enabled: Bool) {
             buffer = []
+            bufferedBytes = 0
+            bufferOverflowed = false
+            delegateBackpressured = false
             if enabled {
+                // A snapshot supersedes queued live bytes. Keep control events
+                // and barriers, but do not spend MainActor time replaying output
+                // that every subscriber will immediately replace.
+                _ = discardPendingDelegateData()
+                recordDelegateQueue()
                 notificationParser.scanOnly = false
                 mode = .buffering
             } else {
@@ -244,23 +281,25 @@
         /// received, then transitions to live mode (subsequent bytes flow
         /// directly to the delegate). The buffer is empty after this call.
         ///
-        /// Delivery is fire-and-forget: chunks are dispatched as a single
-        /// MainActor Task per call, so the actor never suspends mid-flush
-        /// and concurrent writers can't interleave with the buffered chunks.
-        /// Subsequent `processIncomingData` calls in `.live` mode dispatch
-        /// their own Tasks; MainActor processes them in submission order
-        /// after this flush Task completes.
-        func flushBuffer() {
+        /// The method returns only after all buffered chunks have reached the
+        /// delegate. Live chunks that arrive after the inserted barrier remain
+        /// fire-and-forget and continue through the same FIFO queue.
+        func flushBuffer() async {
             notificationParser.scanOnly = false
-            let toFlush = buffer
+            let toFlush = bufferOverflowed ? [] : buffer
+            let didOverflow = bufferOverflowed
             buffer = []
+            bufferedBytes = 0
+            bufferOverflowed = false
             mode = .live
-            if !toFlush.isEmpty {
-                dispatchToDelegate { [paneId] delegate in
-                    for chunk in toFlush {
-                        delegate.pipePaneReader(paneId, didReceiveData: chunk)
-                    }
+
+            await withCheckedContinuation { continuation in
+                var events = toFlush.map(DelegateEvent.data)
+                if didOverflow {
+                    events.append(.overflow)
                 }
+                events.append(.barrier(continuation))
+                enqueueDelegateEvents(events)
             }
             logger.debug("Flushed \(toFlush.count) buffered chunks for \(paneId)")
         }
@@ -281,8 +320,10 @@
             fileHandle?.readabilityHandler = nil
             dataContinuation?.finish()
             dataContinuation = nil
-            consumerTask?.cancel()
+            let task = consumerTask
+            task?.cancel()
             consumerTask = nil
+            _ = await task?.value
             try? fileHandle?.close()
             fileHandle = nil
 
@@ -298,6 +339,10 @@
             isRunning = false
             mode = .scanOnly
             buffer = []
+            bufferedBytes = 0
+            bufferOverflowed = false
+            discardPendingDelegateEvents()
+            ingressBuffer.removeAll()
             tmuxEscapeBuffer = Data()
             notificationParser.reset()
             notificationParser.scanOnly = true
@@ -309,6 +354,18 @@
         // MARK: - Data Processing
 
         private func processIncomingData(_ data: Data) {
+            guard !data.isEmpty else { return }
+
+            // Terminal output is overwhelmingly plain UTF-8. Avoid six full
+            // Data scans and the OSC parser when this chunk cannot contain a
+            // control sequence. Buffered fragments disable this path because
+            // the current chunk may complete a sequence begun by the previous
+            // read without containing another introducer itself.
+            if canUsePlainDataPath(data) {
+                processPlainData(data)
+                return
+            }
+
             // Filter tmux-specific escape sequences (ESC k ... ESC \)
             let tmuxFiltered = filterTmuxEscapeSequences(data)
             guard !tmuxFiltered.isEmpty else { return }
@@ -349,14 +406,14 @@
             case .scanOnly:
                 liveData = nil
             case .buffering:
-                if !filtered.isEmpty { buffer.append(filtered) }
+                appendToCaptureBuffer(filtered)
                 liveData = nil
             case .live:
                 liveData = filtered.isEmpty ? nil : filtered
             }
 
             let notifications = parseResult.notifications
-            let title = parseResult.titleChange
+            let title = parseResult.titleChange.map(TerminalTitleStabilizer.stabilize)
             let clipboard = parseResult.clipboardContent
             let progress = parseResult.progressUpdate
 
@@ -368,31 +425,248 @@
                 || liveData != nil
             else { return }
 
-            dispatchToDelegate { [paneId] delegate in
-                for notification in notifications {
-                    delegate.pipePaneReader(paneId, didReceiveNotification: notification)
-                }
-                if let title { delegate.pipePaneReader(paneId, didReceiveTitle: title) }
-                if let clipboard { delegate.pipePaneReader(paneId, didReceiveClipboard: clipboard) }
-                if let progress { delegate.pipePaneReader(paneId, didReceiveProgress: progress) }
-                if let liveData { delegate.pipePaneReader(paneId, didReceiveData: liveData) }
+            var events = notifications.map(DelegateEvent.notification)
+            if let title { events.append(.title(title)) }
+            if let clipboard { events.append(.clipboard(clipboard)) }
+            if let progress { events.append(.progress(progress)) }
+            if let liveData { events.append(.data(liveData)) }
+            enqueueDelegateEvents(events)
+        }
+
+        private func canUsePlainDataPath(_ data: Data) -> Bool {
+            tmuxEscapeBuffer.isEmpty
+                && !notificationParser.hasBufferedSequence
+                && !data.contains(0x1B) // ESC
+                && !data.contains(0x9B) // C1 CSI
+                && !data.contains(0x9D) // C1 OSC
+        }
+
+        private func processPlainData(_ data: Data) {
+            switch mode {
+            case .scanOnly:
+                return
+            case .buffering:
+                appendToCaptureBuffer(data)
+            case .live:
+                enqueueDelegateEvents([.data(data)])
             }
         }
 
-        /// Dispatches a fire-and-forget MainActor Task that delivers events
-        /// for one chunk to the delegate, in the order the closure invokes
-        /// methods. Tasks at the same priority dispatched from this actor run
-        /// in submission order on MainActor, so cross-chunk stream order is
-        /// preserved without blocking the FIFO consumer task.
-        private func dispatchToDelegate(
-            _ deliver: @escaping @Sendable @MainActor (any PipePaneReaderDelegate) -> Void
-        ) {
-            // `delegate` is weak; capture it inside the Task so a deallocation
-            // between dispatch and execution simply drops the events.
-            let weakRef = WeakDelegate(delegate)
-            Task { @MainActor in
-                guard let delegate = weakRef.value else { return }
-                deliver(delegate)
+        /// Adds events to the FIFO delivery queue. One MainActor task drains
+        /// every event currently available instead of spawning a task for
+        /// every pipe read.
+        private func enqueueDelegateEvents(_ events: [DelegateEvent]) {
+            guard !events.isEmpty else { return }
+            for event in events {
+                switch event {
+                case let .data(data):
+                    guard !delegateBackpressured else { continue }
+                    guard pendingDelegateBytes + data.count <= Self.maximumPendingDelegateBytes else {
+                        let alreadyHasOverflow = discardPendingDelegateData()
+                        delegateBackpressured = true
+                        if !alreadyHasOverflow {
+                            pendingDelegateEvents.append(.overflow)
+                        }
+                        continue
+                    }
+                    pendingDelegateEvents.append(event)
+                    pendingDelegateBytes += data.count
+
+                case .overflow:
+                    guard !delegateBackpressured else { continue }
+                    delegateBackpressured = true
+                    pendingDelegateEvents.append(event)
+
+                case .notification, .title, .clipboard, .progress, .barrier:
+                    pendingDelegateEvents.append(event)
+                }
+            }
+            recordDelegateQueue()
+            guard !delegateDeliveryScheduled else { return }
+
+            delegateDeliveryScheduled = true
+            Task { @MainActor [weak self] in
+                while let delivery = await self?.takePendingDelegateDelivery() {
+                    delivery.deliver()
+                    await Task.yield()
+                }
+            }
+        }
+
+        private func takePendingDelegateDelivery() -> DelegateDelivery? {
+            guard !pendingDelegateEvents.isEmpty else {
+                delegateDeliveryScheduled = false
+                return nil
+            }
+
+            let availableCount = pendingDelegateEvents.count - pendingDelegateHeadIndex
+            var eventCount = 0
+            var byteCount = 0
+            while eventCount < availableCount,
+                  eventCount < Self.maximumDelegateEventsPerTurn {
+                let nextBytes = pendingDelegateEvents[pendingDelegateHeadIndex + eventCount].byteCount
+                if eventCount > 0, byteCount + nextBytes > Self.maximumDelegateBytesPerTurn {
+                    break
+                }
+                byteCount += nextBytes
+                eventCount += 1
+            }
+
+            let endIndex = pendingDelegateHeadIndex + eventCount
+            let events = Array(pendingDelegateEvents[pendingDelegateHeadIndex..<endIndex])
+            pendingDelegateHeadIndex = endIndex
+            pendingDelegateBytes -= byteCount
+            compactPendingDelegateEvents()
+            recordDelegateQueue()
+            return DelegateDelivery(
+                paneId: paneId,
+                delegate: WeakDelegate(delegate),
+                events: events
+            )
+        }
+
+        private enum DelegateEvent: Sendable {
+            case notification(TerminalStreamMessage.TerminalNotification)
+            case title(String)
+            case clipboard(String)
+            case progress(TerminalProgressState)
+            case data(Data)
+            case overflow
+            case barrier(CheckedContinuation<Void, Never>)
+
+            var byteCount: Int {
+                if case let .data(data) = self { return data.count }
+                return 0
+            }
+        }
+
+        private struct DelegateDelivery: Sendable {
+            let paneId: String
+            let delegate: WeakDelegate
+            let events: [DelegateEvent]
+
+            @MainActor
+            func deliver() {
+                for event in events {
+                    switch event {
+                    case let .notification(notification):
+                        delegate.value?.pipePaneReader(paneId, didReceiveNotification: notification)
+                    case let .title(title):
+                        delegate.value?.pipePaneReader(paneId, didReceiveTitle: title)
+                    case let .clipboard(clipboard):
+                        delegate.value?.pipePaneReader(paneId, didReceiveClipboard: clipboard)
+                    case let .progress(progress):
+                        delegate.value?.pipePaneReader(paneId, didReceiveProgress: progress)
+                    case let .data(data):
+                        delegate.value?.pipePaneReader(paneId, didReceiveData: data)
+                    case .overflow:
+                        delegate.value?.pipePaneReaderDidOverflow(paneId)
+                    case let .barrier(continuation):
+                        continuation.resume()
+                    }
+                }
+            }
+        }
+
+        private func appendToCaptureBuffer(_ data: Data) {
+            guard !data.isEmpty, !bufferOverflowed else { return }
+            guard bufferedBytes + data.count <= Self.maximumCaptureBufferBytes else {
+                buffer.removeAll(keepingCapacity: true)
+                bufferedBytes = 0
+                bufferOverflowed = true
+                return
+            }
+            buffer.append(data)
+            bufferedBytes += data.count
+        }
+
+        private func handleIngressOverflow() {
+            tmuxEscapeBuffer = Data()
+            notificationParser.reset()
+            notificationParser.scanOnly = mode == .scanOnly
+            buffer.removeAll(keepingCapacity: true)
+            bufferedBytes = 0
+            switch mode {
+            case .scanOnly:
+                bufferOverflowed = false
+            case .buffering:
+                // Keep the marker until flushBuffer. This forces a second
+                // snapshot if the gap raced the current capture boundary.
+                bufferOverflowed = true
+            case .live:
+                bufferOverflowed = false
+                enqueueDelegateEvents([.overflow])
+            }
+        }
+
+        private func drainIngressBuffer() async {
+            var processedChunks = 0
+            var processedBytes = 0
+            while !Task.isCancelled,
+                  processedChunks < Self.maximumDelegateEventsPerTurn,
+                  processedBytes < Self.maximumDelegateBytesPerTurn,
+                  let item = ingressBuffer.dequeue() {
+                if item.requiresResyncBefore {
+                    handleIngressOverflow()
+                }
+                processIncomingData(item.data)
+                processedChunks += 1
+                processedBytes += item.data.count
+            }
+
+            if ingressBuffer.hasPendingData {
+                dataContinuation?.yield()
+                await Task.yield()
+            }
+        }
+
+        private func recordDelegateQueue() {
+            TerminalTransportMetrics.shared.recordQueue(
+                .pipeIngress,
+                id: "\(paneId):delegate",
+                depth: pendingDelegateEvents.count - pendingDelegateHeadIndex,
+                bytes: pendingDelegateBytes
+            )
+        }
+
+        private func compactPendingDelegateEvents() {
+            if pendingDelegateHeadIndex == pendingDelegateEvents.count {
+                pendingDelegateEvents.removeAll(keepingCapacity: true)
+                pendingDelegateHeadIndex = 0
+            } else if pendingDelegateHeadIndex >= 64,
+                      pendingDelegateHeadIndex * 2 >= pendingDelegateEvents.count {
+                pendingDelegateEvents.removeFirst(pendingDelegateHeadIndex)
+                pendingDelegateHeadIndex = 0
+            }
+        }
+
+        private func discardPendingDelegateEvents() {
+            let pending = pendingDelegateEvents[pendingDelegateHeadIndex...]
+            let barriers = pending.compactMap { event -> CheckedContinuation<Void, Never>? in
+                if case let .barrier(continuation) = event { return continuation }
+                return nil
+            }
+            pendingDelegateEvents.removeAll(keepingCapacity: false)
+            pendingDelegateHeadIndex = 0
+            pendingDelegateBytes = 0
+            delegateBackpressured = false
+            recordDelegateQueue()
+            for continuation in barriers {
+                continuation.resume()
+            }
+        }
+
+        private func discardPendingDelegateData() -> Bool {
+            let retained = pendingDelegateEvents[pendingDelegateHeadIndex...].filter { event in
+                if case .data = event { return false }
+                return true
+            }
+            pendingDelegateEvents = retained
+            pendingDelegateHeadIndex = 0
+            pendingDelegateBytes = 0
+            return retained.contains { event in
+                if case .overflow = event { return true }
+                return false
             }
         }
 
@@ -488,14 +762,19 @@
             processIncomingData(data)
         }
 
-        /// Drains any MainActor delivery Tasks dispatched by prior
+        /// Enqueues one atomic delegate batch so tests can exercise the
+        /// downstream high-water boundary without scheduler timing.
+        func testEnqueueDelegateData(_ chunks: [Data]) {
+            enqueueDelegateEvents(chunks.map(DelegateEvent.data))
+        }
+
+        /// Drains any MainActor delivery work dispatched by prior
         /// `testProcessIncomingData` / `flushBuffer` calls. Tests assert on
         /// delegate state only after this returns.
         func testWaitForDelivery() async {
-            // Hop to MainActor and back. Tasks at the same priority dispatched
-            // from this actor run on MainActor in submission order; this trip
-            // queues behind them, so by the time we resume, they've all run.
-            await Task { @MainActor in }.value
+            while delegateDeliveryScheduled {
+                await Task.yield()
+            }
         }
 
         /// Exposes fifoPath for testing.
@@ -522,11 +801,85 @@
             let fm = FileManager.default
             let tmpDir = fm.temporaryDirectory.path
             guard let contents = try? fm.contentsOfDirectory(atPath: tmpDir) else { return }
-            for file in contents where file.hasPrefix("claudespy-pipe-") && file.hasSuffix(".fifo") {
+            for file in contents where file.hasPrefix("ctrlx-pipe-") && file.hasSuffix(".fifo") {
                 let path = "\(tmpDir)/\(file)"
                 try? fm.removeItem(atPath: path)
-                Logger(label: "com.claudespy.pipepane").debug("Cleaned up stale FIFO: \(path)")
+                Logging.Logger(label: "com.jicezeng.ctrlx.pipepane").debug("Cleaned up stale FIFO: \(path)")
             }
+        }
+    }
+
+    /// Small thread-safe handoff between FileHandle's dispatch callback and the
+    /// reader actor. On overflow it discards the stale queue and marks the first
+    /// retained chunk as a resync boundary. A global overflow flag is racy here:
+    /// the producer can overflow again while the actor is processing an older
+    /// dequeued chunk, causing the reset to be applied at the wrong byte.
+    final class PipeIngressBuffer: Sendable {
+        struct Item: Sendable {
+            let data: Data
+            let requiresResyncBefore: Bool
+        }
+
+        private struct State: Sendable {
+            var items: [Item] = []
+            var bytes = 0
+        }
+
+        private let paneId: String
+        private let maximumChunks: Int
+        private let state = OSAllocatedUnfairLock(initialState: State())
+
+        init(paneId: String, maximumChunks: Int) {
+            precondition(maximumChunks > 0)
+            self.paneId = paneId
+            self.maximumChunks = maximumChunks
+        }
+
+        func enqueue(_ data: Data) {
+            guard !data.isEmpty else { return }
+            let sample = state.withLock { state in
+                let overflowed = state.items.count >= maximumChunks
+                if overflowed {
+                    state.items.removeAll(keepingCapacity: true)
+                    state.bytes = 0
+                }
+                state.items.append(Item(data: data, requiresResyncBefore: overflowed))
+                state.bytes += data.count
+                return (state.items.count, state.bytes)
+            }
+            record(depth: sample.0, bytes: sample.1)
+        }
+
+        func dequeue() -> Item? {
+            let sample: (item: Item?, depth: Int, bytes: Int) = state.withLock { state in
+                guard !state.items.isEmpty else { return (nil, 0, 0) }
+                let item = state.items.removeFirst()
+                state.bytes -= item.data.count
+                return (item, state.items.count, state.bytes)
+            }
+            record(depth: sample.depth, bytes: sample.bytes)
+            return sample.item
+        }
+
+        var hasPendingData: Bool {
+            state.withLock { !$0.items.isEmpty }
+        }
+
+        func removeAll() {
+            state.withLock { state in
+                state.items.removeAll(keepingCapacity: false)
+                state.bytes = 0
+            }
+            record(depth: 0, bytes: 0)
+        }
+
+        private func record(depth: Int, bytes: Int) {
+            TerminalTransportMetrics.shared.recordQueue(
+                .pipeIngress,
+                id: "\(paneId):fifo",
+                depth: depth,
+                bytes: bytes
+            )
         }
     }
 

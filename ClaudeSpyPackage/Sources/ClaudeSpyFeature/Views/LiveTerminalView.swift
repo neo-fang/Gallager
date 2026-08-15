@@ -30,12 +30,20 @@
         /// Whether yolo mode is enabled for this pane
         let isYoloMode: Bool
 
-        /// Whether the navigation bar is hidden (show overlay keyboard button)
+        /// Whether the navigation bar is hidden (show an overlay copy button)
         let hideNavigationBar: Bool
 
-        /// Whether to show the keyboard toggle button in the toolbar.
+        /// Whether to show the keyboard toggle in the bottom safe area.
         /// Set to false when used in multi-pane layouts where the parent manages the keyboard.
         let showKeyboardButton: Bool
+
+        /// Shared settings. The body reads the control position directly so a
+        /// Settings change updates an already-open terminal without reconnecting.
+        let settings: IOSSettings
+
+        /// Whether this pane owns the terminal-copy toolbar action.
+        /// Multi-pane layouts enable it only for the selected pane.
+        let showCopyButton: Bool
 
         /// Whether this terminal pane is the active/selected one.
         /// When false, keyboard input is suppressed regardless of `isInteractive`.
@@ -50,14 +58,30 @@
         var telemetry: SessionTelemetry?
 
         @Environment(ViewerRelayClient.self) private var relayClient
-        @Environment(\.dismiss) private var dismiss
         @State private var coordinator: StreamCoordinator
 
         /// Whether the terminal is in interactive mode (keyboard is showing)
         @State private var isInteractive = false
 
-        /// Tracks keyboard visibility to sync toolbar icon and trigger layout updates
+        /// Tracks keyboard visibility to label the bottom input control and trigger layout updates
         @State private var keyboardVisible = false
+
+        /// Bottom system gesture inset before this view adds its keyboard bar.
+        @State private var bottomSafeAreaInset: CGFloat = 0
+
+        /// Changes when the user manually retries a failed stream. Combined with
+        /// `isConnected`, this gives the stream task a stable, explicit identity.
+        @State private var streamRetryGeneration = 0
+
+        /// Immutable terminal text shown in the native iOS copy surface.
+        @State private var textSnapshot: TerminalTextSnapshot?
+
+        /// Restores toolbar-controlled terminal input after the copy sheet closes.
+        /// Parent-controlled multi-pane input is restored by its existing binding.
+        @State private var restoresTerminalInputAfterCopy = false
+
+        /// Whether the terminal had no meaningful text when a snapshot was requested.
+        @State private var showsEmptySnapshotAlert = false
 
         init(
             paneId: String,
@@ -68,6 +92,7 @@
             isYoloMode: Bool = false,
             hideNavigationBar: Bool = false,
             showKeyboardButton: Bool = true,
+            showCopyButton: Bool = true,
             isActive: Bool = true,
             settings: IOSSettings,
             telemetry: SessionTelemetry? = nil,
@@ -81,6 +106,8 @@
             self.isYoloMode = isYoloMode
             self.hideNavigationBar = hideNavigationBar
             self.showKeyboardButton = showKeyboardButton
+            self.settings = settings
+            self.showCopyButton = showCopyButton
             self.isActive = isActive
             self.telemetry = telemetry
             self.submitResponse = submitResponse
@@ -106,10 +133,9 @@
                     )
                     .padding()
                     .background(Color(.systemGroupedBackground))
-                    // Force a fresh view identity per request so per-request
-                    // @State (e.g. AskUserQuestion's collected answers) is
-                    // discarded when a new request replaces the prior one.
-                    .id(responseState.requestID)
+                    // Preserve blocking forms for their request lifetime, but
+                    // give each synthesized reply turn a fresh TextField.
+                    .id(responseState.viewIdentity)
 
                     Divider()
                 }
@@ -119,16 +145,44 @@
                     mirrorMeterStrip(telemetry)
                 }
 
-                // Terminal content with overlay keyboard button when nav bar is hidden
+                // Keep the copy action reachable when the navigation bar is hidden.
                 terminalContent
                     .overlay(alignment: .topTrailing) {
                         if hideNavigationBar {
-                            keyboardOverlayButton
+                            HStack(spacing: 8) {
+                                if showCopyButton {
+                                    copyOverlayButton
+                                }
+                                if showKeyboardButton, settings.terminalKeyboardControlPosition == .topRight {
+                                    keyboardOverlayButton
+                                }
+                            }
                         }
                     }
             }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.safeAreaInsets.bottom
+            } action: { newValue in
+                bottomSafeAreaInset = newValue
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showKeyboardButton, settings.terminalKeyboardControlPosition == .bottomBar {
+                    TerminalKeyboardBar(
+                        keyboardVisible: keyboardVisible,
+                        isEnabled: isConnected && coordinator.streamState == .streaming,
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        action: { isInteractive.toggle() }
+                    )
+                }
+            }
             .toolbar {
-                if showKeyboardButton {
+                if showCopyButton {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        copyButton
+                    }
+                }
+
+                if showKeyboardButton, settings.terminalKeyboardControlPosition == .topRight, !hideNavigationBar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             isInteractive.toggle()
@@ -142,8 +196,16 @@
                     }
                 }
             }
-            .task {
-                await startStreaming()
+            .sheet(item: $textSnapshot, onDismiss: restoreTerminalInputAfterCopy) { snapshot in
+                TerminalTextCopyView(snapshot: snapshot)
+            }
+            .alert("No Terminal Text", isPresented: $showsEmptySnapshotAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("The terminal buffer does not contain any text to copy.")
+            }
+            .task(id: StreamTaskID(isConnected: isConnected, retryGeneration: streamRetryGeneration)) {
+                await synchronizeStreamingWithConnection()
             }
             .onDisappear {
                 Task { await stopStreaming() }
@@ -163,8 +225,10 @@
                 // The slight state desync is preferable to breaking keyboard switching.
             }
             .onChange(of: coordinator.streamState) { _, newState in
-                if newState == .ended {
-                    dismiss()
+                if
+                    newState == .ended,
+                    coordinator.shouldRetryUnexpectedEnd(isConnected: isConnected) {
+                    streamRetryGeneration &+= 1
                 }
             }
             .onChange(of: coordinator.terminalTitle) { _, newTitle in
@@ -193,7 +257,14 @@
             .background(.bar)
         }
 
-        /// Overlay button for keyboard toggle when navigation bar is hidden
+        private var copyButton: some View {
+            Button(action: presentTextSnapshot) {
+                Label("Copy Terminal Text", symbol: .docOnClipboard)
+            }
+            .disabled(coordinator.streamState != .streaming)
+        }
+
+        /// Keyboard toggle used when the navigation bar is hidden.
         private var keyboardOverlayButton: some View {
             Button {
                 isInteractive.toggle()
@@ -205,8 +276,57 @@
                     .background(.black.opacity(0.5))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
+            .accessibilityLabel(keyboardVisible ? "Hide Keyboard" : "Show Keyboard")
             .disabled(!isConnected || coordinator.streamState != .streaming)
             .padding(8)
+        }
+
+        private var copyOverlayButton: some View {
+            Button(action: presentTextSnapshot) {
+                Symbols.docOnClipboard.image
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white)
+                    .padding(8)
+                    .background(.black.opacity(0.5))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .accessibilityLabel("Copy Terminal Text")
+            .disabled(coordinator.streamState != .streaming)
+            .padding(8)
+        }
+
+        private func presentTextSnapshot() {
+            guard let snapshot = coordinator.terminalState?.makeTextSnapshot?() else {
+                showsEmptySnapshotAlert = true
+                return
+            }
+
+            let terminalWasInteractive = TerminalInputPresentation.isInteractive(
+                showKeyboardButton: showKeyboardButton,
+                keyboardRequested: isInteractive,
+                isActive: isActive,
+                isCopyPresented: false
+            )
+            restoresTerminalInputAfterCopy = showKeyboardButton && terminalWasInteractive
+            isInteractive = false
+
+            // Sheet presentation does not reliably release the terminal's
+            // UIKit first responder. Resign synchronously before changing the
+            // presentation state; the effective-interactivity guard below
+            // prevents a later SwiftUI update from activating it again.
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
+            textSnapshot = snapshot
+        }
+
+        private func restoreTerminalInputAfterCopy() {
+            defer { restoresTerminalInputAfterCopy = false }
+            guard restoresTerminalInputAfterCopy, isActive else { return }
+            isInteractive = true
         }
 
         @ViewBuilder
@@ -217,12 +337,17 @@
                 ProgressView("Connecting to terminal...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            case .streaming,
-                 .ended: // View auto-dismisses on stream end
+            case .streaming:
                 if let state = coordinator.terminalState {
-                    // When showKeyboardButton is false, parent controls interactivity
-                    // entirely through isActive. Otherwise, use internal toggle.
-                    let effectiveInteractive = showKeyboardButton ? (isInteractive && isActive) : isActive
+                    // A presented copy sheet always wins over both toolbar and
+                    // parent-controlled input. This prevents the underlying
+                    // UIKit terminal from reclaiming first responder mid-sheet.
+                    let effectiveInteractive = TerminalInputPresentation.isInteractive(
+                        showKeyboardButton: showKeyboardButton,
+                        keyboardRequested: isInteractive,
+                        isActive: isActive,
+                        isCopyPresented: textSnapshot != nil
+                    )
                     TerminalStreamContainerView(
                         terminalState: state,
                         isInteractive: effectiveInteractive,
@@ -238,72 +363,166 @@
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
 
+            case .ended:
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "Terminal Stream Ended",
+                        symbol: .exclamationmarkTriangle,
+                        description: "The pane still exists, but its terminal stream stopped."
+                    )
+
+                    Button("Reconnect") {
+                        streamRetryGeneration &+= 1
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isConnected)
+                }
+
             case .error:
-                ContentUnavailableView(
-                    "Stream Error",
-                    symbol: .exclamationmarkTriangle,
-                    description: coordinator.error ?? "Unknown error"
-                )
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "Stream Error",
+                        symbol: .exclamationmarkTriangle,
+                        description: coordinator.error ?? "Unknown error"
+                    )
+
+                    Button("Retry") {
+                        streamRetryGeneration &+= 1
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isConnected)
+                }
             }
         }
 
         // MARK: - Streaming
 
-        private func startStreaming() async {
+        private func synchronizeStreamingWithConnection() async {
             guard isConnected else {
-                coordinator.streamState = .error
-                coordinator.error = "Host is not connected"
+                coordinator.prepareForReconnect()
                 return
             }
 
-            // Generate a unique session ID for this streaming attempt
-            // This prevents stale callbacks from processing messages
-            let streamSessionId = UUID()
-            coordinator.streamSessionId = streamSessionId
-            coordinator.streamState = .connecting
+            await startStreaming()
+        }
 
-            // Capture coordinator strongly - it's held by @State so won't outlive the view,
-            // and stopStreaming() clears the callback to break the reference
-            let currentCoordinator = coordinator
-            let currentPaneId = paneId
+        private func startStreaming() async {
+            var startMode = coordinator.nextStartMode()
 
-            // Set up per-pane stream message handler BEFORE sending the command
-            // Use strong capture to prevent the coordinator from being deallocated during async gaps
-            relayClient.setTerminalStreamHandler(for: currentPaneId) { message in
-                // Verify this callback is for the current stream session
-                guard currentCoordinator.streamSessionId == streamSessionId else { return }
-                currentCoordinator.handleStreamMessage(message)
-            }
+            // One retry handles a command response lost during an otherwise
+            // successful reconnect. WebSocket reconnection remains responsible
+            // for longer outages; this loop must never become an infinite poll.
+            for attempt in 0..<2 {
+                guard !Task.isCancelled, relayClient.isHostConnected else {
+                    coordinator.prepareForReconnect()
+                    return
+                }
 
-            // Request stream start
-            let result = await relayClient.sendCommand(
-                StartTerminalStream(),
-                paneId: paneId
-            )
+                let previousLeaseId = coordinator.activeLeaseId
+                let leaseId = UUID()
+                let streamSessionId = coordinator.beginAttempt(leaseId: leaseId)
+                let currentCoordinator = coordinator
+                let currentPaneId = paneId
 
-            // Only handle failure - streaming state is set when initial state arrives
-            if case let .failure(err) = result {
-                // Only update state if this is still the active stream session
-                if coordinator.streamSessionId == streamSessionId {
-                    coordinator.streamState = .error
-                    coordinator.error = err.localizedDescription
+                // Install the handler before sending commands. The host sends the
+                // initial state before its start response, so registering later can
+                // lose the only complete screen snapshot.
+                let handlerRegistrationId = relayClient.registerTerminalStreamHandler(
+                    for: currentPaneId
+                ) { message in
+                    guard currentCoordinator.streamSessionId == streamSessionId else { return }
+                    currentCoordinator.handleStreamMessage(message)
+                }
+                coordinator.setHandlerRegistrationId(handlerRegistrationId)
+
+                if startMode == .replaceExisting, let previousLeaseId {
+                    _ = await relayClient.sendCommand(
+                        StopTerminalStream(leaseId: previousLeaseId),
+                        paneId: paneId
+                    )
+
+                    guard
+                        !Task.isCancelled,
+                        relayClient.isHostConnected,
+                        coordinator.streamSessionId == streamSessionId
+                    else {
+                        coordinator.prepareForReconnect()
+                        return
+                    }
+                }
+
+                let result = await relayClient.sendCommand(
+                    StartTerminalStream(leaseId: leaseId),
+                    paneId: paneId
+                )
+
+                guard coordinator.streamSessionId == streamSessionId else { return }
+
+                switch result {
+                case .success:
+                    // The initialState message transitions the coordinator to
+                    // `.streaming`; the relay receive loop is ordered, so it must
+                    // already have arrived before this command response.
+                    switch TerminalStreamRecoveryPolicy.resolveSuccessfulStart(
+                        hasInitialState: coordinator.streamState == .streaming,
+                        canRetry: attempt == 0
+                    ) {
+                    case .ready:
+                        return
+                    case .retryReplacement:
+                        startMode = .replaceExisting
+                        continue
+                    case .failMissingInitialState:
+                        coordinator.fail(MissingInitialStateError())
+                        return
+                    }
+
+                case let .failure(error):
+                    guard !Task.isCancelled, relayClient.isHostConnected else {
+                        coordinator.prepareForReconnect()
+                        return
+                    }
+
+                    if attempt == 0 {
+                        startMode = .replaceExisting
+                        do {
+                            try await Task.sleep(for: .milliseconds(500))
+                        } catch {
+                            return
+                        }
+                        continue
+                    }
+
+                    coordinator.fail(error)
                 }
             }
         }
 
+        private struct MissingInitialStateError: LocalizedError {
+            var errorDescription: String? {
+                "The host accepted the terminal stream, but did not send its initial state."
+            }
+        }
+
         private func stopStreaming() async {
-            // Cancel any in-flight key sends before tearing down the session
-            coordinator.cancelPendingKeys()
+            let leaseId = coordinator.endStreaming()
+            if let registrationId = coordinator.takeHandlerRegistrationId() {
+                relayClient.unregisterTerminalStreamHandler(
+                    for: paneId,
+                    registrationId: registrationId
+                )
+            }
 
-            // Invalidate the current stream session first
-            coordinator.streamSessionId = nil
-            relayClient.setTerminalStreamHandler(for: paneId, handler: nil)
-
-            guard isConnected else { return }
+            guard let leaseId, isConnected else { return }
             _ = await relayClient.sendCommand(
-                StopTerminalStream(),
+                StopTerminalStream(leaseId: leaseId),
                 paneId: paneId
             )
+        }
+
+        private struct StreamTaskID: Equatable {
+            let isConnected: Bool
+            let retryGeneration: Int
         }
     }
 
@@ -332,8 +551,19 @@
         /// Prevents race conditions where old callbacks process messages meant for new sessions.
         var streamSessionId: UUID?
 
+        /// Lease currently authorized to own the host stream for this view.
+        private(set) var activeLeaseId: UUID?
+
+        /// Token proving ownership of the relay client's per-pane callback.
+        private var handlerRegistrationId: UUID?
+
+        @ObservationIgnored
+        private var stabilityTask: Task<Void, Never>?
+
         @ObservationIgnored
         private var keystrokeDebouncer: KeystrokeDebouncer?
+
+        @ObservationIgnored private var recoveryPolicy = TerminalStreamRecoveryPolicy()
 
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
@@ -344,6 +574,61 @@
         /// Cancel any in-flight key-send chain.
         func cancelPendingKeys() {
             keystrokeDebouncer?.cancelAll()
+        }
+
+        func nextStartMode() -> TerminalStreamRecoveryPolicy.StartMode {
+            recoveryPolicy.nextStartMode()
+        }
+
+        func shouldRetryUnexpectedEnd(isConnected: Bool) -> Bool {
+            recoveryPolicy.shouldRetryUnexpectedEnd(isConnected: isConnected)
+        }
+
+        /// Starts a fresh attempt and invalidates callbacks from every earlier
+        /// attempt. Old terminal contents are discarded because output emitted
+        /// while disconnected cannot be safely replayed as incremental chunks.
+        func beginAttempt(leaseId: UUID) -> UUID {
+            cancelPendingKeys()
+            stabilityTask?.cancel()
+            let id = UUID()
+            streamSessionId = id
+            activeLeaseId = leaseId
+            streamState = .connecting
+            terminalState = nil
+            error = nil
+            return id
+        }
+
+        func prepareForReconnect() {
+            cancelPendingKeys()
+            stabilityTask?.cancel()
+            streamSessionId = nil
+            streamState = .connecting
+            terminalState = nil
+            error = nil
+        }
+
+        func fail(_ error: Error) {
+            streamState = .error
+            self.error = error.localizedDescription
+        }
+
+        /// Returns the exact lease this view may need to balance with a Stop.
+        func endStreaming() -> UUID? {
+            cancelPendingKeys()
+            stabilityTask?.cancel()
+            streamSessionId = nil
+            defer { activeLeaseId = nil }
+            return recoveryPolicy.hasRequestedStream ? activeLeaseId : nil
+        }
+
+        func setHandlerRegistrationId(_ id: UUID) {
+            handlerRegistrationId = id
+        }
+
+        func takeHandlerRegistrationId() -> UUID? {
+            defer { handlerRegistrationId = nil }
+            return handlerRegistrationId
         }
 
         /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
@@ -384,6 +669,15 @@
                 state.feed(content)
                 terminalState = state
                 streamState = .streaming
+                scheduleStableRecoveryReset()
+
+            case let .resetState(snapshot):
+                guard let content = snapshot.content else { return }
+                terminalState?.replace(
+                    width: snapshot.width,
+                    height: snapshot.height,
+                    content: content
+                )
 
             case let .dataChunk(chunk):
                 // Feed new data to terminal
@@ -411,6 +705,24 @@
                 // stream arrives before our new initialState.
                 guard streamState == .streaming else { return }
                 streamState = .ended
+            }
+        }
+
+        private func scheduleStableRecoveryReset() {
+            stabilityTask?.cancel()
+            guard let streamSessionId else { return }
+            stabilityTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: .seconds(15))
+                } catch {
+                    return
+                }
+                guard
+                    let self,
+                    self.streamSessionId == streamSessionId,
+                    self.streamState == .streaming
+                else { return }
+                self.recoveryPolicy.markStreamingStable()
             }
         }
     }
@@ -442,6 +754,9 @@
         /// Callback to feed data to the terminal view
         var onData: ((Data) -> Void)?
 
+        /// Callback to atomically reset the existing UIKit terminal instance.
+        var onReset: ((Int, Int, Data) -> Void)?
+
         /// Callback called once after initial content is fed (for scroll-to-bottom and enabling preservation)
         var onInitialContentLoaded: (() -> Void)?
 
@@ -460,6 +775,9 @@
         /// Scrolls the terminal to the bottom. Set by UIKit side, callable from SwiftUI.
         var scrollToBottom: (() -> Void)?
 
+        /// Captures the local SwiftTerm buffer without a host or relay request.
+        var makeTextSnapshot: (() -> TerminalTextSnapshot?)?
+
         init(width: Int, height: Int, fontName: String, fontSize: CGFloat) {
             self.width = width
             self.height = height
@@ -472,6 +790,17 @@
                 onData(data)
             } else {
                 pendingInitialContent.append(data)
+            }
+        }
+
+        func replace(width: Int, height: Int, content: Data) {
+            self.width = width
+            self.height = height
+            pendingInitialContent = Data()
+            if let onReset {
+                onReset(width, height, content)
+            } else {
+                pendingInitialContent = content
             }
         }
 
@@ -554,6 +883,7 @@
 
             // Let our mouse-mode pan win over tall-terminal vertical scrolling.
             terminalView.attachOuterScrollPanGesture(scrollView.panGestureRecognizer)
+            terminalView.attachInputProxy(to: scrollView)
 
             let widthConstraint = terminalView.widthAnchor.constraint(equalToConstant: exactWidth)
             widthConstraint.priority = .defaultHigh
@@ -583,9 +913,11 @@
             context.coordinator.heightConstraint = heightConstraint
 
             // Wire up data callbacks
-            terminalState.onData = { [weak terminalView] data in
-                guard let terminalView else { return }
-                terminalView.feedPreservingScroll([UInt8](data)[...])
+            terminalState.onData = { [weak coordinator = context.coordinator] data in
+                coordinator?.enqueue(data)
+            }
+            terminalState.onReset = { [weak coordinator = context.coordinator] width, height, data in
+                coordinator?.replace(width: width, height: height, content: data)
             }
 
             // Scroll both the inner terminal (scrollback) and outer scroll view
@@ -616,6 +948,10 @@
             let coordinator = context.coordinator
             terminalState.onResize = { [weak coordinator] newWidth, newHeight in
                 coordinator?.handleResize(width: newWidth, height: newHeight)
+            }
+
+            terminalState.makeTextSnapshot = { [weak terminalView] in
+                terminalView?.makeTextSnapshot()
             }
 
             // Set initial keyboard state
@@ -657,6 +993,24 @@
             /// scroll view picks them up (`isDirectionalLockEnabled` doesn't
             /// engage for diagonal starts per Apple's documented behavior).
             private var dragInitialOffsetY: CGFloat?
+
+            private lazy var feedCoalescer = TerminalFeedCoalescer(
+                id: "ios:\(ObjectIdentifier(self))"
+            ) { [weak self] data in
+                guard let terminalView = self?.terminalView else { return }
+                terminalView.feedPreservingScroll([UInt8](data)[...])
+            }
+
+            func enqueue(_ data: Data) {
+                feedCoalescer.enqueue(data)
+            }
+
+            func replace(width: Int, height: Int, content: Data) {
+                handleResize(width: width, height: height)
+                feedCoalescer.replace(with: content) { [weak self] in
+                    self?.terminalView?.getTerminal().resetToInitialState()
+                }
+            }
 
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }

@@ -1,3 +1,96 @@
+/// Tracks whether an input chunk can cause SwiftTerm to attach a new OSC 8
+/// payload to a cell. Parser state survives pipe-read boundaries.
+struct OSC8PayloadDetector {
+    private enum State {
+        case idle
+        case escape
+        case osc
+        case command8
+        case parameters
+        case uri(hasContent: Bool)
+        case uriEscape(hasContent: Bool)
+    }
+
+    private var state = State.idle
+    private var hyperlinkActive = false
+
+    mutating func mayContainNewPayload(in bytes: ArraySlice<UInt8>) -> Bool {
+        var mayContainPayload = false
+
+        for byte in bytes {
+            // While an OSC 8 hyperlink is active, printable bytes can acquire
+            // its payload. Counting the closing sequence is harmless and keeps
+            // the detector conservative.
+            if hyperlinkActive {
+                mayContainPayload = true
+            }
+
+            switch state {
+            case .idle:
+                advanceFromIdle(byte)
+            case .escape:
+                if byte == 0x5D { // ]
+                    state = .osc
+                } else {
+                    advanceFromIdle(byte)
+                }
+            case .osc:
+                if byte == 0x38 { // 8
+                    state = .command8
+                } else {
+                    advanceFromIdle(byte)
+                }
+            case .command8:
+                if byte == 0x3B { // ;
+                    state = .parameters
+                } else {
+                    advanceFromIdle(byte)
+                }
+            case .parameters:
+                if byte == 0x3B { // ; before URI
+                    state = .uri(hasContent: false)
+                } else if byte == 0x07 || byte == 0x9C { // BEL or C1 ST
+                    state = .idle
+                }
+            case let .uri(hasContent):
+                if byte == 0x07 || byte == 0x9C { // BEL or C1 ST
+                    finishURI(hasContent: hasContent)
+                } else if byte == 0x1B {
+                    state = .uriEscape(hasContent: hasContent)
+                } else {
+                    state = .uri(hasContent: true)
+                }
+            case let .uriEscape(hasContent):
+                if byte == 0x5C { // ESC \
+                    finishURI(hasContent: hasContent)
+                } else {
+                    // A non-terminating ESC is malformed inside an OSC string.
+                    // Treat it as URI content and resume parsing conservatively.
+                    state = .uri(hasContent: true)
+                }
+            }
+        }
+
+        return mayContainPayload
+    }
+
+    private mutating func advanceFromIdle(_ byte: UInt8) {
+        switch byte {
+        case 0x1B: // ESC
+            state = .escape
+        case 0x9D: // C1 OSC
+            state = .osc
+        default:
+            state = .idle
+        }
+    }
+
+    private mutating func finishURI(hasContent: Bool) {
+        hyperlinkActive = hasContent
+        state = .idle
+    }
+}
+
 #if canImport(SwiftTerm)
     import SwiftTerm
 
@@ -36,6 +129,7 @@
         }
 
         private var entries: [Int: [Int: CachedPayload]] = [:]
+        private var payloadDetector = OSC8PayloadDetector()
 
         public init() { }
 
@@ -43,6 +137,20 @@
         /// the cell has no cached OSC 8 entry.
         public func cellPayload(col: Int, absoluteRow: Int) -> String? {
             entries[absoluteRow]?[col]?.payload
+        }
+
+        /// Updates the cache after SwiftTerm has consumed one input chunk.
+        ///
+        /// Most terminal traffic is ordinary text or cursor animation and
+        /// cannot create a new cell payload. That path only validates cells
+        /// which already have cached links. A full buffer scan is reserved for
+        /// chunks that contain text while an OSC 8 hyperlink is active.
+        public func update(from terminal: Terminal, afterFeeding bytes: ArraySlice<UInt8>) {
+            if payloadDetector.mayContainNewPayload(in: bytes) {
+                extractAndClear(from: terminal)
+            } else {
+                validateCachedEntries(in: terminal)
+            }
         }
 
         /// Scans every visible buffer line, mirrors any live OSC 8 payloads
@@ -130,6 +238,48 @@
                         // Lines are contiguous — once we find a valid one, the rest are valid.
                         break
                     }
+                }
+            }
+        }
+
+        /// Invalidates stale links in time proportional to the number of cached
+        /// link cells, rather than the size of the terminal scrollback.
+        private func validateCachedEntries(in terminal: Terminal) {
+            guard !entries.isEmpty else { return }
+
+            let cols = terminal.cols
+            for absoluteRow in Array(entries.keys) {
+                guard let rowEntries = entries[absoluteRow] else { continue }
+                guard let line = terminal.getScrollInvariantLine(row: absoluteRow) else {
+                    entries.removeValue(forKey: absoluteRow)
+                    continue
+                }
+
+                var retained: [Int: CachedPayload] = [:]
+                retained.reserveCapacity(rowEntries.count)
+
+                for (col, cached) in rowEntries where col >= 0 && col < cols {
+                    let cell = line[col]
+
+                    // Defensive fallback: a live payload without a detected
+                    // opener means the upstream parser retained state in a way
+                    // our byte detector did not observe. Preserve correctness.
+                    if cell.hasPayload {
+                        extractAndClear(from: terminal)
+                        return
+                    }
+
+                    if
+                        cached.character == cell.getCharacter(),
+                        cached.attribute == cell.attribute {
+                        retained[col] = cached
+                    }
+                }
+
+                if retained.isEmpty {
+                    entries.removeValue(forKey: absoluteRow)
+                } else {
+                    entries[absoluteRow] = retained
                 }
             }
         }

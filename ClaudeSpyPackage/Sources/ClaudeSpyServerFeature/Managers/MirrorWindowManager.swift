@@ -15,6 +15,22 @@ final public class MirrorWindowManager {
     /// Task for periodic session validation
     private var sessionValidationTask: Task<Void, Never>?
 
+    /// Task for reconciling process-detected agent panes. Kept separate from
+    /// tmux metadata validation so agent scans can run less frequently.
+    @ObservationIgnored
+    private var agentReconciliationTask: Task<Void, Never>?
+
+    /// Pane sessions created by process detection rather than a plugin state
+    /// event. Only these sessions may be removed by a later process scan.
+    @ObservationIgnored
+    private var processDetectedPaneIds: Set<String> = []
+
+    /// A plugin SessionEnd can arrive while the process is still exiting. Keep
+    /// those panes suppressed until a scan observes the old process is gone,
+    /// otherwise the next scan would immediately resurrect the ended session.
+    @ObservationIgnored
+    private var processDetectionSuppressedPaneIds: Set<String> = []
+
     /// Called when session metadata (description, color, or emoji) changes,
     /// to push updated state to viewers.
     public var onSessionMetadataChanged: (@MainActor @Sendable () async -> Void)?
@@ -25,13 +41,22 @@ final public class MirrorWindowManager {
     /// badge decrease from here (issue #702).
     public var onPaneStatesPruned: (@MainActor @Sendable () async -> Void)?
 
+    /// Called only when process reconciliation changes a pane's terminal/agent
+    /// classification. The coordinator updates sleep prevention and viewers.
+    public var onAgentProcessReconciliationChanged: (@MainActor @Sendable () async -> Void)?
+
     /// Interval between session validation checks (in seconds)
     private let validationInterval: TimeInterval = 5
+
+    /// Agent process trees change far less often than pane metadata. A longer
+    /// cadence avoids needless `tmux` + `ps` subprocesses while bounding stale
+    /// icon correction to ten seconds.
+    static let agentReconciliationInterval: Duration = .seconds(10)
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
 
-    private let logger = Logger(label: "com.claudespy.mirrorwindowmanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.mirrorwindowmanager")
     private let settings: AppSettings
     private let tmuxService: TmuxService
 
@@ -67,7 +92,8 @@ final public class MirrorWindowManager {
     /// guards in `TmuxService.refreshPanes()` only set `panes = []` on
     /// confident server-down paths, so we trust them here. Surprising wipes
     /// are still observable via the warnings below and the producer-side logs.
-    public func updatePaneStates(from panes: [PaneInfo]) {
+    @discardableResult
+    public func updatePaneStates(from panes: [PaneInfo]) -> Bool {
         if panes.isEmpty && !paneStates.isEmpty {
             logger.warning("updatePaneStates clearing non-empty state from empty panes", metadata: [
                 "existingPaneCount": "\(paneStates.count)",
@@ -76,14 +102,19 @@ final public class MirrorWindowManager {
         }
 
         let currentPaneIds = Set(panes.map(\.paneId))
+        var updatedStates = paneStates
+        var changed = false
 
         // Update or create entries for current panes
         for pane in panes {
-            if var state = paneStates[pane.paneId] {
-                pane.updateMetadata(of: &state)
-                paneStates[pane.paneId] = state
+            if var state = updatedStates[pane.paneId] {
+                if pane.updateMetadata(of: &state) {
+                    updatedStates[pane.paneId] = state
+                    changed = true
+                }
             } else {
-                paneStates[pane.paneId] = pane.makePaneState()
+                updatedStates[pane.paneId] = pane.makePaneState()
+                changed = true
             }
         }
 
@@ -100,12 +131,18 @@ final public class MirrorWindowManager {
         // session name. The next refresh that does see the pane confirms it; if the
         // pane truly never appears in tmux a follow-up hook with the same paneId
         // updates in place rather than accumulating.
-        let stalePaneIds = paneStates.keys.filter { paneId in
+        let stalePaneIds = updatedStates.keys.filter { paneId in
             guard !currentPaneIds.contains(paneId) else { return false }
-            return paneStates[paneId]?.sessionName.isEmpty == false
+            return updatedStates[paneId]?.sessionName.isEmpty == false
         }
         for paneId in stalePaneIds {
-            removeStaleState(paneId: paneId)
+            processDetectedPaneIds.remove(paneId)
+            processDetectionSuppressedPaneIds.remove(paneId)
+            updatedStates.removeValue(forKey: paneId)
+            changed = true
+        }
+        if changed {
+            paneStates = updatedStates
         }
         // Pruning can lower the pending count — e.g. `tmux kill-session` on a
         // pinned-Waiting terminal-only session, which has no SessionEnd hook of
@@ -115,6 +152,7 @@ final public class MirrorWindowManager {
         if !stalePaneIds.isEmpty {
             Task { await onPaneStatesPruned?() }
         }
+        return changed
     }
 
     // MARK: - Periodic Session Validation
@@ -148,6 +186,40 @@ final public class MirrorWindowManager {
         sessionValidationTask = nil
     }
 
+    /// Periodically reconciles pane classifications against running agent
+    /// processes. The provider is evaluated on every pass so enabling or
+    /// disabling a plugin does not leave a stale process-name snapshot.
+    public func startPeriodicAgentReconciliation(
+        processNamesProvider: @escaping @MainActor @Sendable () -> [String: [String]]
+    ) {
+        agentReconciliationTask?.cancel()
+
+        agentReconciliationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.agentReconciliationInterval)
+
+                guard !Task.isCancelled, let self else { break }
+                let processNames = processNamesProvider()
+                guard
+                    let panes = await self.tmuxService.detectAgentPanesIfAvailable(
+                        processNamesByPlugin: processNames
+                    )
+                else { continue }
+                guard !Task.isCancelled else { break }
+
+                if self.reconcileDetectedAgentSessions(panes) {
+                    await self.onAgentProcessReconciliationChanged?()
+                }
+            }
+        }
+    }
+
+    /// Stops the periodic agent process reconciliation task.
+    public func stopPeriodicAgentReconciliation() {
+        agentReconciliationTask?.cancel()
+        agentReconciliationTask = nil
+    }
+
     // MARK: - Session Management
 
     /// Updates the agent session for the given pane ID, creating pane state if needed.
@@ -166,17 +238,60 @@ final public class MirrorWindowManager {
         }
     }
 
-    /// Marks panes as agent sessions based on process detection at startup.
-    /// Only creates sessions for panes that don't already have one (the plugin
-    /// status path takes precedence).
+    /// Reconciles process-detected agent panes without overriding plugin-owned
+    /// sessions. New detections fill hook gaps; vanished processes only clear
+    /// sessions that a previous process scan created.
     /// - Parameter panes: Mapping of pane ID to the detected plugin id and cwd.
-    public func markDetectedAgentSessions(_ panes: [String: TmuxService.DetectedAgentPane]) {
-        for (paneId, info) in panes where paneStates[paneId] != nil && paneStates[paneId]?.agentSession == nil {
-            updateSession(paneId: paneId) { session in
-                session.detectedProjectPath = info.path
+    /// - Returns: whether any pane's terminal/agent classification or detected
+    ///   metadata changed.
+    @discardableResult
+    public func reconcileDetectedAgentSessions(
+        _ panes: [String: TmuxService.DetectedAgentPane]
+    ) -> Bool {
+        let detectedPaneIds = Set(panes.keys)
+        var changed = false
+
+        // A suppression only needs to survive while the ended process remains
+        // visible. Once absent, a future process in the same pane is a new agent.
+        processDetectionSuppressedPaneIds.formIntersection(detectedPaneIds)
+
+        // Clear only sessions created by this fallback. A transient `ps` miss
+        // must never erase a plugin-owned working/waiting state.
+        for paneId in processDetectedPaneIds.subtracting(detectedPaneIds) {
+            processDetectedPaneIds.remove(paneId)
+            changed = clearAgentSessionState(forPane: paneId) || changed
+        }
+
+        for (paneId, info) in panes {
+            guard
+                paneStates[paneId] != nil,
+                !processDetectionSuppressedPaneIds.contains(paneId)
+            else { continue }
+
+            if processDetectedPaneIds.contains(paneId) {
+                guard var session = paneStates[paneId]?.agentSession else {
+                    processDetectedPaneIds.remove(paneId)
+                    continue
+                }
+                guard
+                    session.pluginID != info.pluginID
+                    || session.detectedProjectPath != info.path
+                else { continue }
                 session.pluginID = info.pluginID
+                session.detectedProjectPath = info.path
+                paneStates[paneId]?.agentSession = session
+                changed = true
+            } else if paneStates[paneId]?.agentSession == nil {
+                updateSession(paneId: paneId) { session in
+                    session.detectedProjectPath = info.path
+                    session.pluginID = info.pluginID
+                }
+                processDetectedPaneIds.insert(paneId)
+                changed = true
             }
         }
+
+        return changed
     }
 
     /// Ends the agent session on a pane: removes its `AgentSession` so the sidebar
@@ -192,6 +307,13 @@ final public class MirrorWindowManager {
     ///   updated state to viewers only when something changed).
     @discardableResult
     public func endAgentSession(forPane paneId: String) -> Bool {
+        guard paneStates[paneId]?.agentSession != nil else { return false }
+        processDetectedPaneIds.remove(paneId)
+        processDetectionSuppressedPaneIds.insert(paneId)
+        return clearAgentSessionState(forPane: paneId)
+    }
+
+    private func clearAgentSessionState(forPane paneId: String) -> Bool {
         guard paneStates[paneId]?.agentSession != nil else { return false }
         paneStates[paneId]?.agentSession = nil
         // Drop the OTEL telemetry joined to this session (issue #597) so a fresh
@@ -306,6 +428,11 @@ final public class MirrorWindowManager {
             ])
             return
         }
+
+        // A plugin state is authoritative. It upgrades a process-detected
+        // session to plugin ownership and proves any prior end suppression stale.
+        processDetectedPaneIds.remove(paneId)
+        processDetectionSuppressedPaneIds.remove(paneId)
 
         // Ensure a session exists for this pane and set the state directly. Record
         // the project path so the sidebar has a name before the next tmux refresh
@@ -617,7 +744,10 @@ final public class MirrorWindowManager {
             panesForPath[path, default: []].append(paneId)
         }
 
-        await withTaskGroup(of: (String, String?).self) { group in
+        let branchesByPath = await withTaskGroup(
+            of: (String, String?).self,
+            returning: [(String, String?)].self
+        ) { group in
             for path in panesForPath.keys {
                 group.addTask { [processRunner] in
                     let branch = await Self.detectGitBranch(at: path, processRunner: processRunner)
@@ -625,11 +755,32 @@ final public class MirrorWindowManager {
                 }
             }
 
+            var result: [(String, String?)] = []
             for await (path, branch) in group {
-                for paneId in panesForPath[path] ?? [] {
-                    paneStates[paneId]?.gitBranch = branch
-                }
+                result.append((path, branch))
             }
+            return result
+        }
+
+        // Re-read after the task group: this actor was re-entrant while git ran,
+        // so starting from the pre-await dictionary could overwrite newer agent
+        // or terminal state. Publish once, and only when a branch really changed.
+        var updatedStates = paneStates
+        var changed = false
+        for (path, branch) in branchesByPath {
+            for paneId in panesForPath[path] ?? [] {
+                guard
+                    var state = updatedStates[paneId],
+                    state.currentPath == path,
+                    state.gitBranch != branch
+                else { continue }
+                state.gitBranch = branch
+                updatedStates[paneId] = state
+                changed = true
+            }
+        }
+        if changed {
+            paneStates = updatedStates
         }
     }
 
@@ -658,12 +809,6 @@ final public class MirrorWindowManager {
         return branch
     }
 
-    // MARK: - State Cleanup
-
-    /// Removes state for a pane that no longer exists.
-    private func removeStaleState(paneId: String) {
-        paneStates.removeValue(forKey: paneId)
-    }
 }
 
 #if DEBUG

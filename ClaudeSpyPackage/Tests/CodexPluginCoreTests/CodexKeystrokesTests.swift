@@ -13,12 +13,12 @@ struct CodexKeystrokesTests {
     private func makeCore() async throws -> (CodexPluginCore, MockPluginHost) {
         let host = MockPluginHost()
         let correlationRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-ks-corr-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-ks-corr-\(UUID().uuidString)")
         let core = CodexPluginCore(correlation: CodexSessionCorrelation(root: correlationRoot))
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cx-ks-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cx-ks-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: Data(),
             marketplaceSource: URL(fileURLWithPath: "/")
@@ -36,8 +36,8 @@ struct CodexKeystrokesTests {
 
         let texts = await host.sentText
         let keys = await host.sentKeys
-        #expect(texts.map(\.text) == ["hello world"])
-        #expect(keys.map(\.keys) == [[.enter]])
+        #expect(texts.isEmpty)
+        #expect(keys.map(\.keys) == [[.text("hello world"), .delay(200), .enter]])
     }
 
     @Test("empty prompt sends nothing")
@@ -56,8 +56,8 @@ struct CodexKeystrokesTests {
         await core.deliverResponse(sessionID: "s", requestID: "r", .replyAfterStop(text: "keep going"))
         let texts = await host.sentText
         let keys = await host.sentKeys
-        #expect(texts.map(\.text) == ["keep going"])
-        #expect(keys.map(\.keys) == [[.enter]])
+        #expect(texts.isEmpty)
+        #expect(keys.map(\.keys) == [[.text("keep going"), .delay(200), .enter]])
     }
 
     @Test("empty replyAfterStop just interrupts with Escape")

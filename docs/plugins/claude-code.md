@@ -26,7 +26,7 @@ with `configDir` set for non-default roots. An FSEvents watcher on
 ## Ingress bridge (install)
 `install()` writes `claude-hook-bridge.py` into the plugin state dir and registers
 it across Claude's hook events in `~/.claude/settings.json`, baking in
-`plugin_id=claude-code` and the well-known socket `~/.gallager/state/ingress.sock`.
+`plugin_id=claude-code` and the well-known socket `~/.ctrlx/state/ingress.sock`.
 The bridge reads stdin + `TMUX_PANE` + `CLAUDE_PROJECT_DIR`, connects, writes one
 length-prefixed `{plugin_id, context, payload}` frame, exits. Fires for any Claude
 session (Gallager-launched or manual). `isInstalled`/`uninstall` manage that entry.

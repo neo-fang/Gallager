@@ -1,9 +1,9 @@
-# opencode plugin for Gallager
+# opencode plugin for CtrlX
 
-A Gallager **sidecar plugin** that teaches the Gallager (ClaudeSpy) Mac app to
+A CtrlX **sidecar plugin** that teaches the CtrlX (ClaudeSpy) Mac app to
 monitor [opencode](https://opencode.ai) sessions running in tmux panes: track
 working / done / idle, raise the attention badge, fire notifications on turn
-completion, render opencode's permission prompts as interactive Gallager/iOS
+completion, render opencode's permission prompts as interactive CtrlX/iOS
 forms that answer back into opencode, and surface a per-session token / cost /
 latency / model meter via OTLP telemetry.
 
@@ -13,9 +13,9 @@ opencode removed config-based shell hooks (the old `experimental.hook`), so this
 plugin observes opencode through its **plugin system** instead. Two pieces:
 
 ```
- opencode (Bun)                      Gallager (Mac app)
+ opencode (Bun)                      CtrlX (Mac app)
  ┌──────────────────┐                ┌────────────────────────────────┐
- │ gallager.js      │  ingress sock  │ IngressSocketServer            │
+ │ ctrlx.js      │  ingress sock  │ IngressSocketServer            │
  │ (event bridge) ──┼───4-byte-LP───▶│   → SidecarPluginCore          │
  │   subscribes to  │  JSON frame    │     → translate_event RPC      │
  │   the event bus  │                │        ┌─────────────────────┐ │
@@ -27,24 +27,24 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
                                      └────────────────────────────────┘
 ```
 
-1. **`opencode-bridge/gallager.js`** — an opencode plugin (auto-loaded from
+1. **`opencode-bridge/ctrlx.js`** — an opencode plugin (auto-loaded from
    `~/.config/opencode/plugin/`). Its `event` hook forwards the lifecycle events
-   Gallager cares about to Gallager's Unix-domain *ingress socket*. It bakes in
+   CtrlX cares about to CtrlX's Unix-domain *ingress socket*. It bakes in
    the socket path + plugin id at install time and passes through `TMUX_PANE`
    (routing), `serverUrl`, and the project dir. It also emits two *synthetic*
-   frames opencode itself never fires: `gallager.lifecycle.started` when opencode
-   loads it (≈ TUI start) and `gallager.lifecycle.stopped` from its `dispose` hook
+   frames opencode itself never fires: `ctrlx.lifecycle.started` when opencode
+   loads it (≈ TUI start) and `ctrlx.lifecycle.stopped` from its `dispose` hook
    (≈ TUI quit) — see **Session lifecycle** below.
-2. **`bin/sidecar`** — the long-lived Python process Gallager spawns. It maps
-   opencode events to Gallager's `AgentState` and answers permission/question
+2. **`bin/sidecar`** — the long-lived Python process CtrlX spawns. It maps
+   opencode events to CtrlX's `AgentState` and answers permission/question
    forms by injecting keystrokes into the pane (opencode's TUI has no reachable
    HTTP endpoint).
 
 ## Event mapping
 
-| opencode event | → Gallager state |
+| opencode event | → CtrlX state |
 |---|---|
-| `gallager.lifecycle.started` (synthetic, on bridge load) | `idle` (session appears) |
+| `ctrlx.lifecycle.started` (synthetic, on bridge load) | `idle` (session appears) |
 | `session.created` / `session.updated` | *(tracking only — learns subagent sessions; see below)* |
 | `session.status` `busy` / `retry` | `working` |
 | `session.status` `idle` (after a turn) | `doneWorking(summary)` + notification (see [Turn summaries](#turn-summaries)) |
@@ -54,7 +54,7 @@ plugin observes opencode through its **plugin system** instead. Two pieces:
 | `permission.asked` / `permission.updated` | `awaitingPermission` (form) + notification |
 | `permission.replied` | `working` (form cleared) |
 | `question.asked` | `awaitingReplies` (form) + notification |
-| `gallager.lifecycle.stopped` (synthetic, on `dispose`) | `sessionEnded` (session removed) |
+| `ctrlx.lifecycle.stopped` (synthetic, on `dispose`) | `sessionEnded` (session removed) |
 
 The sidecar keeps a per-session `working`/`seen` flag so a turn-ending `idle`
 becomes `doneWorking` (raising attention) while a brand-new session's first
@@ -65,7 +65,7 @@ becomes `doneWorking` (raising attention) while a brand-new session's first
 opencode runs each `task`-tool **subagent** in its own **child session** — a real
 session node whose `info.parentID` points at the session that spawned it. That
 child emits its own `session.status` `busy` → `idle` churn, structurally identical
-to the main session's. If Gallager surfaced it, **every finished subagent would
+to the main session's. If CtrlX surfaced it, **every finished subagent would
 fire a spurious "Finished working" notification** (and briefly re-stamp the pane
 onto a now-dead child session), even though the main agent is still mid-turn.
 
@@ -112,7 +112,7 @@ that previously went `busy` reports `idle`, the bridge calls
 listens on a unix socket, which is what makes the server unreachable from the
 *sidecar*) and attaches the last assistant message's visible text — synthetic /
 ignored parts filtered, trimmed to 300 chars like the pi bridge — to the idle
-event as `properties.gallagerSummary`. The sidecar surfaces it as
+event as `properties.ctrlxSummary`. The sidecar surfaces it as
 `doneWorking`'s summary (shown in the sidebar row) and the notification body,
 falling back to the old "Finished — *project*" copy when absent.
 
@@ -131,30 +131,30 @@ anyway) and session-switch idles (no turn ended) skip the fetch entirely.
 ## Session lifecycle (start / exit)
 
 opencode fires **no event** when it launches into a fresh idle prompt, and none
-when it quits — and Gallager's process scan only re-detects agents when a tmux
+when it quits — and CtrlX's process scan only re-detects agents when a tmux
 pane is *added or removed*, not when a process starts or dies inside a live pane.
 So neither launching nor quitting opencode would update the sidebar on its own.
 The bridge closes that gap with two synthetic frames (matching Claude Code's
 `SessionStart` → idle / `SessionEnd` → session removed; no notifications):
 
 - **Start** — the bridge's plugin factory runs once when opencode loads it
-  (≈ TUI start), and forwards `gallager.lifecycle.started`. The sidecar maps it to
+  (≈ TUI start), and forwards `ctrlx.lifecycle.started`. The sidecar maps it to
   `idle`, so the session shows up immediately (idle moon glyph + project name)
   before the first turn.
 - **Exit** — the bridge registers opencode's `dispose` hook, which opencode runs
   as a shutdown finalizer on a graceful quit (the quit command, `/exit`, Ctrl-C).
-  It forwards `gallager.lifecycle.stopped` (awaited so the frame flushes before the
+  It forwards `ctrlx.lifecycle.stopped` (awaited so the frame flushes before the
   process dies). The sidecar emits `AppAction.sessionEnded` keyed by the **pane
   id**, so the host removes the session (the icon reverts to a plain terminal).
   `closePaneEligible` honors the `close_pane_on_session_end` setting (default off →
   the pane stays open). Verified against opencode v1.17.11 for both `/exit` and
   Ctrl-C. The one uncovered case is a **hard kill** (`SIGKILL`/crash): opencode
   skips finalizers, so no `stopped` frame is sent and the stale session lingers
-  until Gallager next reconciles.
+  until CtrlX next reconciles.
 
 ## Answering forms (permissions & questions)
 
-opencode raises two interactive forms, both rendered by Gallager/iOS and answered
+opencode raises two interactive forms, both rendered by CtrlX/iOS and answered
 back by **keystroke injection** into the pane — the same mechanism the built-in
 agents use. (opencode's TUI talks to its server over a unix socket and exposes no
 reachable TCP HTTP endpoint, so the reported `serverUrl` can't be POSTed to; keys
@@ -163,14 +163,14 @@ are the transport-agnostic path. Verified against opencode v1.17.11.)
 **Permission** (`permission.asked` → `awaitingPermission`) — a left/right list
 "Allow once" / "Allow always" / "Reject":
 
-| Gallager response | keystrokes |
+| CtrlX response | keystrokes |
 |---|---|
 | allow | `Enter` |
 | allow + "Allow always" | `Right, Enter, Enter` |
 | deny / deny-with-feedback | `Escape` (no inline feedback box for top-level sessions) |
 
 **Question** (`question.asked` → `awaitingReplies`) — maps opencode's QuestionInfo
-(`question`/`header`/`options`/`multiple`/`custom`) onto Gallager's
+(`question`/`header`/`options`/`multiple`/`custom`) onto CtrlX's
 `AskUserQuestionRequest` (supports multiple questions + multi-select + free text).
 Answered via opencode's TUI **number keys** (`1`-`9` jump to a row AND activate
 it):
@@ -192,7 +192,7 @@ opencode sessions get the same per-session meter as Claude Code — with **no
 third-party plugin and no user-set `OPENCODE_*` env vars** (issue #617).
 opencode has no usable native OTEL export, but the bridge already rides its
 event bus: on every **completed assistant message** (`message.updated` with
-`time.completed` set) it POSTs one OTLP/JSON log record to Gallager's loopback
+`time.completed` set) it POSTs one OTLP/JSON log record to CtrlX's loopback
 OTLP receiver (`/v1/logs`, plain `fetch`, fire-and-forget, deduped by message
 id). `message.updated` is never forwarded to the ingress socket — telemetry is
 the OTLP channel, and the event fires on every streaming metadata change.
@@ -214,30 +214,30 @@ the OTLP channel, and the event fires on every streaming metadata change.
   resets the visible meter like Claude's `/clear` (the receiver keeps each
   session's running totals, so switching back restores them on the next
   completed message).
-- **Endpoint baking:** the opencode process doesn't inherit Gallager's env, so
-  the sidecar substitutes `__GALLAGER_OTLP_ENDPOINT__` in the bridge at
+- **Endpoint baking:** the opencode process doesn't inherit CtrlX's env, so
+  the sidecar substitutes `__CTRLX_OTLP_ENDPOINT__` in the bridge at
   `install` time (from the `initialize` env's `otlpReceiverEndpoint` — the port
   the receiver *actually* bound that launch), exactly like the ingress socket
   path. Running the bridge straight from the repo falls back to the
-  `GALLAGER_OTLP_ENDPOINT` env var for smoke tests. If no receiver was running
+  `CTRLX_OTLP_ENDPOINT` env var for smoke tests. If no receiver was running
   at install, an empty endpoint is baked and telemetry stays off. Re-run
   **Install** after the fact (or after the receiver's port changes) to re-bake.
 
 ## Install (development)
 
 ```bash
-./scripts/dev-install.sh          # copy into ~/.gallager/plugins/opencode/
-# restart Gallager, then in Settings enable the plugin and click Install
-# (drops opencode-bridge/gallager.js into ~/.config/opencode/plugin/gallager.js)
+./scripts/dev-install.sh          # copy into ~/.ctrlx/plugins/opencode/
+# restart CtrlX, then in Settings enable the plugin and click Install
+# (drops opencode-bridge/ctrlx.js into ~/.config/opencode/plugin/ctrlx.js)
 ```
 
-`gallager plugin list` should show `opencode` (source `folder`). Start opencode
-in a Gallager-managed pane (`opencode`) and drive a turn — the session appears
+`ctrlx plugin list` should show `opencode` (source `folder`). Start opencode
+in a CtrlX-managed pane (`opencode`) and drive a turn — the session appears
 in the sidebar and flips to "needs attention" when the turn finishes.
 
 ## Projects in the "+" menu
 
-opencode projects appear in Gallager's sidebar "+" (new session) menu, the same
+opencode projects appear in CtrlX's sidebar "+" (new session) menu, the same
 as Claude Code / Codex. opencode stores its projects in a SQLite DB
 (`~/.local/share/opencode/opencode.db`, respecting `XDG_DATA_HOME`); the sidecar
 reads it read-only (`mode=ro`, WAL-aware — WAL readers never block the writer, so
@@ -263,17 +263,17 @@ to the stored path unchanged.
 
 ## Settings (Agents tab)
 
-The plugin uses Gallager's generic sidecar settings, so the Agents settings panel
+The plugin uses CtrlX's generic sidecar settings, so the Agents settings panel
 works out of the box:
 
 - **Command path** — optional override for the launch command. Empty → the sidecar
   launches bare `opencode` (resolved on PATH). The value is delivered to the
   sidecar via `apply_settings` and used by `command_for_launch`.
-- **Auto-run** — when off, `command_for_launch` returns null so Gallager doesn't
+- **Auto-run** — when off, `command_for_launch` returns null so CtrlX doesn't
   auto-start opencode in project panes.
 - **Config Folders** — the default row is `~/.config/opencode` (declared via the
   manifest's `sidecar.default_config_root`); its **Install** writes the bridge to
-  `~/.config/opencode/plugin/gallager.js` (global). Add a project folder to install
+  `~/.config/opencode/plugin/ctrlx.js` (global). Add a project folder to install
   the bridge into that project's `.opencode/plugin/` instead (per-project install,
   honored via the `install` RPC's `configRoot`).
 
@@ -281,24 +281,24 @@ works out of the box:
 
 ```bash
 python3 tests/test_sidecar.py     # 42 tests: mapping, lifecycle, subagents, forms, install, telemetry, projects
-node --check opencode-bridge/gallager.js
+node --check opencode-bridge/ctrlx.js
 ```
 
 ## Debugging the bridge
 
-Set `GALLAGER_OPENCODE_DEBUG=1` in the environment opencode runs in. Every event
+Set `CTRLX_OPENCODE_DEBUG=1` in the environment opencode runs in. Every event
 the bridge sees (and which it forwards) is logged to
-`~/.gallager/state/plugins/opencode/logs/bridge-debug.log`
-(override with `GALLAGER_OPENCODE_DEBUG_LOG`). The sidecar's own stderr is at
-`~/.gallager/state/plugins/opencode/logs/stderr.log`.
+`~/.ctrlx/state/plugins/opencode/logs/bridge-debug.log`
+(override with `CTRLX_OPENCODE_DEBUG_LOG`). The sidecar's own stderr is at
+`~/.ctrlx/state/plugins/opencode/logs/stderr.log`.
 
 ## Layout
 
 ```
 plugins/opencode/
 ├── plugin.json                  # sidecar manifest (runtime: "sidecar")
-├── bin/sidecar                  # Python sidecar (Gallager ↔ opencode)
-├── opencode-bridge/gallager.js  # opencode plugin (event → ingress bridge)
+├── bin/sidecar                  # Python sidecar (CtrlX ↔ opencode)
+├── opencode-bridge/ctrlx.js  # opencode plugin (event → ingress bridge)
 ├── scripts/dev-install.sh       # folder-drop symlink/copy installer
 ├── tests/test_sidecar.py        # standalone sidecar tests
 └── README.md
@@ -310,8 +310,8 @@ plugins/opencode/
   permission prompts (`awaitingPermission`) and questions (`awaitingReplies`) are
   both interactive.
 - A **hard kill** of opencode (`SIGKILL`/crash) skips its `dispose` finalizer, so
-  no `gallager.lifecycle.stopped` frame is sent and the session lingers in the
-  sidebar until Gallager next reconciles (graceful `/exit` and Ctrl-C are covered).
+  no `ctrlx.lifecycle.stopped` frame is sent and the session lingers in the
+  sidebar until CtrlX next reconciles (graceful `/exit` and Ctrl-C are covered).
 - The telemetry meter shows the pane's **active** opencode session (the join
   key re-stamps on every reported event), so it resets visually when you switch
   sessions inside one TUI; the baked OTLP endpoint goes stale if the receiver

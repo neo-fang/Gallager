@@ -70,6 +70,28 @@ struct BrowserNavigationPolicyTests {
     }
 }
 
+@Suite("RemoteTerminalURLPolicy")
+struct RemoteTerminalURLPolicyTests {
+    @Test("Remote web URLs retain browser routing", arguments: ["http", "https", "ftp"])
+    func webURLsRemainRoutable(scheme: String) throws {
+        let url = try #require(URL(string: "\(scheme)://example.com/path"))
+        #expect(!RemoteTerminalURLPolicy.shouldConsumeWithoutOpening(url))
+    }
+
+    @Test(
+        "Host-local and custom URLs never fall through to this Mac",
+        arguments: [
+            "file:///Users/remote/project/file.swift",
+            "/Users/remote/project/file.swift",
+            "vscode://file/Users/remote/project/file.swift",
+        ]
+    )
+    func hostLocalURLsAreConsumed(rawURL: String) throws {
+        let url = try #require(URL(string: rawURL))
+        #expect(RemoteTerminalURLPolicy.shouldConsumeWithoutOpening(url))
+    }
+}
+
 @Suite("BrowserDownload destination")
 @MainActor
 struct BrowserDownloadDestinationTests {
@@ -152,7 +174,7 @@ struct BrowserDownloadsLocationWipeTests {
     @Test("Paths inside the temp directory may be wiped")
     func tempPathsAreSafe() {
         #expect(BrowserDownloadsLocation.isSafeToWipe(
-            "/private/var/folders/ab/T/claudespy-e2e-downloads-0",
+            "/private/var/folders/ab/T/ctrlx-e2e-downloads-0",
             temporaryDirectory: tempRoot
         ))
     }

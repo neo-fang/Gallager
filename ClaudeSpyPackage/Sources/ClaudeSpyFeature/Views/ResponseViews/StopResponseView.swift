@@ -11,7 +11,6 @@ struct StopResponseView: View {
     let submit: ResponseSender
     let state: ResponseState
 
-    @State private var inputText = ""
     @FocusState private var isTextFieldFocused: Bool
 
     /// Max height for the expanded, scrollable summary. Caps how much of the
@@ -26,33 +25,30 @@ struct StopResponseView: View {
     }
 
     var body: some View {
-        if let response = state.response {
-            responseFeedback(response)
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
-                if let message = request.summary {
-                    summarySection(message: message)
-                }
-                replyField
+        VStack(alignment: .leading, spacing: 8) {
+            if let message = request.summary {
+                summarySection(message: message)
             }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if state.isSending {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Button("Send") {
-                            sendReply()
-                        }
-                        .disabled(!isConnected)
+            replyField
+        }
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if state.isSending {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("Send") {
+                        sendReply()
                     }
+                    .disabled(!isConnected)
                 }
             }
         }
     }
 
     private var replyField: some View {
-        TextField(placeholder, text: $inputText, axis: .vertical)
+        @Bindable var state = state
+        return TextField(placeholder, text: $state.replyDraft, axis: .vertical)
             .textFieldStyle(.plain)
             .lineLimit(3...6)
             .padding(12)
@@ -122,29 +118,12 @@ struct StopResponseView: View {
         }
     }
 
-    private func responseFeedback(_ response: ResponseType) -> some View {
-        HStack {
-            (
-                response.feedbackColor == .green ? Symbols.checkmarkCircleFill.image :
-                    response.feedbackColor == .red ? Symbols.xmarkCircleFill.image : Symbols.arrowUpCircleFill.image
-            )
-            .foregroundStyle(response.feedbackColor)
-            Text(response.feedbackMessage)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .font(.subheadline)
-        .padding(.vertical, 4)
-    }
-
     private func sendReply() {
-        let trimmed = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = state.replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         state.isSending = true
         Task {
             await submit(.replyAfterStop(text: trimmed))
-            inputText = ""
             state.isSending = false
-            state.response = .promptSubmitted
         }
     }
 }

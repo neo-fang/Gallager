@@ -19,7 +19,7 @@
 
         // MARK: - Properties
 
-        private let logger = Logger(label: "com.claudespy.backgroundtask")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.backgroundtask")
 
         /// Current background task identifier, or .invalid if no task is active
         private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid

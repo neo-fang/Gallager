@@ -13,7 +13,7 @@ public enum PluginEnableDisableScenario {
         "Plugin Enable Disable Lifecycle",
         tags: ["plugin", "cli-api", "macos-only"]
     ) {
-        // 1. Session + app, select the pane, set up the `gallager` CLI helper.
+        // 1. Session + app, select the pane, set up the `ctrlx` CLI helper.
         TestStep.tmuxCreateSession(name: "plugin-toggle", width: 100, height: 30)
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
@@ -24,11 +24,11 @@ public enum PluginEnableDisableScenario {
         Shortcut.tmuxClearAndSetPrompt(target: "plugin-toggle:0")
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"export GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock""#
+            command: #"export CTRLX_SOCKET="$TMPDIR/ctrlx-e2e.sock""#
         )
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
+            command: #"ctrlx() { "${macOSAppPath}/Contents/MacOS/CtrlXCLI" "$@"; }"#
         )
         Shortcut.tmuxRunCommand(target: "plugin-toggle:0", command: "clear")
 
@@ -36,7 +36,7 @@ public enum PluginEnableDisableScenario {
         //    Claude projects all present in the merged list.
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager list-projects --json > /tmp/e2e-toggle-projects-1.txt 2>&1"#
+            command: #"ctrlx list-projects --json > /tmp/e2e-toggle-projects-1.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-toggle-projects-1.txt", storeAs: "projects1")
@@ -46,7 +46,7 @@ public enum PluginEnableDisableScenario {
         // 3. Disable codex.
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager plugin disable codex > /tmp/e2e-toggle-disable.txt 2>&1"#
+            command: #"ctrlx plugin disable codex > /tmp/e2e-toggle-disable.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-toggle-disable.txt", storeAs: "disableOut")
@@ -55,7 +55,7 @@ public enum PluginEnableDisableScenario {
         // 4. plugin list reflects codex disabled.
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager plugin list > /tmp/e2e-toggle-list-1.txt 2>&1"#
+            command: #"ctrlx plugin list > /tmp/e2e-toggle-list-1.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-toggle-list-1.txt", storeAs: "list1")
@@ -66,7 +66,7 @@ public enum PluginEnableDisableScenario {
         //    while claude-code's projects remain.
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager list-projects --json > /tmp/e2e-toggle-projects-2.txt 2>&1"#
+            command: #"ctrlx list-projects --json > /tmp/e2e-toggle-projects-2.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-toggle-projects-2.txt", storeAs: "projects2")
@@ -76,7 +76,7 @@ public enum PluginEnableDisableScenario {
         // 6. Re-enable codex → plugin list flips back to enabled.
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager plugin enable codex > /tmp/e2e-toggle-enable.txt 2>&1"#
+            command: #"ctrlx plugin enable codex > /tmp/e2e-toggle-enable.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-toggle-enable.txt", storeAs: "enableOut")
@@ -84,7 +84,7 @@ public enum PluginEnableDisableScenario {
 
         Shortcut.tmuxRunCommand(
             target: "plugin-toggle:0",
-            command: #"gallager plugin list > /tmp/e2e-toggle-list-2.txt 2>&1"#
+            command: #"ctrlx plugin list > /tmp/e2e-toggle-list-2.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(path: "/tmp/e2e-toggle-list-2.txt", storeAs: "list2")

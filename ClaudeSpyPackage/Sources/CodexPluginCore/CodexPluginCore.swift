@@ -10,7 +10,7 @@ import GallagerPluginProtocol
 ///
 /// All Codex-specific behavior lives here: project scanning of
 /// `~/.codex/sessions/` rollout files, the pane↔session correlation file at
-/// `~/.claudespy/codex-sessions/<tmux_pane>.json` (core-internal — spec §12),
+/// `~/.ctrlx/codex-sessions/<tmux_pane>.json` (core-internal — spec §12),
 /// the hook-bridge install, the raw-hook → `PluginEvent` translation, and
 /// keystroke building. The per-event behavioral contract is documented in
 /// `docs/plugins/codex.md`.
@@ -80,7 +80,7 @@ public actor CodexPluginCore: PluginCore {
     }
 
     /// Test seam: inject the pane↔session correlation store so a test can point
-    /// it at a temp directory instead of the real `~/.claudespy/codex-sessions/`.
+    /// it at a temp directory instead of the real `~/.ctrlx/codex-sessions/`.
     init(correlation: CodexSessionCorrelation) {
         self.correlation = correlation
     }

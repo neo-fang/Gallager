@@ -21,7 +21,7 @@ extension EnvSerializedSuites {
             // pollute (or read from) the developer's local pairs.json. Config is
             // injected (never setenv — see `configure(_:env:)`).
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-metrics-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-metrics-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
             try await withApp(configure: { app in
@@ -68,10 +68,10 @@ extension EnvSerializedSuites {
                     #expect(contentType?.subType == "plain")
                     #expect(contentType?.parameters["version"] == "0.0.4")
                     let body = res.body.string
-                    #expect(body.contains("claudespy_active_pairs 0"))
-                    #expect(body.contains("claudespy_ws_connections{device_type=\"host\"} 0"))
-                    #expect(body.contains("claudespy_messages_relayed_total 0"))
-                    #expect(body.contains("claudespy_uptime_seconds"))
+                    #expect(body.contains("ctrlx_active_pairs 0"))
+                    #expect(body.contains("ctrlx_ws_connections{device_type=\"host\"} 0"))
+                    #expect(body.contains("ctrlx_messages_relayed_total 0"))
+                    #expect(body.contains("ctrlx_uptime_seconds"))
                 }
             }
         }

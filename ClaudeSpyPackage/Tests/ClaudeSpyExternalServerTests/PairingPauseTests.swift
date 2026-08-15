@@ -20,7 +20,7 @@ extension EnvSerializedSuites {
             _ test: (Application) async throws -> Void
         ) async throws {
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-pairing-pause-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-pairing-pause-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
             var env = extraEnv

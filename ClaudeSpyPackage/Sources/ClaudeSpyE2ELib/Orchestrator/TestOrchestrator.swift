@@ -24,14 +24,14 @@ public actor TestOrchestrator {
     private let baselinesDir: String
     private let tmuxSocket: String?
     private let e2eRunnerPath: String?
-    private let e2eHostBundleId = "br.eng.gustavo.claudespy.e2ehost"
-    private let e2eRunnerBundleId = "br.eng.gustavo.claudespy.e2erunner.xctrunner"
+    private let e2eHostBundleId = "com.jicezeng.ctrlx.e2ehost"
+    private let e2eRunnerBundleId = "com.jicezeng.ctrlx.e2erunner.xctrunner"
     private let serverPort = 8_765
-    /// Base directory for the per-instance `--gallager-state-root`. Each instance
+    /// Base directory for the per-instance `--ctrlx-state-root`. Each instance
     /// gets its own subdirectory so the plugin runtime's ingress socket + state
     /// is isolated. Instance 0 uses `<base>/0`; instance N uses `<base>/N`. The
     /// hook-delivery DSL step writes frames to `<stateRoot>/ingress.sock`.
-    private let gallagerStateRootBase: String
+    private let ctrlxStateRootBase: String
     private let skipComparison: Bool
     /// Lane geometry applied when a recorded run needs every instance visible
     /// in one full-display take (issue #621). `nil` (the default) means
@@ -121,7 +121,7 @@ public actor TestOrchestrator {
         e2eRunnerPath: String? = nil,
         skipComparison: Bool = false,
         stageLayoutEnabled: Bool = false,
-        gallagerStateRootBase: String? = nil,
+        ctrlxStateRootBase: String? = nil,
         reporter: (any TestProgressReporter)? = nil
     ) {
         self.iosAppPath = iosAppPath
@@ -136,8 +136,8 @@ public actor TestOrchestrator {
             ? StageLayout(display: CGDisplayBounds(CGMainDisplayID()).size)
             : nil
         self.reporter = reporter
-        self.gallagerStateRootBase = gallagerStateRootBase
-            ?? (NSTemporaryDirectory() + "claudespy-e2e-gallager")
+        self.ctrlxStateRootBase = ctrlxStateRootBase
+            ?? (NSTemporaryDirectory() + "ctrlx-e2e-ctrlx")
     }
 
     // MARK: - Run Scenarios
@@ -162,7 +162,7 @@ public actor TestOrchestrator {
         injectedScriptPaths.removeAll()
 
         // Pre-populate context with orchestrator configuration
-        context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock")
+        context.set("tmuxSocket", value: tmuxSocket ?? NSTemporaryDirectory() + "ctrlx-e2e.sock")
         context.set("notificationLogPath", value: notificationLogPath(for: 0))
         // Instance 1's notification log. Two-Mac scenarios assert that a
         // connected Mac *viewer* materialized a host-pushed agent notification
@@ -183,11 +183,11 @@ public actor TestOrchestrator {
         context.set("downloadsDirPath", value: downloadsDirPath(for: 0))
         context.set("scenarioName", value: scenarioDirName)
         context.set("macOSAppPath", value: macOSAppPath)
-        // Instance 0's `--gallager-state-root`, so scenarios can pre-seed
+        // Instance 0's `--ctrlx-state-root`, so scenarios can pre-seed
         // plugin state (e.g. a codex `settings.json`) before the app launches
         // and place watched fixture files (e.g. a codex `config.toml`) inside
         // the per-scenario sandbox the orchestrator already cleans up.
-        context.set("gallagerStateRoot", value: gallagerStateRootPath(for: 0))
+        context.set("ctrlxStateRoot", value: ctrlxStateRootPath(for: 0))
         // Instance 0's OTLP receiver endpoint, pre-seeded with the preferred
         // `--otlp-port` the launch args pass (`defaultOTLPPort + 0`). Telemetry
         // scenarios POST synthetic OTLP here via `${otlpEndpoint}`, so the curl
@@ -302,7 +302,7 @@ public actor TestOrchestrator {
 
     /// Run multiple scenarios, cleaning up after each one
     public func runAll(_ scenarios: [TestScenario]) async -> [ScenarioResult] {
-        // Reset the shared gallager state-root base once before the suite runs.
+        // Reset the shared ctrlx state-root base once before the suite runs.
         // `<base>` defaults to a stable `NSTemporaryDirectory()` path reused across
         // runs, so without this a prior run's leftover installed plugin (e.g.
         // `ziptest-sidecar` from `AgentsInstallZipAutoSelectScenario`) would leak a
@@ -310,8 +310,8 @@ public actor TestOrchestrator {
         // `cleanup()` now also wipes this shared plugin state, so leaks can't cross
         // a scenario boundary *within* a run either (issue #690); this suite-level
         // reset still guards the very first scenario against a prior run's leftovers.
-        try? FileManager.default.removeItem(atPath: gallagerStateRootBase)
-        logger.info("Reset gallager state-root base: \(gallagerStateRootBase)")
+        try? FileManager.default.removeItem(atPath: ctrlxStateRootBase)
+        logger.info("Reset ctrlx state-root base: \(ctrlxStateRootBase)")
 
         var results: [ScenarioResult] = []
         for scenario in scenarios {
@@ -378,12 +378,12 @@ public actor TestOrchestrator {
             _ = try? await runner.run("tmux", arguments: ["-S", socket, "kill-server"])
             try? FileManager.default.removeItem(atPath: socket)
 
-            // Remove the instance's `--gallager-state-root` tree (incl. the
+            // Remove the instance's `--ctrlx-state-root` tree (incl. the
             // stale ingress socket) so the next scenario binds a fresh socket.
-            try? FileManager.default.removeItem(atPath: gallagerStateRootPath(for: idx))
+            try? FileManager.default.removeItem(atPath: ctrlxStateRootPath(for: idx))
         }
 
-        // Wipe the shared plugin state that lives at the gallager-root level — a
+        // Wipe the shared plugin state that lives at the ctrlx-root level — a
         // SIBLING of the per-instance `<base>/<idx>` state roots removed above, so
         // the loop never touched it. Sidecar fixtures and zip-installed plugins
         // land in `<base>/plugins/<id>` (+ a `<base>/registry.json` entry for
@@ -395,9 +395,9 @@ public actor TestOrchestrator {
         // capture scenarios in varying orders, whichever leak state it happened to
         // bake into a baseline then failed comparison on the next run (issue #690).
         // Clearing it here makes each scenario's plugin state deterministic and
-        // order-independent. (`gallagerStateRootBase` is the app's `gallagerRoot` —
-        // the parent of every `--gallager-state-root` override.)
-        let sharedRoot = URL(fileURLWithPath: gallagerStateRootBase)
+        // order-independent. (`ctrlxStateRootBase` is the app's `ctrlxRoot` —
+        // the parent of every `--ctrlx-state-root` override.)
+        let sharedRoot = URL(fileURLWithPath: ctrlxStateRootBase)
         for component in ["plugins", "registry.json", "zip-fixtures"] {
             try? FileManager.default.removeItem(at: sharedRoot.appendingPathComponent(component))
         }
@@ -661,11 +661,11 @@ public actor TestOrchestrator {
         case let .launchMacApp(instance, appVersion, minRequiredPartnerVersion, licenseState):
             let driver = macDriver(for: instance)
             let instanceSocket = tmuxSocketPath(for: instance)
-            // Each instance gets its own `--gallager-state-root` so the plugin
+            // Each instance gets its own `--ctrlx-state-root` so the plugin
             // runtime's ingress socket + per-plugin state is isolated per
             // scenario/instance (replaces the deleted `--hook-port-file`). The
             // DSL hook-delivery step writes frames to `<stateRoot>/ingress.sock`.
-            let stateRoot = gallagerStateRootPath(for: instance)
+            let stateRoot = ctrlxStateRootPath(for: instance)
             try? FileManager.default.createDirectory(
                 atPath: stateRoot,
                 withIntermediateDirectories: true
@@ -674,7 +674,7 @@ public actor TestOrchestrator {
                 "--e2e-test",
                 "--server-url", "ws://127.0.0.1:\(serverPort)",
                 "--tmux-socket", instanceSocket,
-                "--gallager-state-root", stateRoot,
+                "--ctrlx-state-root", stateRoot,
                 "--test-accessibility-port", "\(driver.testAccessibilityPort)",
                 // Per-instance OTLP receiver port so concurrent instances (and a
                 // dev's real app on 24318) never share a loopback telemetry
@@ -780,10 +780,11 @@ public actor TestOrchestrator {
         case let .macCGClick(titled, instance):
             try await macDriver(for: instance).cgClick(titled: titled)
 
-        case let .macCGClickElement(query, pointInRect, instance, timeout):
+        case let .macCGClickElement(query, pointInRect, clickCount, instance, timeout):
             try await macDriver(for: instance).cgClick(
                 matching: query.resolved(context.resolve),
                 pointInRect: pointInRect,
+                clickCount: clickCount,
                 timeout: timeout
             )
 
@@ -942,9 +943,13 @@ public actor TestOrchestrator {
             try await macDriver(for: instance)
                 .scrollWheel(atElementTitled: resolvedTitle, deltaY: deltaY, count: count)
 
-        case let .macClickAtPoint(x, y, instance):
+        case let .macClickAtPoint(x, y, clickCount, instance):
             let p = staged(x: x, y: y, instance: instance)
-            try await macDriver(for: instance).clickAtScreenPoint(x: p.x, y: p.y)
+            try await macDriver(for: instance).clickAtScreenPoint(
+                x: p.x,
+                y: p.y,
+                clickCount: clickCount
+            )
 
         case let .macDrag(fromX, fromY, toX, toY, instance):
             let from = staged(x: fromX, y: fromY, instance: instance)
@@ -1279,21 +1284,21 @@ public actor TestOrchestrator {
     // MARK: - Sidecar Fixture Staging
 
     /// Copy the built `EchoPluginSidecar` binary and a minimal `plugin.json`
-    /// into `<gallagerRoot>/plugins/<id>/` so the app discovers and spawns the
+    /// into `<ctrlxRoot>/plugins/<id>/` so the app discovers and spawns the
     /// sidecar on startup (folder-drop channel, spec §9).
     ///
-    /// `<gallagerRoot>` is the parent of the instance's `--gallager-state-root`
-    /// (mirrors `GallagerPaths(stateRootOverride:).gallagerRoot`).
+    /// `<ctrlxRoot>` is the parent of the instance's `--ctrlx-state-root`
+    /// (mirrors `GallagerPaths(stateRootOverride:).ctrlxRoot`).
     private func stageSidecarFixture(
         id: String,
         instance: Int,
         otlpNamespace: String? = nil,
         displayName: String = "Echo Sidecar (E2E)"
     ) throws {
-        // gallagerRoot = parent of stateRoot (same derivation as GallagerPaths).
-        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
-        let gallagerRoot = stateRoot.deletingLastPathComponent()
-        let pluginDir = gallagerRoot
+        // ctrlxRoot = parent of stateRoot (same derivation as GallagerPaths).
+        let stateRoot = URL(fileURLWithPath: ctrlxStateRootPath(for: instance))
+        let ctrlxRoot = stateRoot.deletingLastPathComponent()
+        let pluginDir = ctrlxRoot
             .appendingPathComponent("plugins", isDirectory: true)
             .appendingPathComponent(id, isDirectory: true)
         let binDir = pluginDir.appendingPathComponent("bin", isDirectory: true)
@@ -1337,12 +1342,12 @@ public actor TestOrchestrator {
     /// Build a self-contained sidecar `.zip` (EchoPluginSidecar binary at
     /// `bin/sidecar` + a `plugin.json` at the archive root) and return its absolute
     /// path. Used by `macStageSidecarZip` to exercise the local-zip install flow.
-    /// Both the staging tree and the final zip live under the instance's gallager
+    /// Both the staging tree and the final zip live under the instance's ctrlx
     /// root so they are cleaned up with the rest of the scenario state.
     private func stageSidecarZip(id: String, displayName: String, instance: Int) throws -> String {
-        let stateRoot = URL(fileURLWithPath: gallagerStateRootPath(for: instance))
-        let gallagerRoot = stateRoot.deletingLastPathComponent()
-        let fixturesDir = gallagerRoot.appendingPathComponent("zip-fixtures", isDirectory: true)
+        let stateRoot = URL(fileURLWithPath: ctrlxStateRootPath(for: instance))
+        let ctrlxRoot = stateRoot.deletingLastPathComponent()
+        let fixturesDir = ctrlxRoot.appendingPathComponent("zip-fixtures", isDirectory: true)
         let stagingDir = fixturesDir.appendingPathComponent("\(id)-src", isDirectory: true)
         let binDir = stagingDir.appendingPathComponent("bin", isDirectory: true)
         let fm = FileManager.default
@@ -1429,7 +1434,7 @@ public actor TestOrchestrator {
         // Candidate package roots, in priority order.
         var roots: [URL] = []
         // 1. Explicit env override (set by tooling if it knows the package path).
-        if let override = ProcessInfo.processInfo.environment["CLAUDESPY_PACKAGE_ROOT"] {
+        if let override = ProcessInfo.processInfo.environment["CTRLX_PACKAGE_ROOT"] {
             roots.append(URL(fileURLWithPath: override))
         }
         // 2. The `#file` walk (works for SPM test runs).
@@ -1453,7 +1458,7 @@ public actor TestOrchestrator {
         throw OrchestratorError.configurationError(
             "EchoPluginSidecar binary not found. Searched: \(searched). " +
                 "Run `swift build` in ClaudeSpyPackage first " +
-                "(or set CLAUDESPY_PACKAGE_ROOT to the ClaudeSpyPackage directory)."
+                "(or set CTRLX_PACKAGE_ROOT to the ClaudeSpyPackage directory)."
         )
     }
 
@@ -1519,19 +1524,19 @@ public actor TestOrchestrator {
         return driver
     }
 
-    /// Return the `--gallager-state-root` directory for the given instance.
+    /// Return the `--ctrlx-state-root` directory for the given instance.
     /// Each instance gets its own subdirectory so the plugin runtime's ingress
     /// socket and per-plugin state stay isolated between instances and scenarios.
-    private func gallagerStateRootPath(for instance: Int) -> String {
-        "\(gallagerStateRootBase)/\(instance)"
+    private func ctrlxStateRootPath(for instance: Int) -> String {
+        "\(ctrlxStateRootBase)/\(instance)"
     }
 
     /// Return the ingress socket path for the given instance — the
-    /// `ingress.sock` under that instance's `--gallager-state-root` (mirrors
+    /// `ingress.sock` under that instance's `--ctrlx-state-root` (mirrors
     /// `GallagerPaths.ingressSocketPath`). The hook-delivery DSL step connects
     /// here to write length-prefixed frames.
     private func ingressSocketPath(for instance: Int) -> String {
-        "\(gallagerStateRootPath(for: instance))/ingress.sock"
+        "\(ctrlxStateRootPath(for: instance))/ingress.sock"
     }
 
     /// Return the tmux socket path for the given instance number.
@@ -1539,7 +1544,7 @@ public actor TestOrchestrator {
     /// local sessions (important for Mac-to-Mac pairing tests where the viewer
     /// must only see the host's sessions via the relay, not locally).
     private func tmuxSocketPath(for instance: Int) -> String {
-        let base = tmuxSocket ?? NSTemporaryDirectory() + "claudespy-e2e.sock"
+        let base = tmuxSocket ?? NSTemporaryDirectory() + "ctrlx-e2e.sock"
         return instance == 0 ? base : "\(base)-\(instance)"
     }
 
@@ -1556,7 +1561,7 @@ public actor TestOrchestrator {
     /// pinned to the runner's, see `MacOSDriver.launchApp`) and across runs,
     /// so zsh reuses the `.zcompdump-*` completion cache written here.
     private var zdotDirShimPath: String {
-        NSTemporaryDirectory() + "gallager-e2e-zdotdir"
+        NSTemporaryDirectory() + "ctrlx-e2e-zdotdir"
     }
 
     /// Create (or refresh) the ZDOTDIR shim and return its path. Idempotent:
@@ -1588,16 +1593,16 @@ public actor TestOrchestrator {
         // would never run. Not exported: the same shell instance sources all
         // four startup files, so a plain variable is visible to them without
         // leaking into the pane's child processes.
-        let userRoot = "${GALLAGER_E2E_USER_ZDOTDIR:-$HOME}"
+        let userRoot = "${CTRLX_E2E_USER_ZDOTDIR:-$HOME}"
         let zshenv = delegating(to: ".zshenv", in: "$HOME") + """
 
         # If the user's zshenv relocated ZDOTDIR, keep delegating the
         # remaining dotfiles there, but re-pin ZDOTDIR to this shim so zsh
         # still reads .zprofile/.zshrc/.zlogin (and the history unset) here.
         if [[ -z "$ZDOTDIR" || "$ZDOTDIR" == "\(dir)" ]]; then
-          GALLAGER_E2E_USER_ZDOTDIR="$HOME"
+          CTRLX_E2E_USER_ZDOTDIR="$HOME"
         else
-          GALLAGER_E2E_USER_ZDOTDIR="$ZDOTDIR"
+          CTRLX_E2E_USER_ZDOTDIR="$ZDOTDIR"
         fi
         export ZDOTDIR="\(dir)"
 
@@ -1615,7 +1620,7 @@ public actor TestOrchestrator {
             SAVEHIST=0
 
             # E2E: source an optional per-scenario extra rc whose path a scenario
-            # exports on the tmux *global* environment as GALLAGER_E2E_EXTRA_ZSHRC.
+            # exports on the tmux *global* environment as CTRLX_E2E_EXTRA_ZSHRC.
             # Deliberately a separate variable from ZDOTDIR: the app forces
             # ZDOTDIR=<shim> per-pane (`-e ZDOTDIR=…`), which overrides tmux's
             # global environment, so a scenario can't hand a shell its own
@@ -1623,8 +1628,8 @@ public actor TestOrchestrator {
             # survives that override. Sourced last so its definitions win over
             # the user's rc — used by the deterministic `claude` stub to define a
             # `claude()` function that survives into app-created panes.
-            if [[ -n "$GALLAGER_E2E_EXTRA_ZSHRC" && -f "$GALLAGER_E2E_EXTRA_ZSHRC" ]]; then
-              source "$GALLAGER_E2E_EXTRA_ZSHRC"
+            if [[ -n "$CTRLX_E2E_EXTRA_ZSHRC" && -f "$CTRLX_E2E_EXTRA_ZSHRC" ]]; then
+              source "$CTRLX_E2E_EXTRA_ZSHRC"
             fi
 
             """,
@@ -1643,7 +1648,7 @@ public actor TestOrchestrator {
     /// The macOS app writes terminal notifications here during E2E tests
     /// so scenarios can verify notification delivery via `readFile`.
     private func notificationLogPath(for instance: Int) -> String {
-        let base = NSTemporaryDirectory() + "claudespy-e2e-notifications.log"
+        let base = NSTemporaryDirectory() + "ctrlx-e2e-notifications.log"
         return instance == 0 ? base : "\(base)-\(instance)"
     }
 
@@ -1651,7 +1656,7 @@ public actor TestOrchestrator {
     /// The macOS app writes push notification sends here during E2E tests
     /// so scenarios can verify push delivery or suppression via `readFile`.
     private func pushLogPath(for instance: Int) -> String {
-        let base = NSTemporaryDirectory() + "claudespy-e2e-push.log"
+        let base = NSTemporaryDirectory() + "ctrlx-e2e-push.log"
         return instance == 0 ? base : "\(base)-\(instance)"
     }
 
@@ -1659,20 +1664,20 @@ public actor TestOrchestrator {
     /// Each app instance writes clipboard contents here instead of using NSPasteboard,
     /// isolating clipboards between instances on the same machine.
     func clipboardFilePath(for instance: Int) -> String {
-        NSTemporaryDirectory() + "claudespy-e2e-clipboard-\(instance).txt"
+        NSTemporaryDirectory() + "ctrlx-e2e-clipboard-\(instance).txt"
     }
 
     /// Sentinel file toggling the Git tab's mock between clean and dirty
     /// (issue #573). The `setGitMockChanges(_:)` step writes "1"/"0" here; the
     /// app's `E2EGitProvider` reads it.
     func gitChangesFilePath(for instance: Int) -> String {
-        NSTemporaryDirectory() + "claudespy-e2e-git-changes-\(instance).txt"
+        NSTemporaryDirectory() + "ctrlx-e2e-git-changes-\(instance).txt"
     }
 
     /// Return the path scenarios should read to verify the fake editor was
     /// invoked with a given file. Each "Open in Editor" appends a line.
     public static func fakeEditorLogPath(for instance: Int = 0) -> String {
-        NSTemporaryDirectory() + "claudespy-e2e-fake-editor-\(instance).log"
+        NSTemporaryDirectory() + "ctrlx-e2e-fake-editor-\(instance).log"
     }
 
     private func fakeEditorLogPath(for instance: Int) -> String {
@@ -1684,7 +1689,7 @@ public actor TestOrchestrator {
     /// `NSWorkspace.shared.open` so scenarios can verify
     /// `.alwaysInDefaultBrowser` clicks without launching the real browser.
     func defaultBrowserLogPath(for instance: Int) -> String {
-        NSTemporaryDirectory() + "claudespy-e2e-default-browser-\(instance).log"
+        NSTemporaryDirectory() + "ctrlx-e2e-default-browser-\(instance).log"
     }
 
     /// Return the browser downloads directory for the given instance number.
@@ -1693,7 +1698,7 @@ public actor TestOrchestrator {
     /// unattended runner. The app wipes it on launch so collision-naming
     /// assertions start clean.
     func downloadsDirPath(for instance: Int) -> String {
-        NSTemporaryDirectory() + "claudespy-e2e-downloads-\(instance)"
+        NSTemporaryDirectory() + "ctrlx-e2e-downloads-\(instance)"
     }
 
     // MARK: - Script Cleanup

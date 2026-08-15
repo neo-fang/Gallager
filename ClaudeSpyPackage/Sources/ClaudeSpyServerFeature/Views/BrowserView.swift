@@ -974,14 +974,23 @@ enum BrowserPromptRememberScope: Equatable {
 }
 
 /// Schemes the in-app browser tab is willing to handle. `file://` is handled
-/// separately by the file tab flow; everything else falls through to the
-/// system default browser.
+/// separately by the local file-tab flow. Callers decide whether unsupported
+/// schemes may fall through to the system default handler.
 enum BrowserURLDispatcher {
     static let supportedSchemes: Set = ["http", "https", "ftp"]
 
     static func canHandle(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
         return supportedSchemes.contains(scheme)
+    }
+}
+
+enum RemoteTerminalURLPolicy {
+    /// A Viewer cannot resolve the Host's filesystem or arbitrary custom
+    /// schemes. Consume those links at the remote boundary instead of handing
+    /// them to this Mac's `NSWorkspace`.
+    static func shouldConsumeWithoutOpening(_ url: URL) -> Bool {
+        !BrowserURLDispatcher.canHandle(url)
     }
 }
 

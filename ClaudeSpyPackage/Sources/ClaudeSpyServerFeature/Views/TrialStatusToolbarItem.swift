@@ -31,7 +31,6 @@
     struct TrialStatusToolbarItem: View {
         @Environment(LicenseManager.self) private var licenseManager
         @Environment(AppSettings.self) private var settings
-        @Dependency(URLOpener.self) private var urlOpener
         @State private var showingPopover = false
 
         var body: some View {
@@ -62,7 +61,7 @@
             case let .trial(daysLeft, _):
                 "\(daysLeft) day\(daysLeft == 1 ? "" : "s") left"
             case .expired:
-                "Subscription required"
+                "Relay authorization required"
             }
         }
 
@@ -94,13 +93,7 @@
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Button("Buy a License…") {
-                    urlOpener.openInDefaultBrowser(LicensingLinks.checkout)
-                }
-                .accessibilityIdentifier("trial-popover-buy")
-
-                Divider()
-                Text("or enter a license key")
+                Text("Enter a key supplied by the relay operator")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -146,11 +139,11 @@
         private func popoverBody(_ appearance: TrialBadgeAppearance) -> String {
             switch appearance {
             case .trial:
-                "The hosted relay needs a subscription after the 7-day free trial. "
-                    + "Buy a license or enter a key to keep remote access after the trial."
+                "This relay requires authorization after its trial period. "
+                    + "Enter a key supplied by the relay operator to keep remote access."
             case .expired:
-                "Remote access is paused until you subscribe. Buy a license or enter a "
-                    + "license key to restore it."
+                "Remote access is paused by this relay. Enter a key supplied by its "
+                    + "operator to restore access."
             }
         }
     }

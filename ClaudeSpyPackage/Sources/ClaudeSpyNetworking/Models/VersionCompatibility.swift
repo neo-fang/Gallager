@@ -9,15 +9,15 @@ public enum VersionCompatibility {
     /// Default minimum viewer version accepted by a host running this build.
     ///
     /// Bump this when the host introduces a protocol change that older viewers
-    /// cannot handle. Bumped for the plugin-system flag-day break (the wire
-    /// dropped raw hook events for the agent-blind plugin messages).
-    public static let defaultMinRequiredViewerVersion = "2.0"
+    /// cannot handle. CtrlX 3.0 changes the E2EE and notification namespaces,
+    /// so pairing with a Gallager 2.x client must fail before encrypted traffic.
+    public static let defaultMinRequiredViewerVersion = "3.0"
 
     /// Default minimum host version accepted by a viewer running this build.
     ///
     /// Bump this when the viewer introduces a protocol change that older hosts
-    /// cannot handle. Bumped for the plugin-system flag-day break.
-    public static let defaultMinRequiredHostVersion = "2.0"
+    /// cannot handle. CtrlX 3.0 changes the E2EE and notification namespaces.
+    public static let defaultMinRequiredHostVersion = "3.0"
 
     /// Test-only overrides set from launch arguments during E2E scenarios.
     /// Regular production code should never set these.

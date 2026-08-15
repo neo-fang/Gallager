@@ -141,11 +141,14 @@ struct GeneralSettingsView: View {
                         Text(theme.rawValue).tag(theme)
                     }
                 }
+
+                Toggle("Highlight selected session in sidebar", isOn: $settings.highlightSelectedSidebarSession)
+                    .help("Use a subtle theme-matched background behind the selected local or remote session")
             }
 
             Section("Behavior") {
                 Toggle("Launch at login", isOn: $launchAtLoginEnabled)
-                    .help("Start Gallager automatically when you log in")
+                    .help("Start CtrlX automatically when you log in")
                     .onChange(of: launchAtLoginEnabled) { _, newValue in
                         do {
                             try settings.setLoginItemEnabled(newValue)
@@ -207,6 +210,11 @@ struct GeneralSettingsView: View {
             }
 
             Section("Updates") {
+                if !UpdaterController.isConfigured {
+                    Text("Updates are not configured for this build.")
+                        .foregroundStyle(.secondary)
+                }
+
                 Toggle(
                     "Automatically check for updates",
                     isOn: Binding(
@@ -214,6 +222,7 @@ struct GeneralSettingsView: View {
                         set: { updaterController.automaticallyChecksForUpdates = $0 }
                     )
                 )
+                .disabled(!UpdaterController.isConfigured)
                 .help("Periodically check for new versions in the background")
 
                 HStack {

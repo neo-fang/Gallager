@@ -32,6 +32,11 @@ public struct TerminalStreamMessage: Codable, Sendable, Identifiable {
         /// iOS uses this to initialize its terminal view.
         case initialState(InitialState)
 
+        /// Authoritative replacement state after the host discarded an
+        /// overloaded incremental queue. Viewers reset their terminal before
+        /// applying it, then continue with following data chunks.
+        case resetState(InitialState)
+
         /// Incremental data chunk containing new terminal output.
         /// Fed directly to the terminal view.
         case dataChunk(DataChunk)
@@ -163,6 +168,19 @@ public extension TerminalStreamMessage {
         TerminalStreamMessage(
             paneId: paneId,
             updateType: .dataChunk(DataChunk(data: data))
+        )
+    }
+
+    /// Create an authoritative replacement state after stream resynchronization.
+    static func resetState(
+        paneId: String,
+        width: Int,
+        height: Int,
+        content: Data
+    ) -> TerminalStreamMessage {
+        TerminalStreamMessage(
+            paneId: paneId,
+            updateType: .resetState(InitialState(width: width, height: height, content: content))
         )
     }
 

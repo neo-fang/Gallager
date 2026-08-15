@@ -48,7 +48,7 @@
         func enableDisableLifecycle() async {
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-reg-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reg-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             let dispatcher = PluginEventDispatcher()
@@ -70,7 +70,7 @@
         func unknownPluginFailsInit() async {
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-reg-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reg-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             let dispatcher = PluginEventDispatcher()
@@ -86,7 +86,7 @@
         func presentationsForEnabledSet() async {
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-reg-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reg-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             let dispatcher = PluginEventDispatcher()
@@ -117,7 +117,7 @@
         func listEntriesReportsAllPlugins() async {
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-reg-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reg-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             let entriesBefore = registry.listEntries()
@@ -148,7 +148,7 @@
         func registeredAndEnabledFlags() async {
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-reg-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reg-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             #expect(registry.isRegistered("claude-code"))
@@ -166,7 +166,7 @@
         func callCoreDispatch() async {
             let registry = PluginRegistry()
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-reg-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-reg-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: tmp) }
 
             // No active core → notEnabled.

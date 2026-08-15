@@ -33,6 +33,8 @@ playground.xcworkspace
 # .swiftpm
 
 .build/
+.build-local/
+/dist/
 
 # CocoaPods
 #
@@ -73,10 +75,20 @@ ClaudeSpyPackage/pairs.json
 ClaudeSpyPackage/secrets/
 ClaudeSpyPackage/.env
 ClaudeSpyPackage/.env.staging
+.env.local
+.env.production
+.env.development
+.env.test
+ClaudeSpyPackage/.env.local
+ClaudeSpyPackage/.env.production
+ClaudeSpyPackage/.env.development
+ClaudeSpyPackage/.env.test
 .claude/iOSSimulator.json
 build/
 build-ios/
-claudespy-signing.tar.gz
+ctrlx-signing.tar.gz
+Config/Local.xcconfig
+Config/Local-macOS.xcconfig
 .DS_Store
 /.claude/swiftDevelopment.json
 

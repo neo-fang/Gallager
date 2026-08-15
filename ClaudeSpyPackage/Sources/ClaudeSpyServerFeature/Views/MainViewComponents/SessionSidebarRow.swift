@@ -9,17 +9,16 @@ struct SessionSidebarRow: View {
 
     let session: LocalTmuxSession
 
-    /// Progress state for this session, picked from the first pane that has
-    /// one. Same iteration shape as the Mac-as-viewer (`RemoteSessionSidebarRow`)
-    /// and iOS (`SessionListView.sessionRow`) sites so all three render the
-    /// same pane's progress when multiple panes are emitting at once.
+    /// Progress state for this session. Real terminal progress from any pane
+    /// wins; a working agent supplies an indeterminate fallback only when no
+    /// pane has real progress. Mac viewer and iOS use the same shared rule.
     /// Recomputed on each render — observation tracks `windowManager.paneStates`
     /// and re-renders this row only when the lookup result actually changes.
     private var sessionProgress: TerminalProgressState? {
-        session.windows.lazy
+        session.windows
             .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.progress }
-            .first
+            .compactMap { windowManager.paneStates[$0.paneId] }
+            .effectiveProgress
     }
 
     /// The active window (or first)
@@ -35,6 +34,10 @@ struct SessionSidebarRow: View {
     private var primaryPaneState: PaneState? {
         guard let pane = primaryPane else { return nil }
         return windowManager.paneStates[pane.paneId]
+    }
+
+    private var activeWindowMetadata: ActiveWindowMetadata {
+        session.activeWindowMetadata(paneStates: windowManager.paneStates)
     }
 
     /// The first pane state in any window backing an agent session, if any. Also
@@ -67,18 +70,6 @@ struct SessionSidebarRow: View {
         return nil
     }
 
-    /// The first non-empty terminal title found across all windows
-    private var terminalTitle: String? {
-        for window in session.windows {
-            for pane in window.panes {
-                if let title = windowManager.paneStates[pane.paneId]?.terminalTitle, !title.isEmpty {
-                    return title
-                }
-            }
-        }
-        return nil
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             SessionStatusBadge(
@@ -93,10 +84,11 @@ struct SessionSidebarRow: View {
                     customDescription: primaryPaneState?.customDescription,
                     projectName: claudeSession?.displayName,
                     sessionName: session.sessionName,
-                    terminalTitle: terminalTitle,
-                    command: primaryPane?.command,
-                    currentPath: primaryPane?.currentPath,
-                    gitBranch: primaryPaneState?.gitBranch,
+                    windowName: activeWindowMetadata.windowName,
+                    terminalTitle: activeWindowMetadata.terminalTitle,
+                    command: activeWindowMetadata.command,
+                    currentPath: activeWindowMetadata.currentPath,
+                    gitBranch: activeWindowMetadata.gitBranch,
                     // The plugin model dropped the per-event buffer (spec §16),
                     // so there's no "latest event" subtitle to surface.
                     latestEvent: nil
@@ -230,7 +222,7 @@ struct SessionSidebarRow: View {
     private let previewSidebarVariants: [(session: LocalTmuxSession, state: PaneState)] = [
         // Claude — working, default mode (calm shield chip) + live token meter.
         previewSidebarRow(
-            paneId: "%1", sessionName: "claudespy", command: "claude",
+            paneId: "%1", sessionName: "ctrlx", command: "claude",
             currentPath: "~/Development/ClaudeSpy",
             agentState: .working, projectPath: "/Users/dev/Development/ClaudeSpy",
             telemetry: SessionTelemetry(tokensUsed: 12_400, costUSD: 0.42, model: "claude-opus-4-8"),

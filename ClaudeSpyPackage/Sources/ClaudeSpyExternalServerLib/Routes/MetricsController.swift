@@ -1,9 +1,5 @@
 import Vapor
 
-/// Build version baked into the binary at compile time.
-/// For now, a static string; replace later with git SHA injected via -D flag.
-private let buildVersion = "dev"
-
 /// Exposes Prometheus-format metrics at `GET /metrics`.
 ///
 /// Requires `Authorization: Bearer <METRICS_TOKEN>`. If `METRICS_TOKEN` is unset,
@@ -43,7 +39,7 @@ struct MetricsController: RouteCollection {
             uptimeSeconds: uptime
         )
 
-        let body = await metrics.render(snapshot: snapshot, buildVersion: buildVersion)
+        let body = await metrics.render(snapshot: snapshot, buildVersion: req.application.relayBuildInfo.version)
 
         var headers = HTTPHeaders()
         headers.contentType = HTTPMediaType(

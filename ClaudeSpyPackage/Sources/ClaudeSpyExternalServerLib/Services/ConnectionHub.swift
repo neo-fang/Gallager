@@ -186,24 +186,68 @@ actor ConnectionHub {
 
     /// Send a message to a specific device
     func send(_ message: WebSocketMessage, to pairId: String, deviceType: DeviceType) async {
+        do {
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(message)
+            await sendEncoded(
+                data,
+                to: pairId,
+                deviceType: deviceType,
+                messageType: message.messageType
+            )
+        } catch {
+            logger.error("Failed to encode message", metadata: [
+                "pairId": "\(pairId)",
+                "targetDevice": "\(deviceType)",
+                "error": "\(error)",
+            ])
+        }
+    }
+
+    /// Sends a validated encrypted frame without decoding and re-encoding its
+    /// base64 ciphertext. The bytes received from the sender remain unchanged.
+    func sendRawEncryptedFrame(
+        _ data: Data,
+        kind: RelayFrameKind,
+        to pairId: String,
+        deviceType: DeviceType
+    ) async {
+        await sendEncoded(
+            data,
+            to: pairId,
+            deviceType: deviceType,
+            messageType: "encrypted",
+            frameKind: kind
+        )
+    }
+
+    private func sendEncoded(
+        _ data: Data,
+        to pairId: String,
+        deviceType: DeviceType,
+        messageType: String,
+        frameKind: RelayFrameKind? = nil
+    ) async {
         guard let connection = connections[pairId]?[deviceType] else {
             logger.warning("Cannot send message - no connection", metadata: [
                 "pairId": "\(pairId)",
                 "targetDevice": "\(deviceType)",
-                "messageType": "\(message.messageType)",
+                "messageType": "\(messageType)",
             ])
             return
         }
 
         do {
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(message)
-            try await connection.webSocket.send(raw: data, opcode: .text)
+            if frameKind == .binary {
+                try await connection.webSocket.send(raw: data, opcode: .binary)
+            } else {
+                try await connection.webSocket.send(raw: data, opcode: .text)
+            }
             logger.debug("Message sent", metadata: [
                 "pairId": "\(pairId)",
                 "targetDevice": "\(deviceType)",
-                "messageType": "\(message.messageType)",
+                "messageType": "\(messageType)",
             ])
         } catch {
             logger.error("Failed to send message, cleaning up dead connection", metadata: [

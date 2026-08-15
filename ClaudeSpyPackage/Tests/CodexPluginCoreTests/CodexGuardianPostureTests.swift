@@ -38,7 +38,7 @@ struct CodexGuardianPostureTests {
         _ body: (CodexPluginCore, MockPluginHost, URL) async throws -> T
     ) async throws -> T {
         let codexHome = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-guardian-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-guardian-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         if let configTOML {
             try Data(configTOML.utf8).write(to: codexHome.appendingPathComponent("config.toml"))
@@ -46,9 +46,9 @@ struct CodexGuardianPostureTests {
 
         let host = MockPluginHost()
         let correlationRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-corr-guardian-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-corr-guardian-\(UUID().uuidString)")
         let stateDir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("gallager-cx-guardian-state-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-guardian-state-\(UUID().uuidString)")
         let core = CodexPluginCore(correlation: CodexSessionCorrelation(root: correlationRoot))
         let settingsData = try JSONEncoder().encode(
             CodexSettings(additionalConfigFolders: [codexHome.path])
@@ -400,7 +400,7 @@ struct CodexGuardianPostureTests {
     func unknownHomeFailsSafe() async throws {
         try await withCore(configTOML: autoReviewTOML) { core, _, _ in
             let foreign = FileManager.default.temporaryDirectory
-                .appendingPathComponent("gallager-cx-foreign-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-cx-foreign-\(UUID().uuidString)")
                 .appendingPathComponent("sessions/2026/06/10/rollout-x.jsonl")
             let json = permissionJSON(transcriptPath: foreign.path)
 

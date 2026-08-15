@@ -10,7 +10,7 @@ struct CodexSessionCorrelationTests {
 
     private func makeStore() -> (CodexSessionCorrelation, URL) {
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-corr-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-corr-\(UUID().uuidString)")
         return (CodexSessionCorrelation(root: root), root)
     }
 

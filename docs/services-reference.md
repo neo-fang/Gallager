@@ -38,10 +38,10 @@ Gallager points `$VISUAL` at the bundled `gallager edit` CLI (via tmux `-e` on e
 
 Key files: `EditorOverride.swift` (pure helpers + `EditorOverrideMode`/`VisualProbeResult`), `TmuxService` (probe + injection), `AppCoordinator` (coordination), `EditorOverrideDialog.swift` (the dialog), `EditorsSettingsView.swift` (`PromptEditorOverrideSection`).
 
-**1. Conflict probe.** At startup (only when `GallagerCLI` is bundled, and in either `ask` or `overrideInGallagerSessions` mode), `TmuxService.probeVisualConflict()` creates a detached probe session named `__gallager_probe` with `-e VISUAL=__gallager_probe__` and the normal `default-command` wrapper (real pty / env / startup), types `printf 'GALLAGER_PROBE=%s\n' "$VISUAL"`, and polls `capture-pane` (~10s) for the marker. Sentinel intact → no conflict; a different value or empty → conflict (the user's value is remembered for the dialog copy). No CLI / unknown shell (nushell) / timeout → treated as no-conflict. The probe session is filtered out of every user-facing list by its name prefix (so injection never touches it — the probe stays honest even while override is active). Re-run on demand from Settings ("Re-check now").
+**1. Conflict probe.** At startup (only when `GallagerCLI` is bundled, and in either `ask` or `overrideInGallagerSessions` mode), `TmuxService.probeVisualConflict()` creates a detached probe session named `__gallager_probe` with `-e VISUAL=__gallager_probe__` and the normal `default-command` wrapper (real pty / env / startup), types `printf 'CTRLX_PROBE=%s\n' "$VISUAL"`, and polls `capture-pane` (~10s) for the marker. Sentinel intact → no conflict; a different value or empty → conflict (the user's value is remembered for the dialog copy). No CLI / unknown shell (nushell) / timeout → treated as no-conflict. The probe session is filtered out of every user-facing list by its name prefix (so injection never touches it — the probe stays honest even while override is active). Re-run on demand from Settings ("Re-check now").
 
 **2. Dialog.** Deferred from launch to the **first session creation** (when "Ctrl-G" has context). Shows the conflicting value and three choices:
-- **Fix it in your shell config (recommended)** — keeps the setting at *Ask*; shows a copyable guarded line `[ -n "$GALLAGER_SOCKET" ] || export VISUAL='<their value>'` (Gallager exports `GALLAGER_SOCKET` before rc files run, so the rc can detect a Gallager pane). The next launch's probe verifies; if fixed, the dialog never returns.
+- **Fix it in your shell config (recommended)** — keeps the setting at *Ask*; shows a copyable guarded line `[ -n "$CTRLX_SOCKET" ] || export VISUAL='<their value>'` (Gallager exports `CTRLX_SOCKET` before rc files run, so the rc can detect a Gallager pane). The next launch's probe verifies; if fixed, the dialog never returns.
 - **Override in Gallager sessions** — enables keystroke injection (below).
 - **Keep my editor, stop asking** — never override, never ask.
 - Dismissing ("Decide later") leaves it at *Ask* — re-prompts on a later conflict probe.
@@ -223,21 +223,21 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 
 - **End-of-session recap** — `SessionRecap` (`ClaudeSpyNetworking`) is a snapshot of the session's accumulated telemetry (tokens, cost, commits, active time, tools, lines). `AppCoordinator` stamps it onto `PaneState.recap` when a turn finishes (`doneWorking`) — cleared when a new turn starts (`working`) or the session ends — and pushes a one-shot recap notification on `sessionEnd` (`finalizeEndedSession`, reusing `NotificationSpec` → `handlePluginNotification`). The recap card renders in iOS `SessionInfoView`; the Mac surfaces it via the desktop-notification push. Shared formatting (`recapDetailLine`) lives in `ClaudeSpyCommon`.
 - **iOS reply-after-stop summary persistence (issue #707)** — the agent's last-message summary shown in the iOS reply box (`StopResponseView`) rides the transient `AgentState.doneWorking(summary:)`, which viewing the session flips to `.idle` (`markHandled`), so navigating away and back used to lose it. `SessionStore.lastTurnSummaryByPane` caches it per pane with the **same lifecycle as `PaneState.recap`** (set on `doneWorking`, cleared on `working`/session-end) so it survives the handled-flip and re-entry; `SessionDetailService.replyForm` falls back to that cache, then to `recap.summary` for a fresh reconnect where the cache is empty. Telemetry-independent, so it works even when no recap was stamped. (The expanded summary also scrolls within a capped height so a long message isn't cropped.)
-- **Cost/usage overview** — `UsageAggregationStore` (`ClaudeSpyServerFeature/Telemetry/UsageAggregationStore.swift`) is an `actor` persisting per-`(project, day)` totals as JSON under `~/.gallager/state/usage-aggregates.json` (so they survive session end **and** app restart). It folds each telemetry snapshot into the bucket as a *delta* against a persisted per-session baseline — cumulative OTEL counters are attributed to the day they occur, with no double-counting across a restart. `overview(asOf:)` builds the wire `UsageOverview` (today totals, a top-N per-project ranking, a per-day trend). It rides the existing `SessionStateMessage` as an optional field (`usageOverview`, `decodeIfPresent`-friendly like `agentProjects`), is shown atop the iOS session list and Mac sidebar as a collapsed one-line "Today" cell (`UsageOverviewView` in `ClaudeSpyCommon` — a disclosure chevron expands it in place to the Projects/Recent-days details, transient state, always starts collapsed), and powers the Mac menu-bar "today" total.
+- **Cost/usage overview** — `UsageAggregationStore` (`ClaudeSpyServerFeature/Telemetry/UsageAggregationStore.swift`) is an `actor` persisting per-`(project, day)` totals as JSON under `~/.ctrlx/state/usage-aggregates.json` (so they survive session end **and** app restart). It folds each telemetry snapshot into the bucket as a *delta* against a persisted per-session baseline — cumulative OTEL counters are attributed to the day they occur, with no double-counting across a restart. `overview(asOf:)` builds the wire `UsageOverview` (today totals, a top-N per-project ranking, a per-day trend). It rides the existing `SessionStateMessage` as an optional field (`usageOverview`, `decodeIfPresent`-friendly like `agentProjects`), is shown atop the iOS session list and Mac sidebar as a collapsed one-line "Today" cell (`UsageOverviewView` in `ClaudeSpyCommon` — a disclosure chevron expands it in place to the Projects/Recent-days details, transient state, always starts collapsed), and powers the Mac menu-bar "today" total.
 
-### DeviceConnectionManager (`ClaudeSpyServerFeature/Services/DeviceConnectionManager.swift`)
+### ConnectedViewerManager (`ClaudeSpyServerFeature/Services/ConnectedViewerManager.swift`)
 
-`@Observable @MainActor` managing connections to all paired iOS devices.
+`@Observable @MainActor` managing connections to all paired Viewer devices.
 
 **Features:**
-- Wraps multiple `DeviceConnection` instances (one per paired device)
-- Broadcasts events to all connected devices
+- Wraps multiple `ConnectedViewer` instances (one per paired Viewer)
+- Broadcasts shared state, while terminal payloads are routed to pane subscribers
 - Combined state for UI display (`combinedState`)
 - Auto-reconnect on system wake
 
 **Broadcasting Methods:**
 - `sendHookEventToAll()` - forward hook events
-- `sendTerminalStreamToAll()` - forward terminal data
+- `sendTerminalStream(_:to:)` - forward terminal data to an explicit Viewer-ID set
 - `pushSessionStateToAll()` - sync session state
 
 **Callbacks (set by AppCoordinator):**
@@ -245,7 +245,7 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 - `onSessionStateRequest` - provide current session state
 - `onPartnerKeyReceived` - persist E2EE partner keys
 
-### DeviceConnection (`ClaudeSpyServerFeature/Services/DeviceConnection.swift`)
+### ConnectedViewer (`ClaudeSpyServerFeature/Services/ConnectedViewer.swift`)
 
 `@Observable @MainActor` WebSocket connection to a single paired iOS device.
 
@@ -271,15 +271,16 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 
 ### TerminalStreamService (`ClaudeSpyServerFeature/Services/TerminalStreamService.swift`)
 
-`@Observable @MainActor` streaming terminal data to iOS devices.
+`@Observable @MainActor` streaming terminal data to subscribed Viewer devices.
 
-**Batching:** 50ms minimum interval, 8KB max batch size (20 updates/sec max)
+**Batching:** 16ms fixed cadence, 8KB max batch size
 
 **Multi-Device Support:**
-- Reference-counted streams (`deviceSubscriberCount` per pane)
-- `startStreaming()` reuses existing stream if one exists (increments count, sends current content)
-- `stopStreaming()` decrements count; only fully stops when count reaches 0
-- `stopStreaming(force: true)` bypasses count for system-level cleanup
+- Idempotent Viewer-ID ownership set per pane
+- `startStreaming()` reuses an existing stream and stages a private bootstrap for the requester
+- Bootstrap success waits for initial state and all pre-barrier bytes to enter the encrypted send chain
+- `stopStreaming()` removes one owner; the stream stops when no owners remain
+- `stopStreaming(force: true)` bypasses ownership for system-level cleanup
 - `stopAllStreams()` / `stopStreamsForClosedPanes()` always use `force: true`
 
 **Message Types:** `initialState`, `dataChunk`, `dimensionChange`, `streamEnd`
@@ -288,7 +289,7 @@ Two **aggregate** consumers built on the same OTEL stream, surfacing data that o
 
 Actor executing commands from iOS devices.
 
-- Receives `CommandMessage` from `DeviceConnectionManager`
+- Receives `CommandMessage` from `ConnectedViewerManager`
 - Dispatches to `TmuxService` (sendKeys, sendInterrupt, etc.)
 - Returns `CommandResponseMessage` (success/failure)
 
@@ -457,7 +458,7 @@ last-known layout. See `docs/folder-layout-persistence-plan.md`.
   session name picks up the folder's current layout, not a dead session's stale
   one. Two sessions on a folder share the record (most-recent write wins).
 - `save` / `remove` / `prune`; `liveValue` writes a single JSON file under the
-  Gallager state root (`~/.gallager/state/Layouts/`, or `--gallager-state-root`
+  Gallager state root (`~/.ctrlx/state/Layouts/`, or `--gallager-state-root`
   under E2E), `inMemory()` for previews/tests.
 - `MainView` drives it: `seedLayoutIfNeeded()` restores once-while-empty on
   session selection/launch; a 2s `.task` auto-saves changed layouts via

@@ -16,7 +16,9 @@ struct TmuxPaneMirrorApp: App {
 
     init() {
         let isE2E = CommandLine.arguments.contains("--e2e-test")
-        _updaterController = State(initialValue: UpdaterController(startUpdater: !isE2E))
+        _updaterController = State(
+            initialValue: UpdaterController(startUpdater: !isE2E && UpdaterController.isConfigured)
+        )
 
         // Check if tmux is available at any common path (skip check in E2E tests)
         @Dependency(TmuxBinaryLocator.self) var tmuxLocator
@@ -67,7 +69,7 @@ struct TmuxPaneMirrorApp: App {
 
             // (The legacy hook HTTP server + `--hook-port-file` are gone; the
             // plugin ingress Unix socket — set up in AppCoordinator and isolated
-            // per scenario via `--gallager-state-root` — replaces them.)
+            // per scenario via `--ctrlx-state-root` — replaces them.)
 
             // E2E test support: override notification log path for verification
             let notificationLogPath: String?
@@ -176,7 +178,7 @@ struct TmuxPaneMirrorApp: App {
                 // Project lists now come from the plugin cores via
                 // `PluginHost.setProjects` (the per-agent scanners moved into the
                 // cores). E2E project-list determinism is handled by the plugin
-                // runtime / `--gallager-state-root` fixtures (Step 10), not by
+                // runtime / `--ctrlx-state-root` fixtures (Step 10), not by
                 // injecting scanners here.
                 // Build fake filesystem tree for the file browser.
                 // Binary sample files (image, PDF, video) come from the E2E bundle
@@ -478,6 +480,10 @@ struct TmuxPaneMirrorApp: App {
 
             // Window menu - tab navigation shortcuts
             CommandGroup(before: .windowList) {
+                TerminalWindowNavigationMenuItems()
+
+                Divider()
+
                 Button("Previous Tab") {
                     NotificationCenter.default.post(name: .selectPreviousTab, object: nil)
                 }
@@ -547,8 +553,8 @@ struct TmuxPaneMirrorApp: App {
             }
         }
 
-        // About window - custom About panel with Gallager explanation
-        Window("About Gallager", id: "about") {
+        // About window - custom CtrlX provenance and build information
+        Window("About CtrlX", id: "about") {
             AboutWindowView()
         }
         .windowResizability(.contentSize)
@@ -718,6 +724,45 @@ private struct CloseTabMenuItem: View {
     }
 }
 
+/// Window-menu commands for tmux-window-only navigation. The focused value is
+/// supplied only by the active panes scene, so Settings/About keep standard
+/// macOS key handling and terminal views never install a key-event monitor.
+private struct TerminalWindowNavigationMenuItems: View {
+    @FocusedValue(\.terminalWindowNavigationActions) private var actions
+
+    private var windowCount: Int {
+        actions?.windowCount ?? 0
+    }
+
+    var body: some View {
+        Button("Previous Terminal Window") {
+            actions?.selectPrevious()
+        }
+        .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+        .disabled(windowCount < 2)
+
+        Button("Next Terminal Window") {
+            actions?.selectNext()
+        }
+        .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+        .disabled(windowCount < 2)
+
+        Menu("Select Terminal Window") {
+            ForEach(0 ..< 9, id: \.self) { index in
+                Button("Terminal Window \(index + 1)") {
+                    actions?.selectAtIndex(index)
+                }
+                .keyboardShortcut(
+                    KeyEquivalent(Character(String(index + 1))),
+                    modifiers: .command
+                )
+                .disabled(index >= windowCount)
+            }
+        }
+        .disabled(windowCount == 0)
+    }
+}
+
 /// Menu item that opens the custom About window.
 ///
 /// Extracted to a separate view so it has access to `@Environment(\.openWindow)`,
@@ -726,7 +771,7 @@ private struct AboutMenuItem: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("About Gallager") {
+        Button("About CtrlX") {
             NSApp.setActivationPolicy(.regular)
             openWindow(id: "about")
             NSApp.activate()
@@ -745,7 +790,7 @@ private struct APIReferenceMenuItem: View {
     }
 }
 
-/// Menu item to install/uninstall the `gallager` CLI symlink.
+/// Menu item to install/uninstall the `ctrlx` CLI symlink.
 ///
 /// When installing on a zsh user's machine, offers to also install the zsh
 /// completion script alongside the CLI so tab-completion works out of the box.
@@ -777,8 +822,8 @@ private struct InstallCLIMenuItem: View {
         alert.messageText = "Install zsh tab completion?"
         alert.informativeText = """
         Your login shell is zsh. Also install tab completion for \
-        the gallager command? It will be written to \
-        /usr/local/share/zsh/site-functions/_gallager in the same admin prompt.
+        the ctrlx command? It will be written to \
+        /usr/local/share/zsh/site-functions/_ctrlx in the same admin prompt.
         """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Install Completion")

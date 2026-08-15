@@ -1,7 +1,7 @@
 apiVersion: grizzly.grafana.com/v1alpha1
 kind: AlertRuleGroup
 metadata:
-  folder: ClaudeSpy
+  folder: CtrlX
   name: relay-availability
 spec:
   title: relay-availability
@@ -15,7 +15,7 @@ spec:
           relativeTimeRange: { from: 300, to: 0 }
           datasourceUid: grafanacloud-prom
           model:
-            expr: up{job="claudespy-relay"}
+            expr: up{job="ctrlx-relay"}
             instant: true
             refId: A
         - refId: B
@@ -32,6 +32,6 @@ spec:
       for: 2m
       annotations:
         summary: "Relay scrape failing for 2 minutes"
-        description: "Prometheus cannot scrape /metrics on the Hetzner relay. Check `systemctl status alloy` and the Vapor container."
+        description: "Prometheus cannot scrape /metrics on the CtrlX Relay host. Check `systemctl status alloy` and the Vapor container."
       labels:
         severity: critical

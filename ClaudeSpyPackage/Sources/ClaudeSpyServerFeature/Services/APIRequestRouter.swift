@@ -105,7 +105,7 @@
             case failed(String)
         }
 
-        private let logger = Logger(label: "com.claudespy.apirouter")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.apirouter")
 
         /// Service callbacks injected at init by AppCoordinator
         let onSessionList: (@Sendable () async -> [[String: JSONValue]])?

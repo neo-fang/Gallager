@@ -209,7 +209,7 @@ public enum TestStep: Sendable {
     case iosSetAppVersion(appVersion: String?, minRequiredPartnerVersion: String?)
     /// Simulate tapping an action button on the last actionable agent
     /// notification the iOS app received (issue #710) — e.g.
-    /// `"gallager.permission.allow"` — driving the real
+    /// `"ctrlx.permission.allow"` — driving the real
     /// `NotificationActionService` submission path. The notification banner UI
     /// itself lives in SpringBoard, which the harness can't reach; the app
     /// waits up to ~5s for the actionable notification to arrive first. Each
@@ -293,6 +293,8 @@ public enum TestStep: Sendable {
     case macCGClickElement(
         query: ElementQuery,
         pointInRect: @Sendable (CGRect) -> CGPoint = { CGPoint(x: $0.midX, y: $0.midY) },
+        // Use 2 to exercise native double-click behavior.
+        clickCount: Int = 1,
         instance: Int = 0,
         // Seconds to wait for the matched element to appear in the AX tree before
         // clicking. Defaults to 5; bump it when the click lands while the app is
@@ -403,7 +405,7 @@ public enum TestStep: Sendable {
     /// matched row scrolls away beneath it.
     case macScrollWheelAtElement(titled: String, deltaY: Int32, count: Int = 3, instance: Int = 0)
     /// Click at a specific screen coordinate in the macOS app.
-    case macClickAtPoint(x: Double, y: Double, instance: Int = 0)
+    case macClickAtPoint(x: Double, y: Double, clickCount: Int = 1, instance: Int = 0)
     /// Drag from one screen coordinate to another in the macOS app.
     case macDrag(fromX: Double, fromY: Double, toX: Double, toY: Double, instance: Int = 0)
     /// Drag from the center of one accessibility element to the center of
@@ -477,7 +479,7 @@ public enum TestStep: Sendable {
     ///   `${var}` interpolation).
     /// - `tmuxPane` becomes the frame's `context["TMUX_PANE"]` (pane identity);
     ///   `projectPath`, when present, becomes `context["CLAUDE_PROJECT_DIR"]`.
-    /// - The socket path is the per-scenario `<gallager-state-root>/ingress.sock`,
+    /// - The socket path is the per-scenario `<ctrlx-state-root>/ingress.sock`,
     ///   derived per instance by the orchestrator.
     case macSendHookEvent(
         pluginID: String = "claude-code",
@@ -534,14 +536,14 @@ public enum TestStep: Sendable {
 
     /// Stage a folder-dropped sidecar plugin fixture into the E2E sandbox before
     /// the macOS app launches (instance 0). Copies the built `EchoPluginSidecar`
-    /// binary to `<gallagerRoot>/plugins/<id>/bin/sidecar` (chmod 0o755) and
+    /// binary to `<ctrlxRoot>/plugins/<id>/bin/sidecar` (chmod 0o755) and
     /// writes a minimal `plugin.json` there (`runtime:"sidecar"`,
     /// `sidecar:{executable:"bin/sidecar"}`). The orchestrator locates the binary
     /// by walking up from `#file` to the `Package.swift` root, then probing
     /// `.build/debug/EchoPluginSidecar` (the same strategy as
     /// `EchoSidecarTestSupport.locateEchoSidecarBinary`).
     ///
-    /// The `<gallagerRoot>` is derived from the instance's `--gallager-state-root`
+    /// The `<ctrlxRoot>` is derived from the instance's `--ctrlx-state-root`
     /// (its parent directory), so the staged plugin persists for the entire
     /// scenario in the per-instance E2E sandbox.
     ///
@@ -564,7 +566,7 @@ public enum TestStep: Sendable {
     /// binary at `bin/sidecar` + a `plugin.json` carrying `id`/`displayName` at the
     /// archive root) and store its absolute path in the execution context under
     /// `storeAs`. Used to exercise the local-zip install flow end-to-end (e.g. via
-    /// `gallager plugin install --zip ${path}`). The zip lives in the per-instance
+    /// `ctrlx plugin install --zip ${path}`). The zip lives in the per-instance
     /// E2E sandbox, so it is cleaned up with the rest of the scenario state.
     case macStageSidecarZip(id: String, displayName: String, storeAs: String, instance: Int = 0)
 }

@@ -31,6 +31,8 @@ struct TerminalContainerView: NSViewRepresentable {
     /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
     /// Used in multi-pane layouts where multiple terminals share one window.
     var autoFocus = true
+    /// Shows a focus outline when this terminal is one tile in a multi-pane layout.
+    var showsFocusIndicator = false
     let onStateChange: TerminalStateChangeHandler?
     let onTitleChange: TerminalTitleChangeHandler?
     var onOpenURL: TerminalOpenURLHandler?
@@ -55,6 +57,7 @@ struct TerminalContainerView: NSViewRepresentable {
         // session is already active on that pane (e.g., tab switch), viewDidMoveToWindow
         // would otherwise auto-grab focus before updateNSView flips the flag.
         coordinator.terminalView.autoFocusEnabled = autoFocus
+        coordinator.terminalView.showsFocusIndicator = showsFocusIndicator
         coordinator.terminalView.isEditorActive =
             editorSessionManager.session(for: paneState.paneId) != nil
 
@@ -79,6 +82,8 @@ struct TerminalContainerView: NSViewRepresentable {
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
         let coordinator = context.coordinator
 
+        nsView.showsFocusIndicator = showsFocusIndicator
+
         // Update editor state — suppress keyboard/focus when editor overlay is active
         let editorActive = editorSessionManager.session(for: paneState.paneId) != nil
         let wasEditorActive = nsView.isEditorActive
@@ -86,7 +91,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // When editor just closed, restore focus to the terminal
         if wasEditorActive, !editorActive {
-            nsView.window?.makeFirstResponder(nsView)
+            nsView.focusTerminal()
         }
 
         // Update pane state — tmux rearranges pane indices when panes are
@@ -159,17 +164,55 @@ struct TerminalContainerView: NSViewRepresentable {
         /// File drop (a heavyweight paste) is intentionally off this chain, so its
         /// ordering relative to keystrokes is best-effort.
         private var pendingKeyTask: Task<Void, Never>?
+        private var pendingInputBatchCount = 0
+        private var pendingInputBytes = 0
+        private var inputGeneration: UInt64 = 0
+        private let transportMetrics = TerminalTransportMetrics.shared
 
         /// Coalesces the two synchronous `send()` callbacks SwiftTerm emits for a
         /// Meta/Option sequence (ESC + key) into one batch, sent as a single
         /// `send-keys` so the app sees one Meta keypress. See `KeystrokeCoalescer`.
         private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
-            guard let self, let target = self.paneState?.target else { return }
+            guard let self, let paneState = self.paneState else { return }
+            let token = self.transportMetrics.beginLocalInput(
+                paneId: paneState.paneId,
+                acceptedAt: batch.acceptedAt
+            )
+            let byteCount = batch.keys.reduce(0) { $0 + max(1, $1.tmuxKeyName.utf8.count) }
+            let generation = self.inputGeneration
+            self.addPendingInput(byteCount: byteCount, paneId: paneState.paneId)
             let previous = self.pendingKeyTask
-            self.pendingKeyTask = Task {
+            self.pendingKeyTask = Task { @MainActor [weak self] in
                 _ = await previous?.value
-                await self.sendKeysToTmux(batch, target: target)
+                guard let self, !Task.isCancelled, self.inputGeneration == generation else {
+                    self?.transportMetrics.discardLocalInput(token)
+                    return
+                }
+                defer { self.removePendingInput(byteCount: byteCount, paneId: paneState.paneId) }
+                self.transportMetrics.recordLocalInput(token, stage: .sendStarted)
+                await self.sendKeysToTmux(
+                    batch.keys,
+                    paneId: paneState.paneId,
+                    target: paneState.target,
+                    metricsToken: token
+                )
             }
+        }
+
+        /// Limits SwiftTerm parsing/drawing to a bounded MainActor time slice.
+        /// Pending keyboard input forces smaller chunks and a yield after each
+        /// feed while preserving the exact terminal byte order.
+        private lazy var feedCoalescer = TerminalFeedCoalescer(
+            id: "local:\(paneState?.paneId ?? "unknown")",
+            maximumFeedBytes: 8_192,
+            prioritizedFeedBytes: 4_096,
+            maximumTurnDuration: .milliseconds(2),
+            shouldPrioritizeInput: { [weak self] in
+                guard let self else { return false }
+                return self.pendingInputBatchCount > 0 || self.keyCoalescer.hasPendingKeys
+            }
+        ) { [weak self] data in
+            self?.feedDataNow(data)
         }
 
         // MARK: Initialization
@@ -182,7 +225,7 @@ struct TerminalContainerView: NSViewRepresentable {
             // this causes cumulative positioning drift — up to ~42pt at column 100 on non-Retina.
             // Using the font's own box drawing glyphs keeps them on the same text grid.
             terminalView.customBlockGlyphs = false
-            applyDarkTheme()
+            terminalView.applyTheme(.defaultDark)
         }
 
         // MARK: Lifecycle
@@ -206,7 +249,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
             // Apply initial settings
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
 
             // Wire up input handling. SwiftTerm emits a Meta/Option sequence as
             // TWO synchronous send() callbacks — a lone ESC, then the key — so we
@@ -226,9 +269,14 @@ struct TerminalContainerView: NSViewRepresentable {
             terminalView.onRawInput = { [weak self] data in
                 guard let self, let paneState = self.paneState else { return }
                 self.keyCoalescer.flushPending()
+                let generation = self.inputGeneration
+                let byteCount = data.count
+                self.addPendingInput(byteCount: byteCount, paneId: paneState.paneId)
                 let previous = self.pendingKeyTask
-                self.pendingKeyTask = Task {
+                self.pendingKeyTask = Task { @MainActor [weak self] in
                     _ = await previous?.value
+                    guard let self, !Task.isCancelled, self.inputGeneration == generation else { return }
+                    defer { self.removePendingInput(byteCount: byteCount, paneId: paneState.paneId) }
                     await self.sendRawBytesToTmux(data, target: paneState.target)
                 }
             }
@@ -257,20 +305,38 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: - Input Handling
 
-        private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
-            guard let tmuxService else { return }
+        private func sendKeysToTmux(
+            _ keys: [TmuxKey],
+            paneId: String,
+            target: String,
+            metricsToken: TerminalTransportMetrics.LocalInputToken
+        ) async {
+            guard let tmuxService else {
+                transportMetrics.failLocalInput(metricsToken)
+                return
+            }
 
             do {
-                // Batched send: a contiguous run of same-mode keys becomes a
-                // single `send-keys` invocation (sendKeystrokes still splits
-                // across `.delay` boundaries and literal/non-literal transitions).
-                // This is what keeps a split Meta sequence (e.g. `[.escape,
-                // .backspace]` for Option-Backspace) intact — the two land in one
-                // `send-keys`, whereas sent one-by-one tmux delivers a bare Escape
-                // then Backspace and the app only deletes a character, not a word.
-                try await tmuxService.sendKeystrokes(target, keys: keys)
+                let sentThroughControlMode = if let paneStreamManager {
+                    try await paneStreamManager.sendKeystrokesIfConnected(
+                        paneId: paneId,
+                        keys: keys,
+                        onFirstCommandWritten: { [metrics = transportMetrics] in
+                            metrics.recordLocalInput(metricsToken, stage: .tmuxWrite)
+                        }
+                    )
+                } else {
+                    false
+                }
+
+                if !sentThroughControlMode {
+                    transportMetrics.recordLocalInput(metricsToken, stage: .tmuxWrite)
+                    try await tmuxService.sendKeystrokes(target, keys: keys)
+                }
+                transportMetrics.recordLocalInput(metricsToken, stage: .tmuxAcknowledged)
                 consecutiveKeyFailures = 0
             } catch {
+                transportMetrics.failLocalInput(metricsToken)
                 consecutiveKeyFailures += 1
                 print("Failed to send keys to tmux: \(error)")
 
@@ -306,13 +372,13 @@ struct TerminalContainerView: NSViewRepresentable {
                 // strictly ordered across our async load/paste pair (the
                 // process spawn for one drop's `paste-buffer` can land after
                 // the next drop's `load-buffer` if the user drops twice
-                // quickly), so a stable name like `gallager-drop` would lose
+                // quickly), so a stable name like `ctrlx-drop` would lose
                 // the first drop's contents under that race. The UUID suffix
                 // gives each drop its own buffer; `-d` cleans them up.
                 try await tmuxService.loadAndPasteBuffer(
                     target: target,
                     content: content,
-                    bufferName: "gallager-drop-\(UUID().uuidString.prefix(8))"
+                    bufferName: "ctrlx-drop-\(UUID().uuidString.prefix(8))"
                 )
             } catch {
                 print("Failed to paste dropped files into tmux: \(error)")
@@ -335,7 +401,14 @@ struct TerminalContainerView: NSViewRepresentable {
 
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
+            inputGeneration &+= 1
+            pendingInputBatchCount = 0
+            pendingInputBytes = 0
+            if let paneId = paneState?.paneId {
+                transportMetrics.clearQueue(.localInput, id: paneId)
+            }
             keyCoalescer.reset()
+            feedCoalescer.discardPending()
             rowsLockedToTmux = false
             terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
@@ -384,6 +457,9 @@ struct TerminalContainerView: NSViewRepresentable {
                     },
                     onDimensionChange: { [weak self] newWidth, newHeight in
                         self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
+                    },
+                    onResync: { [weak self] result in
+                        self?.handleResync(result)
                     }
                 )
 
@@ -426,6 +502,10 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Data Handling
 
         private func handleData(_ data: Data) {
+            feedCoalescer.enqueue(data)
+        }
+
+        private func feedDataNow(_ data: Data) {
             let bytes = [UInt8](data)[...]
 
             if !hasScrolledInitial {
@@ -439,6 +519,53 @@ struct TerminalContainerView: NSViewRepresentable {
             } else {
                 // Subsequent data - preserve user's scroll position
                 terminalView.feedPreservingScroll(bytes)
+            }
+            if let paneId = paneState?.paneId {
+                transportMetrics.recordLocalFeed(paneId: paneId)
+            }
+        }
+
+        private func addPendingInput(byteCount: Int, paneId: String) {
+            pendingInputBatchCount += 1
+            pendingInputBytes += byteCount
+            recordPendingInput(paneId: paneId)
+        }
+
+        private func removePendingInput(byteCount: Int, paneId: String) {
+            pendingInputBatchCount = max(0, pendingInputBatchCount - 1)
+            pendingInputBytes = max(0, pendingInputBytes - byteCount)
+            recordPendingInput(paneId: paneId)
+        }
+
+        private func recordPendingInput(paneId: String) {
+            transportMetrics.recordQueue(
+                .localInput,
+                id: paneId,
+                depth: pendingInputBatchCount,
+                bytes: pendingInputBytes
+            )
+        }
+
+        private func handleResync(_ result: Result<PaneStreamManager.SubscriptionResult, Error>) {
+            switch result {
+            case let .success(snapshot):
+                updateTerminalDimensions(cols: snapshot.width, rows: snapshot.height)
+                feedCoalescer.replace(with: snapshot.initialContent) { [weak self] in
+                    guard let self else { return }
+                    hasScrolledInitial = false
+                    terminalView.getTerminal().resetToInitialState()
+                    terminalView.preserveUserScroll = false
+                }
+                terminalView.preserveUserScroll = true
+
+                if let paneState, let tmuxService {
+                    Task { [weak self] in
+                        await self?.syncMouseMode(target: paneState.target, tmuxService: tmuxService)
+                    }
+                }
+
+            case let .failure(error):
+                updateState(.error("Terminal resync failed: \(error.localizedDescription)"))
             }
         }
 
@@ -519,7 +646,7 @@ struct TerminalContainerView: NSViewRepresentable {
 
         func updateSettings(_ settings: AppSettings) {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
             terminalView.autoCopyOnSelect = settings.autoCopyOnSelect
         }
 
@@ -536,27 +663,6 @@ struct TerminalContainerView: NSViewRepresentable {
             // SwiftTerm's resetFont() recalculates cols/rows from frame.width
             // without subtracting scroller width. Re-apply our correct dimensions.
             reapplyDimensionsIfNeeded()
-        }
-
-        func applyTheme(_ theme: TerminalTheme) {
-            switch theme {
-            case .defaultDark,
-                 .solarizedDark:
-                applyDarkTheme()
-            case .defaultLight,
-                 .solarizedLight:
-                applyLightTheme()
-            }
-        }
-
-        private func applyDarkTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        }
-
-        private func applyLightTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
         }
 
         // MARK: External Dimension Changes

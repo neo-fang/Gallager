@@ -213,6 +213,11 @@ final public class AppSettings {
         didSet { preferences.setString(theme.rawValue, Keys.theme) }
     }
 
+    /// Whether the selected session row uses the system accent color.
+    public var highlightSelectedSidebarSession: Bool = Defaults.highlightSelectedSidebarSession {
+        didSet { preferences.setBool(highlightSelectedSidebarSession, Keys.highlightSelectedSidebarSession) }
+    }
+
     // MARK: - Appearance Settings
 
     /// Window appearance (System / Light / Dark). Applied to `NSApp.appearance`
@@ -349,6 +354,11 @@ final public class AppSettings {
         didSet { savePairedHosts() }
     }
 
+    /// Viewer-local session order, isolated by remote host pair ID.
+    public private(set) var remoteSessionOrderByHost: [String: [String]] = [:] {
+        didSet { saveRemoteSessionOrder() }
+    }
+
     /// Whether to automatically connect to relay server on launch
     public var autoConnectToServer: Bool = Defaults.autoConnectToServer {
         didSet { preferences.setBool(autoConnectToServer, Keys.autoConnectToServer) }
@@ -442,6 +452,8 @@ final public class AppSettings {
         )
         self.scrollbackLines = preferences.optionalInt(Keys.scrollbackLines) ?? Defaults.scrollbackLines
         self.theme = TerminalTheme(rawValue: preferences.string(Keys.theme) ?? "") ?? Defaults.theme
+        self.highlightSelectedSidebarSession = preferences.optionalBool(Keys.highlightSelectedSidebarSession)
+            ?? Defaults.highlightSelectedSidebarSession
         self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? Defaults.appearanceMode
         self.openPanesWindowOnLaunch = preferences.optionalBool(Keys.openPanesWindowOnLaunch) ?? Defaults.openPanesWindowOnLaunch
         self.showStatusBar = preferences.optionalBool(Keys.showStatusBar) ?? Defaults.showStatusBar
@@ -469,6 +481,11 @@ final public class AppSettings {
         // Load paired devices and hosts
         self.pairedViewers = Self.loadCodable(from: preferences, key: Keys.pairedViewers)
         self.pairedHosts = Self.loadCodable(from: preferences, key: Keys.pairedHosts)
+        if
+            let data = preferences.data(Keys.remoteSessionOrderByHost),
+            let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) {
+            self.remoteSessionOrderByHost = decoded.mapValues(RemoteSessionOrder.normalized)
+        }
 
         // Generate device ID if not already set
         if let existingDeviceId = preferences.string(Keys.deviceId) {
@@ -485,14 +502,18 @@ final public class AppSettings {
         }
 
         // Sidebar Layout
-        self.sidebarFields = Self.loadCodable(from: preferences, key: Keys.sidebarFields)
-        if sidebarFields.isEmpty {
-            self.sidebarFields = SidebarField.defaultFields
-        }
-        self.sidebarTerminalFields = Self.loadCodable(from: preferences, key: Keys.sidebarTerminalFields)
-        if sidebarTerminalFields.isEmpty {
-            self.sidebarTerminalFields = SidebarField.defaultTerminalFields
-        }
+        self.sidebarFields = Self.loadSidebarFields(
+            from: preferences,
+            key: .sidebarFields,
+            legacyDefault: [.customDescription, .projectName, .currentPath, .latestEvent],
+            currentDefault: SidebarField.defaultFields
+        )
+        self.sidebarTerminalFields = Self.loadSidebarFields(
+            from: preferences,
+            key: .sidebarTerminalFields,
+            legacyDefault: [.customDescription, .terminalTitle, .currentPath, .command],
+            currentDefault: SidebarField.defaultTerminalFields
+        )
         self.sidebarSortMode = SidebarSortMode(
             rawValue: preferences.string(Keys.sidebarSortMode) ?? ""
         ) ?? .statusPriorityIdleFirst
@@ -539,6 +560,7 @@ final public class AppSettings {
         case fontSize
         case scrollbackLines
         case theme
+        case highlightSelectedSidebarSession
         case appearanceMode
         case openPanesWindowOnLaunch
         case showStatusBar
@@ -560,6 +582,7 @@ final public class AppSettings {
         case externalServerURL
         case pairedViewers = "pairedDevices"
         case pairedHosts
+        case remoteSessionOrderByHost
         case autoConnectToServer
         case deviceId
         case trialAlertsFired
@@ -585,6 +608,7 @@ final public class AppSettings {
         static let fontSize = 12.0
         static let scrollbackLines = 10_000
         static let theme = TerminalTheme.defaultDark
+        static let highlightSelectedSidebarSession = false
         static let appearanceMode = AppearanceMode.system
         static let openPanesWindowOnLaunch = true
         static let showStatusBar = true
@@ -602,8 +626,8 @@ final public class AppSettings {
         static let terminalApp = TerminalApp.terminalApp
         static let customTerminalPath = ""
         // Remote Access
-        static let externalServerURL = "wss://relay.gallager.app"
-        static let autoConnectToServer = true
+        static let externalServerURL = ""
+        static let autoConnectToServer = false
         static let trialAlertsFired: [String] = []
         /// External Editors
         static let hasSeededEditors = false
@@ -635,6 +659,24 @@ final public class AppSettings {
         return (try? JSONDecoder().decode([T].self, from: data)) ?? []
     }
 
+    /// Upgrades only the exact pre-2.8 default preset. A user-created layout,
+    /// including one that intentionally omits the session name, is preserved.
+    private static func loadSidebarFields(
+        from preferences: PreferencesService,
+        key: Keys,
+        legacyDefault: [SidebarField],
+        currentDefault: [SidebarField]
+    ) -> [SidebarField] {
+        let stored: [SidebarField] = loadCodable(from: preferences, key: key)
+        guard !stored.isEmpty else { return currentDefault }
+        guard stored == legacyDefault else { return stored }
+
+        if let data = try? JSONEncoder().encode(currentDefault) {
+            preferences.setData(data, key.rawValue)
+        }
+        return currentDefault
+    }
+
     private func savePairedViewers() {
         guard let data = try? JSONEncoder().encode(pairedViewers) else {
             return
@@ -647,6 +689,13 @@ final public class AppSettings {
             return
         }
         preferences.setData(data, Keys.pairedHosts)
+    }
+
+    private func saveRemoteSessionOrder() {
+        guard let data = try? JSONEncoder().encode(remoteSessionOrderByHost) else {
+            return
+        }
+        preferences.setData(data, Keys.remoteSessionOrderByHost)
     }
 
     private func saveSidebarFields() {
@@ -753,14 +802,17 @@ final public class AppSettings {
 
     /// Add a new paired host (remote host to view)
     public func addHostPairing(_ host: PairedHost) {
-        // Remove any existing pairing with same ID (update case)
-        pairedHosts.removeAll { $0.id == host.id }
-        pairedHosts.append(host)
+        if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+            pairedHosts[index] = host
+        } else {
+            pairedHosts.append(host)
+        }
     }
 
     /// Remove a paired host by ID
     public func removeHostPairing(id: String) {
         pairedHosts.removeAll { $0.id == id }
+        remoteSessionOrderByHost.removeValue(forKey: id)
     }
 
     /// Get a paired host by ID
@@ -775,9 +827,40 @@ final public class AppSettings {
         }
     }
 
+    public func moveHostPairing(sourceID: String, targetID: String) {
+        pairedHosts = RemoteHostOrder.moving(
+            pairedHosts,
+            sourceID: sourceID,
+            targetID: targetID,
+            id: \.id
+        )
+    }
+
     /// Clear all host pairings
     public func clearAllHostPairings() {
         pairedHosts = []
+        remoteSessionOrderByHost = [:]
+    }
+
+    public func remoteSessionOrder(for hostId: String) -> [String] {
+        remoteSessionOrderByHost[hostId] ?? []
+    }
+
+    public func setRemoteSessionOrder(_ sessionNames: [String], for hostId: String) {
+        let normalized = RemoteSessionOrder.normalized(sessionNames)
+        if normalized.isEmpty {
+            remoteSessionOrderByHost.removeValue(forKey: hostId)
+        } else {
+            remoteSessionOrderByHost[hostId] = normalized
+        }
+    }
+
+    public func replaceRemoteSessionName(_ oldName: String, with newName: String, for hostId: String) {
+        guard let current = remoteSessionOrderByHost[hostId] else { return }
+        setRemoteSessionOrder(
+            RemoteSessionOrder.replacing(oldName, with: newName, in: current),
+            for: hostId
+        )
     }
 
     /// Check if any paired hosts have duplicate names (for disambiguation)
@@ -847,4 +930,5 @@ public enum TerminalTheme: String, CaseIterable, Sendable {
     case defaultLight = "Default Light"
     case solarizedDark = "Solarized Dark"
     case solarizedLight = "Solarized Light"
+    case anysphereDark = "Anysphere Dark"
 }

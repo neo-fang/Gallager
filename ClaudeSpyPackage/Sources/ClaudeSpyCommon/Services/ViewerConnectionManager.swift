@@ -13,7 +13,7 @@ import Foundation
 final public class ViewerConnectionManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.viewerconnectionmanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.viewerconnectionmanager")
 
     /// Active connections keyed by pairId
     private var connections: [String: ViewerConnection] = [:]

@@ -49,6 +49,18 @@ struct SessionDetailServiceTests {
         store.session(for: sessionId, hostId: hostId)?.state.openForm
     }
 
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
+    }
+
     private func askUserQuestion() -> AskUserQuestionRequest {
         AskUserQuestionRequest(questions: [
             .init(
@@ -99,6 +111,47 @@ struct SessionDetailServiceTests {
     }
 
     // MARK: - Response State Tests
+
+    @Test("Reply composer trims text and settles before Enter")
+    func replyComposerBuildsSettledSubmission() {
+        #expect(SessionDetailService.replyAfterStopKeystrokes(for: "  keep going  ") == [
+            .text("keep going"), .delay(200), .enter,
+        ])
+    }
+
+    @Test("Empty reply composer input sends Escape")
+    func emptyReplyComposerInterrupts() {
+        #expect(SessionDetailService.replyAfterStopKeystrokes(for: " \n ") == [.escape])
+    }
+
+    @Test("Reply draft clears only after the current command succeeds")
+    func replyDraftFollowsCommandResult() {
+        let request = AgentResponseRequest.replyAfterStop(.init(title: "Reply"))
+        let submitted = ResponseState(request: request, pluginID: "codex", requestID: "reply")
+        let replacement = ResponseState(request: request, pluginID: "codex", requestID: "reply")
+
+        submitted.replyDraft = "retry me"
+        SessionDetailService.finishReplySubmission(
+            succeeded: false,
+            submittedState: submitted,
+            currentState: submitted
+        )
+        #expect(submitted.replyDraft == "retry me")
+
+        SessionDetailService.finishReplySubmission(
+            succeeded: true,
+            submittedState: submitted,
+            currentState: replacement
+        )
+        #expect(submitted.replyDraft == "retry me")
+
+        SessionDetailService.finishReplySubmission(
+            succeeded: true,
+            submittedState: submitted,
+            currentState: submitted
+        )
+        #expect(submitted.replyDraft.isEmpty)
+    }
 
     @Test("Response state is nil when no response form is open")
     func responseStateNilWhenNoOpenRequest() {
@@ -199,6 +252,36 @@ struct SessionDetailServiceTests {
         )
 
         #expect(service.responseState == nil)
+    }
+
+    @Test("A real working transition clears the prior reply draft")
+    func workingTransitionClearsReplyDraft() async {
+        let sessionStore = SessionStore()
+        let relayClient = ViewerRelayClient()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .doneWorking(summary: nil))
+        let service = SessionDetailService(
+            paneId: "%1",
+            hostId: "test-pair",
+            sessionStore: sessionStore,
+            relayClient: relayClient
+        )
+        let priorState = service.responseState
+        let priorViewIdentity = priorState?.viewIdentity
+        priorState?.replyDraft = "continue"
+        // Let the service's observation task register before mutating the store.
+        await Task.yield()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .working)
+        #expect(await waitUntil { service.responseState == nil })
+        #expect(priorState?.replyDraft == "")
+        await Task.yield()
+
+        pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+        #expect(await waitUntil { service.responseState != nil })
+        #expect(service.responseState !== priorState)
+        #expect(service.responseState?.viewIdentity != priorViewIdentity)
+        #expect(service.responseState?.replyDraft == "")
     }
 
     // MARK: - Summary Persistence Tests (Issue #707)
@@ -523,6 +606,27 @@ struct SessionDetailServiceTests {
 
             // Response should be restored from the store
             #expect(service2.responseState?.response == .accepted)
+        }
+
+        @Test("Reply composer discards legacy optimistic feedback")
+        func replyComposerDiscardsLegacyFeedback() {
+            let sessionStore = SessionStore()
+            let relayClient = ViewerRelayClient()
+            let requestId = "test-pair:%1:reply-after-stop"
+
+            sessionStore.setResponse(.promptSubmitted, forRequestID: requestId)
+            pushState(sessionStore, pairId: "test-pair", sessionId: "%1", state: .idle)
+
+            let service = SessionDetailService(
+                paneId: "%1",
+                hostId: "test-pair",
+                sessionStore: sessionStore,
+                relayClient: relayClient
+            )
+
+            #expect(service.responseState?.requestID == requestId)
+            #expect(service.responseState?.response == nil)
+            #expect(sessionStore.response(forRequestID: requestId) == nil)
         }
 
         @Test("Different response types are persisted correctly")

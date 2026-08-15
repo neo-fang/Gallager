@@ -26,7 +26,7 @@
         public let shutdownTimeout: Duration
 
         private var didReply = false
-        private let logger = Logger(label: "com.claudespy.shutdown")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.shutdown")
 
         @Dependency(\.continuousClock) private var clock
 
@@ -41,7 +41,7 @@
         /// which doesn't see Swift default arguments — so we need an explicit
         /// zero-arg initializer.
         public override init() {
-            self.shutdownTimeout = .seconds(3)
+            self.shutdownTimeout = .seconds(5)
             super.init()
         }
 

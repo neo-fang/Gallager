@@ -27,8 +27,11 @@
         /// Whether keyboard input is active on the selected pane
         @State private var isKeyboardActive = false
 
-        /// Tracks keyboard visibility for toolbar icon state
+        /// Tracks keyboard visibility for the bottom input control
         @State private var keyboardVisible = false
+
+        /// Bottom system gesture inset before this view adds its keyboard bar.
+        @State private var bottomSafeAreaInset: CGFloat = 0
 
         /// Service for the active pane's Claude session (nil if no session)
         @State private var activeService: SessionDetailService?
@@ -81,6 +84,16 @@
                 .sorted { $0.windowIndex < $1.windowIndex }
         }
 
+        private var windowSelectionCandidates: [WindowSelectionCandidate] {
+            sessionWindows.map { window in
+                WindowSelectionCandidate(
+                    windowId: window.id,
+                    paneId: window.activePane?.paneId ?? window.panes.first?.paneId,
+                    isActive: window.isWindowActive
+                )
+            }
+        }
+
         /// The current window data from the session store
         private var window: TmuxWindow? {
             if let selectedWindowId {
@@ -90,20 +103,10 @@
             return sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
         }
 
-        /// Navigation title: prefer custom description, then active pane's terminal title, then session name
+        /// The page represents a tmux session, so its renamed identity stays
+        /// visible regardless of description or terminal-title updates.
         private var navigationTitle: String {
-            if let desc = window?.customDescription { return desc }
-            // Use the locally-captured OSC title first (updates in real-time)
-            if let activeId = activePaneId, let title = terminalTitles[activeId] { return title }
-            // For single-pane windows, use that pane's title even if not "active" yet
-            if
-                let panes = window?.panes, panes.count == 1,
-                let pane = panes.first {
-                if let title = terminalTitles[pane.paneId] { return title }
-                // Fall back to the relay-provided terminal title
-                if let title = sessionStore.paneState(for: pane.paneId, hostId: hostId)?.terminalTitle { return title }
-            }
-            return sessionName
+            sessionName
         }
 
         /// Upper bound for the centered title in the navigation bar.
@@ -140,6 +143,21 @@
             // from overflowing behind the bar buttons.
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
                 barWidth = newWidth
+            }
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.safeAreaInsets.bottom
+            } action: { newValue in
+                bottomSafeAreaInset = newValue
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if window != nil, settings.terminalKeyboardControlPosition == .bottomBar {
+                    TerminalKeyboardBar(
+                        keyboardVisible: keyboardVisible,
+                        isEnabled: relayClient.isHostConnected && activePaneId != nil,
+                        bottomSafeAreaInset: bottomSafeAreaInset,
+                        action: { isKeyboardActive.toggle() }
+                    )
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -228,20 +246,23 @@
                         .frame(maxWidth: principalTitleMaxWidth)
                     }
                 }
+                if settings.terminalKeyboardControlPosition == .topRight {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            isKeyboardActive.toggle()
+                        } label: {
+                            Label(
+                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
+                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
+                            )
+                        }
+                        .disabled(!relayClient.isHostConnected || activePaneId == nil)
+                    }
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
-                            Button {
-                                isKeyboardActive.toggle()
-                            } label: {
-                                Label(
-                                    keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                    symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                                )
-                            }
-                            .disabled(!relayClient.isHostConnected)
-                            .tint(nil)
-
                             Button {
                                 let newValue = !activeService.isYoloModeEnabled
                                 Task {
@@ -267,18 +288,6 @@
                         .popover(isPresented: $showSessionInfo) {
                             sessionInfoPopover
                         }
-                    }
-                } else {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isKeyboardActive.toggle()
-                        } label: {
-                            Label(
-                                keyboardVisible ? "Hide Keyboard" : "Show Keyboard",
-                                symbol: keyboardVisible ? .keyboardChevronCompactDown : .keyboard
-                            )
-                        }
-                        .disabled(!relayClient.isHostConnected)
                     }
                 }
             }
@@ -348,19 +357,17 @@
                 Text("Enter a new name for this window")
             }
             .task {
-                // Default to the active window in the session
-                if selectedWindowId == nil {
-                    selectedWindowId = window?.id
-                }
-                // Default to the active pane (or first pane) on appear
-                if activePaneId == nil, let window {
-                    activePaneId = window.activePane?.paneId ?? window.panes.first?.paneId
-                }
                 updateActiveService()
                 // Mark session as handled when navigating into the view
                 await activeService?.markHandledIfNeeded()
             }
-            .onChange(of: activeService?.session?.needsAttention) {
+            .task(id: windowSelectionCandidates) {
+                reconcileWindowSelection(candidates: windowSelectionCandidates)
+            }
+            .onChange(of: activeService?.session?.state) {
+                if activeSessionHasBlockingForm {
+                    isKeyboardActive = false
+                }
                 if activeService?.session?.needsAttention == true {
                     Task { await activeService?.markHandledIfNeeded() }
                 }
@@ -387,19 +394,21 @@
                     await sendCommand(.selectTmuxPane, paneId: newValue)
                 }
             }
-            .onChange(of: sessionWindows.map(\.id)) { _, newWindowIds in
-                guard let selectedWindowId else { return }
-                // If the selected window was removed, switch to another or dismiss
-                if !newWindowIds.contains(selectedWindowId) {
-                    let windows = sessionWindows
-                    if let next = windows.first(where: \.isWindowActive) ?? windows.first {
-                        self.selectedWindowId = next.id
-                        activePaneId = next.activePane?.paneId ?? next.panes.first?.paneId
-                    } else {
-                        // Session is gone — navigate back to the session list
-                        dismiss()
-                    }
-                }
+        }
+
+        private func reconcileWindowSelection(candidates: [WindowSelectionCandidate]) {
+            let decision = WindowSelectionReconciliation.resolve(
+                selectedWindowId: selectedWindowId,
+                candidates: candidates
+            )
+
+            switch decision {
+            case .unchanged:
+                return
+
+            case let .select(windowId, paneId):
+                selectedWindowId = windowId
+                activePaneId = paneId
             }
         }
 
@@ -407,9 +416,13 @@
             VStack(spacing: 0) {
                 // Response view for active pane's Claude session (full width, above layout)
                 if
-                    !isKeyboardActive,
                     let activeService,
-                    let responseState = activeService.responseState {
+                    let responseState = activeService.responseState,
+                    AgentInputPresentation.showsResponseForm(
+                        isBlocking: responseState.request.isBlocking,
+                        quickInputEnabled: settings.agentQuickInputEnabled,
+                        keyboardActive: isKeyboardActive
+                    ) {
                     responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
                         submit: { response in
@@ -423,10 +436,9 @@
                     )
                     .padding()
                     .background(Color(.systemGroupedBackground))
-                    // Force a fresh view identity per request so per-request
-                    // @State (e.g. AskUserQuestion's collected answers) is
-                    // discarded when a new request replaces the prior one.
-                    .id(responseState.requestID)
+                    // Preserve blocking forms for their request lifetime, but
+                    // give each synthesized reply turn a fresh TextField.
+                    .id(responseState.viewIdentity)
 
                     Divider()
                 }
@@ -552,6 +564,7 @@
                 isConnected: relayClient.isHostConnected,
                 hideNavigationBar: false,
                 showKeyboardButton: false,
+                showCopyButton: pane.paneId == activePaneId,
                 isActive: pane.paneId == activePaneId && isKeyboardActive,
                 settings: settings,
                 telemetry: pane.telemetry,
@@ -630,6 +643,10 @@
         }
 
         // MARK: - Active Pane Service
+
+        private var activeSessionHasBlockingForm: Bool {
+            activeService?.session?.state.openForm?.request.isBlocking == true
+        }
 
         /// Creates or clears the SessionDetailService when the active pane changes
         private func updateActiveService() {
@@ -749,7 +766,9 @@
             Task {
                 let spec = KillTmuxSession(sessionName: sessionName)
                 let result = await relayClient.sendCommand(spec, paneId: "")
-                if case let .failure(error) = result {
+                if case .success = result {
+                    dismiss()
+                } else if case let .failure(error) = result {
                     commandError = error.localizedDescription
                 }
             }

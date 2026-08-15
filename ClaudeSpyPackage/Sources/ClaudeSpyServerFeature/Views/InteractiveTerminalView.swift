@@ -7,8 +7,15 @@
 
     // MARK: - Focus Border Overlay
 
-    /// Provides a subtle border highlight when the terminal has keyboard focus.
+    /// Provides a focus highlight when multiple terminal panes share a window.
     final private class FocusBorderView: NSView {
+        var showsIndicator = false {
+            didSet {
+                guard showsIndicator != oldValue else { return }
+                needsDisplay = true
+            }
+        }
+
         var isFocused = false {
             didSet {
                 guard isFocused != oldValue else { return }
@@ -27,7 +34,7 @@
         }
 
         override func draw(_ dirtyRect: NSRect) {
-            guard isFocused else { return }
+            guard showsIndicator, isFocused else { return }
 
             let borderColor = NSColor.controlAccentColor.withAlphaComponent(0.6)
             borderColor.setStroke()
@@ -39,6 +46,29 @@
     }
 
     // MARK: - Scroll Event Overlay
+
+    struct TerminalLinkGestureState {
+        private(set) var didDrag = false
+
+        /// Starts a new click sequence. A click count above one means a
+        /// previously staged single-click action belongs to this same sequence
+        /// and must be cancelled.
+        mutating func mouseDown(clickCount: Int) -> Bool {
+            didDrag = false
+            return clickCount > 1
+        }
+
+        mutating func mouseDragged() {
+            didDrag = true
+        }
+
+        /// Returns whether this completed gesture can stage a link activation,
+        /// then resets the drag state for every mouse-up return path.
+        mutating func mouseUp(clickCount: Int) -> Bool {
+            defer { didDrag = false }
+            return clickCount == 1 && !didDrag
+        }
+    }
 
     /// Intercepts events: horizontal scrolls handled here, vertical/mouse forwarded to terminal.
     final private class ScrollEventOverlay: NSView {
@@ -60,6 +90,9 @@
         /// Last terminal cell that generated a drag SGR sequence.
         /// Used to suppress redundant events when the cursor stays in the same cell.
         private var lastDragPosition: (col: Int, row: Int)?
+
+        private var linkGesture = TerminalLinkGestureState()
+        private var pendingLinkActivationTask: Task<Void, Never>?
 
         override var acceptsFirstResponder: Bool {
             false
@@ -165,6 +198,11 @@
         }
 
         override func mouseDown(with event: NSEvent) {
+            lastDragPosition = nil
+            if linkGesture.mouseDown(clickCount: event.clickCount) {
+                cancelPendingLinkActivation()
+            }
+
             // In mouse mode, suppress the press if it lands on a URL we'd
             // intercept in `mouseUp` (file/http/https/ftp). Otherwise SwiftTerm
             // forwards a mouse-press SGR sequence to the terminal app (e.g.
@@ -187,6 +225,8 @@
         }
 
         override func mouseDragged(with event: NSEvent) {
+            linkGesture.mouseDragged()
+
             // When mouse mode is active, synthesize SGR drag (motion) escape
             // sequences ourselves. SwiftTerm only emits motion events for
             // .anyEvent mode (1003), silently dropping them for
@@ -225,18 +265,19 @@
         }
 
         override func mouseUp(with event: NSEvent) {
-            lastDragPosition = nil
+            let shouldActivateLink = linkGesture.mouseUp(clickCount: event.clickCount)
+            defer { lastDragPosition = nil }
 
-            if let interactive = interactiveView {
+            if shouldActivateLink, let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
-                // Intercept the same scheme set in both modes: in mouse mode
-                // the matching `mouseDown` carve-out has already suppressed
-                // the press for these URLs, so the TUI app never saw the
-                // click. Routing through `handleURLClick` then `onOpenURL`
-                // gives the host's `browserLinkBehavior` policy authority
-                // over OSC 8 hyperlinks rendered by TUIs like Claude Code.
                 let allowed = TerminalURLDetector.defaultAllowedSchemes.union(["file"])
-                if interactive.handleURLClick(at: point, allowedSchemes: allowed) {
+                if let url = interactive.url(at: point, allowedSchemes: allowed) {
+                    // The first mouse-up of a double or triple click also has
+                    // clickCount == 1. Stage the action for the system's own
+                    // double-click interval; the next mouse-down cancels it.
+                    // This keeps link clicks working without stealing word/row
+                    // selection gestures.
+                    scheduleLinkActivation(url, in: interactive)
                     return
                 }
             }
@@ -256,6 +297,25 @@
                 interactive.autoCopyOnSelect,
                 interactive.getSelectedTextTrimmed() != nil {
                 interactive.copySelectionToClipboard()
+            }
+        }
+
+        private func cancelPendingLinkActivation() {
+            pendingLinkActivationTask?.cancel()
+            pendingLinkActivationTask = nil
+        }
+
+        private func scheduleLinkActivation(_ url: URL, in interactive: InteractiveTerminalView) {
+            cancelPendingLinkActivation()
+            pendingLinkActivationTask = Task { @MainActor [weak self, weak interactive] in
+                do {
+                    try await Task.sleep(for: .seconds(NSEvent.doubleClickInterval))
+                } catch {
+                    return
+                }
+                guard let self, let interactive else { return }
+                self.pendingLinkActivationTask = nil
+                interactive.openURL(url)
             }
         }
 
@@ -318,7 +378,7 @@
     /// - Implements `TerminalViewDelegate` to capture typed characters
     /// - Converts raw bytes to `TmuxKey` representations for relay transmission
     /// - Preserves scroll position when new content arrives
-    /// - Shows subtle border highlight when focused
+    /// - Shows a focus highlight only when multiple panes share a window
     /// - Supports horizontal scrolling for wide terminals
     /// - Detects plain-text URLs: Cmd+hover highlights, Cmd+click opens in browser
     final class InteractiveTerminalView: NSView {
@@ -361,6 +421,7 @@
 
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
+        private var lastReportedTitle: String?
 
         /// Callback invoked when the user clicks a URL in the terminal. The
         /// callback should return `true` if it handled the URL (and the
@@ -372,6 +433,14 @@
         /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
         /// Used in multi-pane layouts where multiple terminals share one window.
         var autoFocusEnabled = true
+
+        /// Whether keyboard focus should be drawn around this terminal.
+        /// Enabled only when multiple panes share a window.
+        var showsFocusIndicator = false {
+            didSet {
+                focusBorderView?.showsIndicator = showsFocusIndicator
+            }
+        }
 
         /// Fires whenever this view becomes the window's first responder
         /// (mouse click, programmatic, tabbing). Used to propagate focus back
@@ -391,7 +460,13 @@
 
         /// When true, a prompt editor overlay is active above this terminal.
         /// Keyboard events and auto-focus are suppressed so the editor gets input.
-        var isEditorActive = false
+        var isEditorActive = false {
+            didSet {
+                if isEditorActive {
+                    isFocused = false
+                }
+            }
+        }
 
         // URL detection state
         private var isOverURL = false
@@ -399,13 +474,37 @@
         private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
         private var urlHighlightLayer: CALayer?
         private var urlUnderlineLayers: [CALayer] = []
+        private var urlRowCache = TerminalURLRowCache()
         private var cachedCellSize: CGSize?
         private var lastMouseGridPosition: (col: Int, row: Int)?
+
+        private struct URLUnderlineLayoutSignature: Equatable {
+            let columns: Int
+            let rows: Int
+            let displayRow: Int
+            let cellSize: CGSize
+            let terminalFrame: CGRect
+            let boundsSize: CGSize
+            let horizontalOffset: CGFloat
+            let mouseModeActive: Bool
+        }
 
         /// OSC 8 hyperlink payload cache, mirrored from SwiftTerm cells before
         /// we clear them to suppress SwiftTerm's own dashed underline rendering.
         /// See `TerminalPayloadCache` for the full rationale.
         private let payloadCache = TerminalPayloadCache()
+        private static let urlUnderlineRefreshInterval = Duration.milliseconds(100)
+        private var urlContentGeneration: UInt64 = 0
+        private var renderedURLContentGeneration: UInt64?
+        private var renderedURLLayoutSignature: URLUnderlineLayoutSignature?
+        private var urlUnderlineUpdateTask: Task<Void, Never>?
+
+        /// ANSI base colors used when copying terminal content as rich text.
+        /// Updated together with SwiftTerm by `applyTheme(_:)`.
+        private var richCopyANSIColors = TerminalTheme.defaultDark.palette.nativeANSIColors
+
+        /// Avoids forcing a full SwiftTerm redraw on unrelated SwiftUI updates.
+        private var appliedTheme: TerminalTheme?
 
         private var isFocused = false {
             didSet {
@@ -415,6 +514,7 @@
 
         /// Using nonisolated(unsafe) for notification observer cleanup in deinit
         private nonisolated(unsafe) var windowObservers: [any NSObjectProtocol] = []
+        private nonisolated(unsafe) var keyEventMonitor: Any?
 
         override init(frame: NSRect) {
             self.terminalView = TerminalView(frame: NSRect(origin: .zero, size: frame.size))
@@ -440,6 +540,9 @@
             for observer in windowObservers {
                 NotificationCenter.default.removeObserver(observer)
             }
+            if let keyEventMonitor {
+                NSEvent.removeMonitor(keyEventMonitor)
+            }
         }
 
         // MARK: - Setup
@@ -453,7 +556,7 @@
                 self?.scrollHorizontally(by: delta)
             }
             overlay.onMouseDown = { [weak self] in
-                self?.window?.makeFirstResponder(self)
+                self?.focusTerminal()
             }
             overlay.onMouseMoved = { [weak self] event in
                 self?.handleMouseMoved(event)
@@ -493,6 +596,7 @@
         private func setupFocusBorder() {
             let borderView = FocusBorderView(frame: bounds)
             borderView.autoresizingMask = [.width, .height]
+            borderView.showsIndicator = showsFocusIndicator
             addSubview(borderView)
             focusBorderView = borderView
         }
@@ -508,24 +612,52 @@
         // MARK: - First Responder
 
         override var acceptsFirstResponder: Bool {
-            true
+            false
         }
 
-        override func becomeFirstResponder() -> Bool {
-            isFocused = true
-            // Drive TerminalView's hasFocus so CaretView renders as filled cursor
-            // with the correct DECSCUSR style (block/bar/underline). Without this,
-            // the caret draws as a hollow rectangle since TerminalView itself never
-            // becomes first responder.
-            terminalView.hasFocus = true
+        @discardableResult
+        func focusTerminal() -> Bool {
+            guard let window, window.makeFirstResponder(terminalView) else { return false }
+            if let contentView = window.contentView {
+                updateFocusBorders(in: contentView)
+            }
             onBecomeFirstResponder?()
-            return super.becomeFirstResponder()
+            return true
         }
 
-        override func resignFirstResponder() -> Bool {
-            isFocused = false
-            terminalView.hasFocus = false
-            return super.resignFirstResponder()
+        private func updateFocusBorders(in view: NSView) {
+            if let terminal = view as? InteractiveTerminalView {
+                terminal.isFocused = terminal === self
+            }
+            for subview in view.subviews {
+                updateFocusBorders(in: subview)
+            }
+        }
+
+        private func interceptTerminalKeyDown(_ event: NSEvent) -> Bool {
+            guard
+                !isEditorActive,
+                event.window === window,
+                window?.firstResponder === terminalView
+            else { return false }
+
+            // SwiftTerm's legacy keyDown path dispatches both Enter and
+            // Shift+Enter through `insertNewline:`, collapsing the modifier
+            // to plain `\r`. SwiftTerm only preserves the modifier when the
+            // inner app pushes kitty mode, which can't happen here because
+            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
+            let returnChars: Set = ["\r", "\u{3}"]
+            guard
+                let chars = event.charactersIgnoringModifiers,
+                returnChars.contains(chars)
+            else { return false }
+
+            let activeModifiers = event.modifierFlags
+                .intersection([.shift, .control, .option, .command])
+            guard activeModifiers == .shift else { return false }
+
+            onInput?([.shiftEnter])
+            return true
         }
 
         override func viewDidMoveToWindow() {
@@ -536,8 +668,17 @@
                 NotificationCenter.default.removeObserver(observer)
             }
             windowObservers.removeAll()
+            if let keyEventMonitor {
+                NSEvent.removeMonitor(keyEventMonitor)
+                self.keyEventMonitor = nil
+            }
 
             guard let window else { return }
+
+            keyEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self else { return event }
+                return self.interceptTerminalKeyDown(event) ? nil : event
+            }
 
             // Auto-focus when added to a window (disabled in multi-pane layouts
             // where multiple terminals share one window to avoid focus fighting,
@@ -545,7 +686,7 @@
             if autoFocusEnabled, !isEditorActive {
                 Task { [weak self] in
                     guard let self else { return }
-                    self.window?.makeFirstResponder(self)
+                    self.focusTerminal()
                 }
             }
 
@@ -566,15 +707,16 @@
                         // overriding the user's explicit click.
                         let currentResponder = window.firstResponder
                         let siblingHasFocus =
-                            currentResponder !== self &&
-                            currentResponder is InteractiveTerminalView
+                            currentResponder !== self.terminalView &&
+                            currentResponder is TerminalView
                         if !siblingHasFocus {
-                            window.makeFirstResponder(self)
+                            self.focusTerminal()
                         }
                     }
                     // If we're already first responder, restore cursor appearance
-                    if window.firstResponder === self {
+                    if window.firstResponder === self.terminalView {
                         self.terminalView.hasFocus = true
+                        self.isFocused = true
                     }
                 }
             })
@@ -587,6 +729,7 @@
             ) { [weak self] _ in
                 Task { @MainActor in
                     self?.terminalView.hasFocus = false
+                    self?.isFocused = false
                 }
             })
         }
@@ -618,7 +761,11 @@
             let baseFont = terminalView.font as NSFont
             let defaultFg = terminalView.nativeForegroundColor
             let defaultBg = terminalView.nativeBackgroundColor
-            let colorMapper = TerminalColorMapper(defaultFg: defaultFg, defaultBg: defaultBg)
+            let colorMapper = TerminalColorMapper(
+                defaultFg: defaultFg,
+                defaultBg: defaultBg,
+                base16: richCopyANSIColors
+            )
             let fontMapper = TerminalFontMapper(base: baseFont)
 
             // Build attributed string for all visible rows.
@@ -979,7 +1126,7 @@
             // returns true consumes the event. In a multi-pane layout, that means
             // any sibling pane could claim Cmd+V or Cmd+C and route input to the
             // wrong tmux target. Only act when this pane actually has focus.
-            guard isFocused else { return false }
+            guard window?.firstResponder === terminalView else { return false }
 
             guard event.modifierFlags.contains(.command) else {
                 return false
@@ -1074,29 +1221,6 @@
             onFileDrop?(urls)
         }
 
-        override func keyDown(with event: NSEvent) {
-            guard !isEditorActive else { return }
-
-            // SwiftTerm's legacy keyDown path dispatches both Enter and
-            // Shift+Enter through `insertNewline:`, collapsing the modifier
-            // to plain `\r`. SwiftTerm only preserves the modifier when the
-            // inner app pushes kitty mode, which can't happen here because
-            // the inner app talks to tmux's PTY, not directly to SwiftTerm.
-            // Intercept and route as `.shiftEnter` so tmux delivers the
-            // proper extended-key sequence to the pane.
-            let returnChars: Set = ["\r", "\u{3}"]
-            if let chars = event.charactersIgnoringModifiers, returnChars.contains(chars) {
-                let activeModifiers = event.modifierFlags
-                    .intersection([.shift, .control, .option, .command])
-                if activeModifiers == .shift {
-                    onInput?([.shiftEnter])
-                    return
-                }
-            }
-
-            terminalView.keyDown(with: event)
-        }
-
         // MARK: - URL Detection
 
         /// Bridges SwiftTerm's `Terminal` to the closures expected by `TerminalURLDetector`.
@@ -1114,8 +1238,8 @@
             )
         }
 
-        private func extractAndClearPayloads() {
-            payloadCache.extractAndClear(from: terminalView.getTerminal())
+        private func extractAndClearPayloads(afterFeeding bytes: ArraySlice<UInt8>) {
+            payloadCache.update(from: terminalView.getTerminal(), afterFeeding: bytes)
         }
 
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
@@ -1284,36 +1408,30 @@
             }
         }
 
-        /// Called by the scroll overlay on click — opens URL if one is at the click position.
+        /// Resolves a URL under the given terminal point without opening it.
         ///
         /// In normal mode `allowedSchemes` is the union of the default
         /// http/https/ftp set plus `file://`, so OSC 8 file links from the
-        /// local terminal are routed through `onOpenURL` and open as an
-        /// in-app file tab. In mouse mode the caller passes `["file"]` so
-        /// only file links are intercepted; all other URLs fall through to
-        /// the terminal app.
+        /// local terminal can be routed through `onOpenURL` and open as an
+        /// in-app file tab. Mouse mode uses the same set so TUI applications
+        /// cannot race the configured browser-link policy.
         ///
         /// `TerminalURLDetector` still rejects `file://` by default for the
         /// hover/highlight rendering path (which can run against remote panes
         /// where opening local files would be unsafe).
-        fileprivate func handleURLClick(at point: NSPoint, allowedSchemes: Set<String>) -> Bool {
-            guard let pos = gridPosition(for: point) else { return false }
+        fileprivate func url(at point: NSPoint, allowedSchemes: Set<String>) -> URL? {
+            guard let pos = gridPosition(for: point) else { return nil }
             let terminal = terminalView.getTerminal()
             let closures = urlClosures(for: terminal)
-            if
-                let url = TerminalURLDetector.urlAt(
-                    col: pos.col,
-                    row: pos.row,
-                    cols: terminal.cols,
-                    lineText: closures.lineText,
-                    cellPayload: closures.cellPayload,
-                    allowedSchemes: allowedSchemes
-                ),
-                let nsURL = URL(string: url) {
-                openURL(nsURL)
-                return true
-            }
-            return false
+            guard let url = TerminalURLDetector.urlAt(
+                col: pos.col,
+                row: pos.row,
+                cols: terminal.cols,
+                lineText: closures.lineText,
+                cellPayload: closures.cellPayload,
+                allowedSchemes: allowedSchemes
+            ) else { return nil }
+            return URL(string: url)
         }
 
         /// Whether the given point lies on a URL we want to intercept (any of
@@ -1326,24 +1444,14 @@
             at point: NSPoint,
             allowedSchemes: Set<String>
         ) -> Bool {
-            guard let pos = gridPosition(for: point) else { return false }
-            let terminal = terminalView.getTerminal()
-            let closures = urlClosures(for: terminal)
-            return TerminalURLDetector.urlAt(
-                col: pos.col,
-                row: pos.row,
-                cols: terminal.cols,
-                lineText: closures.lineText,
-                cellPayload: closures.cellPayload,
-                allowedSchemes: allowedSchemes
-            ) != nil
+            url(at: point, allowedSchemes: allowedSchemes) != nil
         }
 
         /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
         /// back to the `URLOpener` dependency (`NSWorkspace.shared.open` in
         /// production, a file-backed log in E2E tests) when the callback is
         /// absent or declines to handle the URL.
-        private func openURL(_ url: URL) {
+        fileprivate func openURL(_ url: URL) {
             if onOpenURL?(url) == true { return }
             @Dependency(URLOpener.self) var urlOpener
             urlOpener.openInDefaultBrowser(url)
@@ -1366,7 +1474,15 @@
         /// next layout pass (`rangeChanged`/`scrolled`), unlike iOS which
         /// repaints immediately. In practice TUIs always redraw when toggling
         /// mouse tracking, so the latency isn't user-visible.
-        private func updateURLUnderlines() {
+        private func updateURLUnderlinesIfNeeded() {
+            let terminal = terminalView.getTerminal()
+            let signature = currentURLUnderlineLayoutSignature
+            let contentNeedsRefresh = renderedURLContentGeneration != urlContentGeneration
+            let layoutNeedsRefresh = renderedURLLayoutSignature != signature
+            guard contentNeedsRefresh || layoutNeedsRefresh else { return }
+            renderedURLContentGeneration = urlContentGeneration
+            renderedURLLayoutSignature = signature
+
             for layer in urlUnderlineLayers {
                 layer.removeFromSuperlayer()
             }
@@ -1374,20 +1490,28 @@
 
             if isMouseModeActive { return }
 
-            let terminal = terminalView.getTerminal()
             guard cellSize.width > 0, cellSize.height > 0 else { return }
+            urlRowCache.retainViewportRows(in: 0..<terminal.rows)
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
             let closures = urlClosures(for: terminal)
             for row in 0..<terminal.rows {
-                let urls = TerminalURLDetector.detectURLs(
-                    row: row,
-                    cols: terminal.cols,
-                    lineText: closures.lineText,
-                    cellPayload: closures.cellPayload
-                )
+                guard let line = terminal.getLine(row: row) else { continue }
+                let urls = urlRowCache.urls(
+                    forViewportRow: row,
+                    absoluteRow: terminal.buffer.yDisp + row,
+                    line: line,
+                    cols: terminal.cols
+                ) {
+                    TerminalURLDetector.detectURLs(
+                        row: row,
+                        cols: terminal.cols,
+                        lineText: closures.lineText,
+                        cellPayload: closures.cellPayload
+                    )
+                }
                 for url in urls {
                     let x = CGFloat(url.startCol) * cellSize.width - horizontalOffset
                     // Position underline near cell bottom (NSView: origin at bottom-left)
@@ -1403,6 +1527,43 @@
             }
 
             CATransaction.commit()
+        }
+
+        /// Terminal output changes link decorations, not view geometry. Scheduling
+        /// the scan directly avoids turning every output chunk into a full AppKit /
+        /// SwiftUI layout pass while still coalescing bursts on the main run loop.
+        private func scheduleURLUnderlineUpdate(contentChanged: Bool = false) {
+            if contentChanged {
+                urlContentGeneration &+= 1
+            }
+            guard urlUnderlineUpdateTask == nil else { return }
+            let contentNeedsRefresh = renderedURLContentGeneration != urlContentGeneration
+            let layoutNeedsRefresh = renderedURLLayoutSignature != currentURLUnderlineLayoutSignature
+            guard contentNeedsRefresh || layoutNeedsRefresh else { return }
+            urlUnderlineUpdateTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: Self.urlUnderlineRefreshInterval)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                self.urlUnderlineUpdateTask = nil
+                self.updateURLUnderlinesIfNeeded()
+            }
+        }
+
+        private var currentURLUnderlineLayoutSignature: URLUnderlineLayoutSignature {
+            let terminal = terminalView.getTerminal()
+            return URLUnderlineLayoutSignature(
+                columns: terminal.cols,
+                rows: terminal.rows,
+                displayRow: terminal.buffer.yDisp,
+                cellSize: cellSize,
+                terminalFrame: terminalView.frame,
+                boundsSize: bounds.size,
+                horizontalOffset: horizontalOffset,
+                mouseModeActive: isMouseModeActive
+            )
         }
 
         // MARK: - Horizontal Scrolling
@@ -1439,6 +1600,7 @@
             var frame = terminalView.frame
             frame.origin.x = -horizontalOffset
             terminalView.frame = frame
+            scheduleURLUnderlineUpdate()
         }
 
         private func updateHorizontalScroller() {
@@ -1477,6 +1639,7 @@
                 updateTerminalPosition()
             }
             updateHorizontalScroller()
+            scheduleURLUnderlineUpdate()
         }
 
         // MARK: - Layout
@@ -1496,7 +1659,7 @@
                 terminalView.frame.origin.y = bounds.height - terminalView.frame.size.height
             }
             updateHorizontalScroller()
-            updateURLUnderlines()
+            scheduleURLUnderlineUpdate()
             onResize?(frame.size)
         }
 
@@ -1507,12 +1670,24 @@
             set {
                 terminalView.font = newValue
                 cachedCellSize = nil
+                scheduleURLUnderlineUpdate()
             }
         }
 
         var customBlockGlyphs: Bool {
             get { terminalView.customBlockGlyphs }
             set { terminalView.customBlockGlyphs = newValue }
+        }
+
+        func applyTheme(_ theme: TerminalTheme) {
+            guard appliedTheme != theme else { return }
+
+            let palette = theme.palette
+            terminalView.installColors(palette.swiftTermANSIColors)
+            nativeForegroundColor = palette.foreground.nativeColor
+            nativeBackgroundColor = palette.background.nativeColor
+            richCopyANSIColors = palette.nativeANSIColors
+            appliedTheme = theme
         }
 
         var nativeForegroundColor: NSColor {
@@ -1558,8 +1733,8 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
-            extractAndClearPayloads()
-            needsLayout = true
+            extractAndClearPayloads(afterFeeding: byteArray)
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -1569,11 +1744,11 @@
             // - Position <= 0.001 (no scrollback yet, or at very top)
             let wasAtExtreme = savedPosition >= 0.999 || savedPosition <= 0.001
             terminalView.feed(byteArray: bytes)
-            extractAndClearPayloads()
+            extractAndClearPayloads(afterFeeding: bytes)
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
-            needsLayout = true
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func scroll(toPosition position: Double) {
@@ -1622,11 +1797,14 @@
         }
 
         func scrolled(source: TerminalView, position: Double) {
-            needsLayout = true
+            scheduleURLUnderlineUpdate()
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
-            onTitleChange?(title)
+            let stableTitle = TerminalTitleStabilizer.stabilize(title)
+            guard stableTitle != lastReportedTitle else { return }
+            lastReportedTitle = stableTitle
+            onTitleChange?(stableTitle)
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
@@ -1667,7 +1845,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            needsLayout = true
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {
@@ -1686,10 +1864,10 @@
         let defaultBg: NSColor
         private let palette: [NSColor]
 
-        init(defaultFg: NSColor, defaultBg: NSColor) {
+        init(defaultFg: NSColor, defaultBg: NSColor, base16: [NSColor]) {
             self.defaultFg = defaultFg
             self.defaultBg = defaultBg
-            self.palette = Self.buildPalette()
+            self.palette = Self.buildPalette(base16: base16)
         }
 
         func mapColor(_ color: Attribute.Color, isFg: Bool, isBold: Bool) -> NSColor {
@@ -1712,19 +1890,9 @@
             }
         }
 
-        /// Builds the standard 256-color ANSI palette (matching SwiftTerm's terminalAppColors default).
-        private static func buildPalette() -> [NSColor] {
-            // First 16: SwiftTerm's terminalAppColors
-            let base16: [(UInt8, UInt8, UInt8)] = [
-                (0, 0, 0), (194, 54, 33), (37, 188, 36), (173, 173, 39),
-                (73, 46, 225), (211, 56, 211), (51, 187, 200), (203, 204, 205),
-                (129, 131, 131), (252, 57, 31), (49, 231, 34), (234, 236, 35),
-                (88, 51, 255), (249, 53, 248), (20, 240, 240), (233, 235, 235),
-            ]
-
-            var colors: [NSColor] = base16.map { r, g, b in
-                NSColor(srgbRed: CGFloat(r) / 255, green: CGFloat(g) / 255, blue: CGFloat(b) / 255, alpha: 1)
-            }
+        /// Builds the 256-color ANSI palette from the selected theme's base colors.
+        private static func buildPalette(base16: [NSColor]) -> [NSColor] {
+            var colors = base16
 
             // 216 color cube (indices 16-231)
             let v: [CGFloat] = [0x00, 0x5F, 0x87, 0xAF, 0xD7, 0xFF].map { CGFloat($0) / 255 }

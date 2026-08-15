@@ -9,7 +9,7 @@ import Logging
 public actor TmuxCommandExecutor {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.commandexecutor")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.commandexecutor")
     private let tmuxService: TmuxService
 
     // MARK: - Initialization
@@ -65,6 +65,7 @@ public actor TmuxCommandExecutor {
                  .createTmuxWindow,
                  .setYoloMode,
                  .markHandled,
+                 .renameTmuxSession,
                  .setSessionDescription,
                  .setSessionColor,
                  .setSessionEmoji,

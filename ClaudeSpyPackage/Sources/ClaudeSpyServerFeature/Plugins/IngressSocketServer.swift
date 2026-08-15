@@ -21,7 +21,7 @@
         /// Resolve the enabled core for a `pluginID` (the registry's `core(_:)`).
         public typealias CoreLookup = @Sendable (_ pluginID: String) async -> (any PluginCore)?
 
-        private let logger = Logger(label: "com.claudespy.ingress-socket")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.ingress-socket")
         private let socketPath: String
         private let coreLookup: CoreLookup
         private let dispatcher: PluginEventDispatcher

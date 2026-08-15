@@ -185,7 +185,7 @@ struct PromptEditorOverrideSection: View {
             Text("Prompt editor (Ctrl-G)")
                 .font(.headline)
 
-            Text("Gallager points $VISUAL at its in-app prompt editor so Ctrl-G in Claude Code / Codex edits prompts inside Gallager. If your shell config sets VISUAL, it overrides this in Gallager's sessions.")
+            Text("CtrlX points $VISUAL at its in-app prompt editor so Ctrl-G in Claude Code / Codex edits prompts inside CtrlX. If your shell config sets VISUAL, it overrides this in CtrlX sessions.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -224,7 +224,7 @@ struct PromptEditorOverrideSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             case .intact:
-                Label("Gallager's editor is active in sessions", symbol: .checkmarkCircle)
+                Label("CtrlX's editor is active in sessions", symbol: .checkmarkCircle)
                     .font(.caption)
                     .foregroundStyle(.green)
             case .skipped:
@@ -236,7 +236,7 @@ struct PromptEditorOverrideSection: View {
                     .foregroundStyle(.secondary)
             case let .conflict(value):
                 Label(
-                    "Your shell sets VISUAL=\(value ?? "(unset)"), overriding Gallager",
+                    "Your shell sets VISUAL=\(value ?? "(unset)"), overriding CtrlX",
                     symbol: .exclamationmarkTriangle
                 )
                 .font(.caption)

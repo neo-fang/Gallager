@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Must match the value declared in the `com.apple.security.application-groups`
 /// entitlement of every target that needs access to the shared container.
-public let sharedAppGroupIdentifier = "group.br.eng.gustavo.claudespy"
+public let sharedAppGroupIdentifier = "group.com.jicezeng.ctrlx"
 
 /// Mirrors a `pairId → display name` mapping into App Group `UserDefaults` so the
 /// Notification Service Extension can label notifications by the host that sent them.

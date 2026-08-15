@@ -52,13 +52,13 @@ public enum TabReorderScenario {
         TestStep.wait(seconds: 1)
 
         // Give both sessions a stable custom title — same mechanism the CLI uses
-        // (`gallager set-title` / `new-session --title`), persisted as the
-        // `@gallager-description` tmux user option. This drives the window title
+        // (`ctrlx set-title` / `new-session --title`), persisted as the
+        // `@ctrlx-description` tmux user option. This drives the window title
         // bar and the sidebar primary label, so neither falls back to the
         // working-directory path (which varies by checkout folder). Set before
         // the app launches so the first session read already sees the titles.
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder:", "@gallager-description", "Tab Reorder"])
-        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder-other:", "@gallager-description", "Tab Reorder Other"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder:", "@ctrlx-description", "Tab Reorder"])
+        TestStep.tmuxCommand(arguments: ["set-option", "-t", "=tabreorder-other:", "@ctrlx-description", "Tab Reorder Other"])
 
         // ── Launch app ────────────────────────────────────────────────
         Shortcut.macOnlySetup
@@ -76,13 +76,38 @@ public enum TabReorderScenario {
         TestStep.macWaitForElement(titled: "winC", timeout: 10)
         TestStep.macScreenshot(label: "mac-tabreorder-initial")
 
-        // ── Phase 1: "+" menu offers New Terminal and New Browser ─────
+        // ── Phase 1: Pure-terminal drag persists to tmux ──────────
+        // This must run before opening a Browser/File tab: those features
+        // materialise SessionFileTabsState and previously masked the bug.
+        TestStep.log("Phase 1: Drag winC onto winA in a pure-terminal session")
+        TestStep.macDragElement(
+            from: .labelContains("tabreorder:2 winC"),
+            to: .labelContains("tabreorder:0 winA")
+        )
+        TestStep.wait(seconds: 3)
+
+        // Assert through tmux, not just the SwiftUI tab strip, so an optimistic
+        // visual move without a backend reorder still fails the scenario.
+        TestStep.tmuxStoreDisplayMessage(
+            target: "tabreorder",
+            format: "#{W:#{window_name}#,}",
+            storeAs: "tmuxOrderAfterDrag"
+        )
+        TestStep.assertStoredContains(
+            key: "tmuxOrderAfterDrag",
+            substring: "winC,winA,winB,"
+        )
+        TestStep.macWaitForElement(titled: "tabreorder:0 winC", timeout: 5)
+        TestStep.macWaitForElement(titled: "tabreorder:1 winA", timeout: 5)
+        TestStep.macWaitForElement(titled: "tabreorder:2 winB", timeout: 5)
+
+        // ── Phase 2: "+" menu offers New Terminal and New Browser ─────
         //
         // The "+" button is a SwiftUI Menu; AXPress on it doesn't reliably
         // open the popup on every macOS build (the menu briefly shows then
         // auto-dismisses), so we open it via a CGEvent click and then click
         // the inner menu item once it's accessible.
-        TestStep.log("Phase 1: + button opens a menu with New Terminal and New Browser")
+        TestStep.log("Phase 2: + button opens a menu with New Terminal and New Browser")
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Terminal")
@@ -92,8 +117,8 @@ public enum TabReorderScenario {
         TestStep.macWaitForElement(titled: "terminal 1", timeout: 10)
         TestStep.macScreenshot(label: "mac-tabreorder-after-new-terminal")
 
-        // ── Phase 2: "New Browser" creates a browser tab, focuses URL ─
-        TestStep.log("Phase 2: New Browser menu item creates a browser tab with focused URL field")
+        // ── Phase 3: "New Browser" creates a browser tab, focuses URL ─
+        TestStep.log("Phase 3: New Browser menu item creates a browser tab with focused URL field")
         TestStep.macCGClickElement(query: .label("New Tab"))
         TestStep.wait(seconds: 1)
         TestStep.macClickButton(titled: "New Browser")
@@ -110,33 +135,8 @@ public enum TabReorderScenario {
         // later phases work against the same tab set.
         TestStep.macCGClickElement(query: .labelContains("Close browser tab:"))
         TestStep.macWaitForElementQueryToDisappear(.labelContains("Close browser tab:"), timeout: 5)
-
-        // ── Phase 3: Drag winC ahead of winA via the AX-driven helper ─
-        TestStep.log("Phase 3: Drag winC onto winA — new order becomes winC, winA, winB, terminal 1")
-        TestStep.macDragElement(
-            from: .labelContains("tabreorder:2 winC"),
-            to: .labelContains("tabreorder:0 winA")
-        )
-        TestStep.wait(seconds: 3)
-
-        // After the drag winC sits at index 0 (its label has the new id).
-        // We assert via tmux's `display-message` so the test catches a bug
-        // where the SwiftUI tab list updates but the tmux indices don't.
-        TestStep.tmuxStoreDisplayMessage(
-            target: "tabreorder",
-            // `#,` escapes the comma so tmux emits it literally — otherwise
-            // the bare `,` inside `#{W:...}` is parsed as the active/inactive
-            // format separator and no commas appear in the output.
-            format: "#{W:#{window_name}#,}",
-            storeAs: "tmuxOrderAfterDrag"
-        )
-        TestStep.assertStoredContains(
-            key: "tmuxOrderAfterDrag",
-            substring: "winC,winA,winB,terminal 1,"
-        )
-        TestStep.macWaitForElement(titled: "tabreorder:0 winC", timeout: 5)
-        TestStep.macWaitForElement(titled: "tabreorder:1 winA", timeout: 5)
-        TestStep.macWaitForElement(titled: "tabreorder:2 winB", timeout: 5)
+        // Preserve the existing screenshot sequence and baseline name. The
+        // reorder itself was already asserted against tmux in Phase 1.
         TestStep.macScreenshot(label: "mac-tabreorder-after-drag")
 
         // ── Phase 4: Session round-trip preserves the new order ───────
@@ -154,6 +154,12 @@ public enum TabReorderScenario {
         TestStep.log("Phase 5: Cmd-Shift-] cycles to the next tab; Cmd-Shift-[ cycles back")
         // Start on winC (the leftmost tab after the reorder).
         TestStep.macClickButton(titled: "tabreorder:0 winC")
+        TestStep.waitForTmuxDisplayMessage(
+            target: "tabreorder",
+            format: "#{window_name}",
+            contains: "winC",
+            timeout: 5
+        )
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5
@@ -241,14 +247,9 @@ public enum TabReorderScenario {
         // regression where dragging a terminal to the right pane left it
         // visible on both panes.
         //
-        // Caveat: prior phases reordered tmux, which renumbers the
-        // `session:N` IDs that `tabOrder` keys on. After reorder the visual
-        // tab strip can show windows in a different sequence than the user
-        // expects, and a cross-divider drag may flip the window currently
-        // occupying tmux index 0 — not necessarily the user's source. We
-        // verify the *effect* (some terminal lands on the right side) via
-        // generic `Move terminal to left:` queries instead of asserting a
-        // specific window name.
+        // Earlier phases reordered tmux. Tab state now follows tmux's stable
+        // `@id`, so the dragged logical window remains the source even though
+        // its executable `session:index` target changed.
         TestStep.log("Phase 8: Open hello.txt, split it, then drag a terminal across the divider")
         TestStep.macClickButton(titled: "Files")
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 10)

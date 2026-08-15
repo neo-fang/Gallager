@@ -1,15 +1,34 @@
 # syntax=docker/dockerfile:1.4
 
-# Build stage
-# Swift 6.3+ is required so SPM resolves swift-dependencies' main Package.swift
-# (which declares package traits); older toolchains fall back to its
-# Package@swift-6.0.swift, which has no traits and would reject `traits:`.
+# Generate the Linux-only lock file with:
+#   scripts/update-server-package-lock.sh
+# This stage deliberately receives no Apple Package.resolved, so conditional
+# macOS dependencies never enter the Relay graph.
+FROM swift:6.3-jammy AS server-lock-resolver
+
+WORKDIR /lock
+COPY Package.swift ./
+RUN git config --global http.version HTTP/1.1
+RUN mkdir -p Sources/ClaudeSpyNetworking Sources/ClaudeSpyExternalServer && \
+    echo 'public struct Placeholder {}' > Sources/ClaudeSpyNetworking/Placeholder.swift && \
+    echo '@main struct Main { static func main() {} }' > Sources/ClaudeSpyExternalServer/main.swift
+RUN --mount=type=cache,id=ctrlx-relay-swiftpm,target=/lock/.build \
+    swift package resolve && \
+    mkdir -p /server-lock && \
+    cp Package.resolved /server-lock/Package.server.resolved
+
+FROM scratch AS server-lock
+COPY --from=server-lock-resolver /server-lock/ /
+
+# Build stage. Swift 6.3+ is required for swift-dependencies package traits.
 FROM swift:6.3-jammy AS builder
 
 WORKDIR /build
+RUN git config --global http.version HTTP/1.1
 
-# Step 1: Copy ONLY dependency manifest files
-COPY Package.swift Package.resolved ./
+# Step 1: Copy ONLY the manifest and Linux Relay lock file.
+COPY Package.swift Package.server.resolved ./
+RUN cp Package.server.resolved Package.resolved
 
 # Step 2: Create minimal directory structure for package resolution
 # This allows swift package resolve to work without the actual source code
@@ -18,32 +37,31 @@ RUN mkdir -p Sources/ClaudeSpyNetworking Sources/ClaudeSpyExternalServer && \
     echo '@main struct Main { static func main() {} }' > Sources/ClaudeSpyExternalServer/main.swift
 
 # Step 3: Resolve and fetch dependencies (CACHED unless Package.swift/resolved changes)
-RUN swift package resolve
+RUN --mount=type=cache,id=ctrlx-relay-swiftpm,target=/build/.build \
+    swift package resolve
 
 # Step 4: Copy the actual source code (changes here only invalidate build, not dependency fetch)
 COPY Sources ./Sources
 
-# Step 5: Create an empty directory for every test target the manifest declares,
-# so `swift package resolve`/`swift build` can load the package graph (the real
-# Tests/ are rsync-excluded from the relay build — their sources aren't needed).
-# Derived from Package.swift rather than hardcoded, so adding a test target can't
-# silently break this build. Every test target name ends in "Tests" by convention
-# (product refs like "VaporTesting"/"DependenciesTestSupport" don't, so they're
-# correctly excluded).
-RUN grep -oE 'name: "[A-Za-z0-9_]+Tests"' Package.swift | grep -oE '[A-Za-z0-9_]+Tests' | sort -u | while read -r t; do \
-        mkdir -p "Tests/$t" && touch "Tests/$t/.gitkeep"; \
-    done
+# Step 5: SwiftPM validates every manifest target even when building one product.
+# Copying the small Tests tree keeps that validation correct for test targets with
+# arbitrary names instead of trying to parse Package.swift with naming guesses.
+COPY Tests ./Tests
 
 # Step 6: Build release binary with BuildKit cache mount for incremental builds
 # The cache mount persists .build across builds but isn't included in the layer,
 # so we copy the binary to /tmp/ within the same RUN instruction
-RUN --mount=type=cache,target=/build/.build \
+RUN --mount=type=cache,id=ctrlx-relay-swiftpm,target=/build/.build \
     swift build -c release --product ClaudeSpyExternalServer \
     -Xswiftc -cross-module-optimization && \
     cp .build/release/ClaudeSpyExternalServer /tmp/
 
 # Runtime stage - use slim image
 FROM swift:6.3-jammy-slim
+
+ARG CTRLX_VERSION=3.0.0
+ARG CTRLX_SOURCE_REVISION=development
+ARG CTRLX_SOURCE_REPOSITORY=https://github.com/jicezeng/CtrlX
 
 WORKDIR /app
 
@@ -66,7 +84,15 @@ EXPOSE 8080
 
 # Set environment
 ENV ENVIRONMENT=production
+ENV CTRLX_VERSION=$CTRLX_VERSION
+ENV CTRLX_SOURCE_REVISION=$CTRLX_SOURCE_REVISION
+ENV CTRLX_SOURCE_REPOSITORY=$CTRLX_SOURCE_REPOSITORY
+
+LABEL org.opencontainers.image.title="CtrlX Relay"
+LABEL org.opencontainers.image.source=$CTRLX_SOURCE_REPOSITORY
+LABEL org.opencontainers.image.revision=$CTRLX_SOURCE_REVISION
+LABEL org.opencontainers.image.version=$CTRLX_VERSION
+LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
 
 # Run the server
 ENTRYPOINT ["./ClaudeSpyExternalServer"]
-CMD ["serve", "--env", "production", "--hostname", "0.0.0.0", "--port", "8080"]

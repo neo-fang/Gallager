@@ -20,7 +20,10 @@ func macOnlyDependencies() -> [Package.Dependency] {
     #if os(macOS)
         return [
             .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
-            .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0"),
+            .package(
+                url: "https://github.com/jicezeng/SwiftTerm.git",
+                revision: "0a664be86b78d0d16bb1dbd5ae5020f6e353070c"
+            ),
             .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
             .package(url: "https://github.com/mchakravarty/ProjectNavigator", exact: "1.10.1"),
@@ -282,7 +285,6 @@ let products: [Product] = [
 ]
 
 let packageDependencies: [Package.Dependency] = [
-    .package(url: "https://github.com/nicklockwood/SwiftFormat", from: "0.53.0"),
     .package(url: "https://github.com/vapor/vapor", from: "4.0.0"),
     .package(url: "https://github.com/vapor/apns.git", from: "5.0.0"),
     .package(url: "https://github.com/swift-server/async-http-client.git", from: "1.21.0"),
@@ -400,7 +402,7 @@ let targets: [Target] = [
             .process("Resources"),
             // Bundled plugin manifests/assets, copied verbatim so the per-plugin
             // directory structure (plugins/<id>/plugin.json + assets) survives
-            // into Gallager.app/Contents/Resources (spec §9). `.copy` (not
+            // into CtrlX.app/Contents/Resources (spec §9). `.copy` (not
             // `.process`) keeps the tree and avoids flattening same-named files.
             .copy("PluginBundles/plugins"),
         ]
@@ -477,7 +479,7 @@ let targets: [Target] = [
     // Shared dataset for the stop-finality eval (spec
     // docs/superpowers/specs/2026-07-30-stop-finality-evaluations-design.md):
     // committed seed cases (past field failures — the regression suite) ride
-    // as a bundled resource; mined cases load from ~/.gallager/eval and are
+    // as a bundled resource; mined cases load from ~/.ctrlx/eval and are
     // never committed (verbatim excerpts from real sessions).
     .target(
         name: "StopFinalityDataset",
@@ -498,6 +500,7 @@ let targets: [Target] = [
         name: "ClaudeSpyNetworkingTests",
         dependencies: [
             "ClaudeSpyNetworking",
+            .claudeSpyEncryption,
         ]
     ),
     .testTarget(

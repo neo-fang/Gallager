@@ -14,7 +14,7 @@ import Logging
 final public class ConnectedViewerManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.connectedviewermanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.connectedviewermanager")
 
     /// Active connections keyed by pairId
     private var connections: [String: ConnectedViewer] = [:]
@@ -35,8 +35,9 @@ final public class ConnectedViewerManager {
     // MARK: - Public Callbacks
 
     /// Called when a command is received from any viewer.
+    /// Parameters are the viewer pair ID and command.
     /// Returns nil if the command sends its own response.
-    public var onCommand: (@MainActor @Sendable (CommandMessage) async -> CommandResponseMessage?)?
+    public var onCommand: (@MainActor @Sendable (String, CommandMessage) async -> CommandResponseMessage?)?
 
     /// Called when session state is requested by any viewer
     public var onSessionStateRequest: (@Sendable () async -> SessionStateMessage)?
@@ -69,6 +70,9 @@ final public class ConnectedViewerManager {
     /// viewer on connect. Forwarded to every `ConnectedViewer` via its
     /// `onViewerConnected` hook (spec §7.2).
     public var presentationsProvider: (@MainActor @Sendable () async -> [PluginPresentation])?
+
+    /// Called when one viewer becomes unavailable. Other viewers remain active.
+    public var onViewerUnavailable: (@MainActor @Sendable (String) async -> Void)?
 
     // MARK: - Computed Properties
 
@@ -291,13 +295,25 @@ final public class ConnectedViewerManager {
         }
     }
 
-    /// Send terminal stream data to all connected viewers.
-    public func sendTerminalStreamToAll(_ streamMessage: TerminalStreamMessage) async {
+    /// Send terminal stream data only to viewers subscribed to its pane.
+    public func sendTerminalStream(
+        _ streamMessage: TerminalStreamMessage,
+        to viewerIds: Set<String>
+    ) async {
         await withTaskGroup(of: Void.self) { group in
-            for connection in connections.values where connection.state.isConnected {
+            for viewerId in viewerIds {
+                guard
+                    let connection = connections[viewerId],
+                    connection.state.isConnected,
+                    connection.isViewerConnected
+                else { continue }
                 group.addTask { await connection.sendTerminalStream(streamMessage) }
             }
         }
+    }
+
+    func terminalSendQueueSnapshot(for viewerId: String) -> TerminalSendQueueSnapshot {
+        connections[viewerId]?.terminalSendQueueSnapshot ?? .empty
     }
 
     /// Push session state to all connected viewers.
@@ -360,7 +376,7 @@ final public class ConnectedViewerManager {
         let viewerId = connection.id
 
         connection.onCommand = { [weak self] command in
-            await self?.onCommand?(command)
+            await self?.onCommand?(viewerId, command)
         }
 
         connection.onSessionStateRequest = { [weak self] in
@@ -405,6 +421,10 @@ final public class ConnectedViewerManager {
             guard let self, let connection else { return }
             let presentations = await self.presentationsProvider?() ?? []
             await connection.sendPluginPresentations(presentations)
+        }
+
+        connection.onViewerUnavailable = { [weak self, viewerId] in
+            await self?.onViewerUnavailable?(viewerId)
         }
     }
 }

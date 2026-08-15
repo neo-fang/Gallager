@@ -9,6 +9,28 @@ import Testing
 /// instead of regrouping by kind.
 @Suite("TabDragPayload.reconciledOrder")
 struct TabStripOrderTests {
+    @Test("Dropping on a target always inserts before its leading indicator")
+    func dropInsertionIsSymmetric() {
+        let a = TabDragPayload.window("@1")
+        let b = TabDragPayload.window("@2")
+        let c = TabDragPayload.window("@3")
+
+        #expect(TabDragPayload.moving(a, before: c, in: [a, b, c]) == [b, a, c])
+        #expect(TabDragPayload.moving(c, before: a, in: [a, b, c]) == [c, a, b])
+        #expect(TabDragPayload.moving(a, before: b, in: [a, b, c]) == nil)
+    }
+
+    @Test("Window rollback preserves a later file-tab move")
+    func rollbackPreservesNonWindowChanges() {
+        let file = UUID()
+        let before: [TabDragPayload] = [.window("@1"), .file(file), .window("@2"), .window("@3")]
+        let pending: [TabDragPayload] = [.file(file), .window("@3"), .window("@1"), .window("@2")]
+
+        #expect(TabDragPayload.restoringWindowOrder(from: before, in: pending) == [
+            .file(file), .window("@1"), .window("@2"), .window("@3"),
+        ])
+    }
+
     @Test("Empty stored order falls back to windows, file explorer, git, files, browsers")
     func defaultOrder() {
         let w1 = "win-1"

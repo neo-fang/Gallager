@@ -16,7 +16,7 @@ public enum CreateFromProjectLaunchScenario {
         "Create From Project Launch",
         tags: ["sessions", "project", "macos-only"]
     ) {
-        // 1. Session + app, select the pane, set up the `gallager` CLI helper.
+        // 1. Session + app, select the pane, set up the `ctrlx` CLI helper.
         TestStep.tmuxCreateSession(name: "cfp-cli", width: 100, height: 30)
         Shortcut.macOnlySetup
         TestStep.macResizeWindow(width: 1_200, height: 700)
@@ -27,18 +27,18 @@ public enum CreateFromProjectLaunchScenario {
         Shortcut.tmuxClearAndSetPrompt(target: "cfp-cli:0")
         Shortcut.tmuxRunCommand(
             target: "cfp-cli:0",
-            command: #"export GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock""#
+            command: #"export CTRLX_SOCKET="$TMPDIR/ctrlx-e2e.sock""#
         )
         Shortcut.tmuxRunCommand(
             target: "cfp-cli:0",
-            command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
+            command: #"ctrlx() { "${macOSAppPath}/Contents/MacOS/CtrlXCLI" "$@"; }"#
         )
         Shortcut.tmuxRunCommand(target: "cfp-cli:0", command: "clear")
 
         // 2. Start a session from a real project directory.
         Shortcut.tmuxRunCommand(
             target: "cfp-cli:0",
-            command: #"mkdir -p /tmp/e2e-cfp-project && gallager start-project /tmp/e2e-cfp-project --json > /tmp/e2e-cfp-start.txt 2>&1"#
+            command: #"mkdir -p /tmp/e2e-cfp-project && ctrlx start-project /tmp/e2e-cfp-project --json > /tmp/e2e-cfp-start.txt 2>&1"#
         )
         TestStep.wait(seconds: 3)
         TestStep.readFile(path: "/tmp/e2e-cfp-start.txt", storeAs: "cfpStart")

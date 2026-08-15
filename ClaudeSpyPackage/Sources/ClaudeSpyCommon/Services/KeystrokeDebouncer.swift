@@ -2,11 +2,12 @@ import ClaudeSpyNetworking
 import Dependencies
 import Foundation
 
-/// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
+/// Accumulates rapid keystrokes and flushes them within a bounded time window.
 ///
-/// Shared between iOS and macOS viewer terminal views. The debounce window batches
-/// keystrokes to reduce WebSocket message volume, and the send chain preserves
-/// ordering without waiting for the round-trip response.
+/// Shared between iOS and macOS viewer terminal views. The window starts with the
+/// first key and never slides, so continuous typing cannot postpone transmission
+/// indefinitely. The send chain preserves ordering without waiting for the
+/// round-trip response.
 ///
 /// ## Ordering guarantee
 ///
@@ -17,14 +18,10 @@ import Foundation
 /// scheduling of `@MainActor` continuations).
 @MainActor
 final public class KeystrokeDebouncer {
-    /// Window in which consecutive keystrokes are batched into a single send.
-    /// Must exceed the worst-case inter-key gap of any expected source —
-    /// notably AppleScript's `keystroke` synthesis, which can pause up to
-    /// ~15 ms between chars on a loaded system. A short window splits long
-    /// strings across multiple WebSocket commands and exposes a race where
-    /// the trailing batch can be lost en route to the host (see the Rapid
-    /// Keystroke Order e2e flake).
-    static let defaultDebounceInterval: Duration = .milliseconds(30)
+    /// Maximum time the oldest buffered key may wait before entering the send queue.
+    /// The FIFO send loop, rather than a long sliding debounce, is responsible for
+    /// preserving order across batches.
+    static let defaultDebounceInterval: Duration = .milliseconds(10)
 
     private let paneId: String
     private let debounceInterval: Duration
@@ -72,23 +69,39 @@ final public class KeystrokeDebouncer {
         startSendLoop()
     }
 
-    /// Add keys to the buffer and reset the flush timer.
-    /// Keys arriving within the debounce window are batched into a single send.
+    /// Add keys to the current bounded batch.
+    ///
+    /// Only the first key schedules the flush. Later keys join that batch without
+    /// moving its deadline, which keeps latency bounded during continuous typing.
     public func enqueue(_ keys: [TmuxKey]) {
         keyBuffer.append(contentsOf: keys)
 
-        // Reset the flush timer — if more keys arrive within the debounce window,
-        // they'll be batched together.
-        flushTask?.cancel()
+        guard flushTask == nil else { return }
+
         let interval = debounceInterval
-        flushTask = Task { [weak self] in
+        flushTask = Task(priority: .userInitiated) { [weak self] in
             do {
                 try await self?.clock.sleep(for: interval)
             } catch {
                 return
             }
+            self?.flushTask = nil
             self?.flushBuffer()
         }
+    }
+
+    /// Sends a complete key batch without the time-based batching window.
+    ///
+    /// macOS first coalesces SwiftTerm's synchronous Meta/Option callbacks on
+    /// the current runloop turn, so waiting another 10 ms here adds latency but
+    /// cannot improve the batch. Pending timed keys are flushed ahead of this
+    /// batch to preserve FIFO ordering.
+    public func enqueueImmediately(_ keys: [TmuxKey]) {
+        guard !keys.isEmpty else { return }
+        flushTask?.cancel()
+        flushTask = nil
+        flushBuffer()
+        enqueueSendOp(.keys(keys))
     }
 
     /// Immediately flush any buffered keystrokes, then send raw bytes
@@ -99,6 +112,7 @@ final public class KeystrokeDebouncer {
     /// keystrokes.
     public func enqueueRawInput(_ data: Data) {
         flushTask?.cancel()
+        flushTask = nil
         flushBuffer()
         enqueueSendOp(.rawInput(data))
     }
@@ -130,6 +144,10 @@ final public class KeystrokeDebouncer {
     /// Append an operation and wake the send loop.
     private func enqueueSendOp(_ op: SendOp) {
         sendQueue.append(op)
+        if sendTask == nil {
+            startSendLoop()
+            return
+        }
         if let cont = sendContinuation {
             sendContinuation = nil
             cont.resume()
@@ -138,7 +156,8 @@ final public class KeystrokeDebouncer {
 
     /// Long-running task that drains the send queue in FIFO order.
     private func startSendLoop() {
-        sendTask = Task { [weak self] in
+        guard sendTask == nil else { return }
+        sendTask = Task(priority: .userInitiated) { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
 

@@ -5,8 +5,8 @@ import Foundation
 /// represented in the menu by their agent panes instead, so a session appears
 /// exactly once whichever bucket it falls in.
 public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
-    /// The tmux session name: the stable row identity, and the label fallback
-    /// when no description or working directory is available (see
+    /// The tmux session name: the stable row identity and leading menu label
+    /// regardless of description or working directory (see
     /// `displayTitle(homeDirectory:)` in ClaudeSpyCommon).
     public let sessionName: String
 
@@ -22,11 +22,11 @@ public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
 
     /// The user's session description (session-scoped tmux option, scanned
     /// across panes in the same deterministic order as the override). When
-    /// set, the menu row shows it verbatim instead of "Terminal: <folder>".
+    /// set, the menu row appends it after the session name.
     public let customDescription: String?
 
-    /// The representative pane's working directory, for the
-    /// "Terminal: <folder>" row label. `nil` when tmux hasn't reported one.
+    /// The representative pane's working directory, appended to the session
+    /// name when no description is set. `nil` when tmux hasn't reported one.
     public let currentPath: String?
 
     public var id: String { sessionName }
@@ -47,6 +47,22 @@ public struct TerminalOnlySession: Equatable, Sendable, Identifiable {
 }
 
 extension Collection where Element == PaneState {
+    /// Progress displayed for a session's row. A real terminal progress value
+    /// from any pane always wins. Only when the whole session has no terminal
+    /// progress do we synthesize an indeterminate bar for a working agent.
+    ///
+    /// Keeping this derived avoids copying agent lifecycle state into
+    /// `PaneState.progress`, where hook updates could overwrite explicit
+    /// `OSC 9;4` or `ctrlx set-progress` values.
+    public var effectiveProgress: TerminalProgressState? {
+        if let terminalProgress = lazy.compactMap(\.progress).first {
+            return terminalProgress
+        }
+        return contains(where: { $0.agentSession?.isWorking == true })
+            ? .indeterminate
+            : nil
+    }
+
     /// Groups these panes into terminal-only sessions: one entry per session
     /// whose panes ALL lack an agent session, sorted by session name — a
     /// deterministic output order; callers that need a display order sort the

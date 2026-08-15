@@ -4,8 +4,11 @@ import Vapor
 /// Handles WebSocket connections for real-time communication
 struct WebSocketController: RouteCollection {
     func boot(routes: RoutesBuilder) throws {
-        // Configure WebSocket with larger frame size (1MB) to handle terminal snapshots
-        routes.webSocket("ws", maxFrameSize: .init(integerLiteral: 1 << 20), onUpgrade: handleWebSocketUpgrade)
+        routes.webSocket(
+            "ws",
+            maxFrameSize: .init(integerLiteral: RelayPayloadLimits.maxWebSocketFrameBytes),
+            onUpgrade: handleWebSocketUpgrade
+        )
     }
 
     /// Handle WebSocket upgrade
@@ -63,16 +66,11 @@ struct WebSocketController: RouteCollection {
             return
         }
 
-        // Relay gate: a host's frames must not reach the viewer until its entitlement
-        // check (below) passes. Because the handlers are registered before that check
-        // resolves — and `checkEntitlement` may embed a live LS revalidation of up to
-        // 15s — a lapsed/modified host would otherwise stream to the viewer during that
-        // window on every reconnect. The gate buffers host frames that arrive while the
-        // check is pending and replays them in order once entitled (or drops them if
-        // rejected). Viewers are never gated, so their gate starts open — no buffering,
-        // no behavior change (this also keeps the `config == nil` / E2E path unchanged,
-        // where the host check resolves instantly to `.unrestricted`).
-        let relayGate = RelayGate(open: deviceType != .host)
+        // Frames must not reach a peer before pair validation. Host frames stay
+        // gated through the additional entitlement check. Handlers are installed
+        // early to avoid the registration race below, so the gate is the security
+        // boundary for frames arriving during either asynchronous check.
+        let relayGate = RelayGate(open: false)
 
         // CRITICAL: Set up message handlers BEFORE any `await` suspension point.
         //
@@ -88,10 +86,18 @@ struct WebSocketController: RouteCollection {
         // of enqueued jobs — register() and send() on the same actor can execute
         // in either order even if register() was enqueued first.
         ws.onText { ws, text in
-            let data = Data(text.utf8)
-            guard await relayGate.admit(data) else { return }
+            let frame = RelayInboundFrame(data: Data(text.utf8), kind: .text)
+            switch await relayGate.admit(frame) {
+            case .relay:
+                break
+            case .buffered:
+                return
+            case .rejected:
+                try? await ws.close(code: .policyViolation)
+                return
+            }
             await handleIncomingMessage(
-                data: data,
+                frame: frame,
                 ws: ws,
                 pairId: pairId,
                 deviceType: deviceType,
@@ -103,10 +109,18 @@ struct WebSocketController: RouteCollection {
         }
 
         ws.onBinary { ws, buffer in
-            let data = Data(buffer: buffer)
-            guard await relayGate.admit(data) else { return }
+            let frame = RelayInboundFrame(data: Data(buffer: buffer), kind: .binary)
+            switch await relayGate.admit(frame) {
+            case .relay:
+                break
+            case .buffered:
+                return
+            case .rejected:
+                try? await ws.close(code: .policyViolation)
+                return
+            }
             await handleIncomingMessage(
-                data: data,
+                frame: frame,
                 ws: ws,
                 pairId: pairId,
                 deviceType: deviceType,
@@ -194,25 +208,25 @@ struct WebSocketController: RouteCollection {
                 return
             }
 
-            // Entitled — open the relay gate and replay, in order, any frames that
-            // arrived while the check was pending. `drainOrOpen` only flips the gate
-            // open once its buffer is empty, so frames arriving mid-replay keep queueing
-            // behind the ones already relayed (no reordering).
-            while let batch = await relayGate.drainOrOpen() {
-                for data in batch {
-                    await handleIncomingMessage(
-                        data: data,
-                        ws: ws,
-                        pairId: pairId,
-                        deviceType: deviceType,
-                        deviceId: deviceId,
-                        connectionHub: connectionHub,
-                        relayService: relayService,
-                        logger: req.logger
-                    )
-                }
+        }
+
+        // Validation passed. Replay early frames in order, then atomically open
+        // the gate. Frames arriving during replay remain queued behind the batch.
+        while let batch = await relayGate.drainOrOpen() {
+            for frame in batch {
+                await handleIncomingMessage(
+                    frame: frame,
+                    ws: ws,
+                    pairId: pairId,
+                    deviceType: deviceType,
+                    deviceId: deviceId,
+                    connectionHub: connectionHub,
+                    relayService: relayService,
+                    logger: req.logger
+                )
             }
         }
+        guard await relayGate.isOpenNow else { return }
 
         // Notify the other device
         await relayService.notifyConnection(pairId: pairId, deviceType: deviceType, connected: true)
@@ -222,7 +236,7 @@ struct WebSocketController: RouteCollection {
 // MARK: - Message Handling
 
 private func handleIncomingMessage(
-    data: Data,
+    frame: RelayInboundFrame,
     ws: WebSocket,
     pairId: String,
     deviceType: DeviceType,
@@ -239,8 +253,21 @@ private func handleIncomingMessage(
     await connectionHub.register(connection)
 
     do {
+        let data = frame.data
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        if let rawEncryptedFrame = try RelayMessageEnvelope.rawEncryptedFrame(
+            in: data,
+            using: decoder
+        ) {
+            await relayService.handleEncryptedFrame(
+                rawEncryptedFrame,
+                kind: frame.kind,
+                pairId: pairId,
+                sender: deviceType
+            )
+            return
+        }
         let message = try decoder.decode(WebSocketMessage.self, from: data)
 
         switch deviceType {
@@ -254,6 +281,86 @@ private func handleIncomingMessage(
     }
 }
 
+/// Decodes only the outer encrypted wrapper. Ciphertext remains a String, so
+/// the relay avoids the full Data base64 decode/encode round trip while still
+/// rejecting malformed wrappers before forwarding their original bytes.
+struct RelayMessageEnvelope: Decodable {
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case payload
+    }
+
+    private struct EncryptedMessagePayload: Decodable {
+        let payload: OpaqueEncryptedPayload
+    }
+
+    private struct OpaqueEncryptedPayload: Decodable {
+        let ciphertext: String
+        let senderKeyId: String
+        let version: Int
+    }
+
+    let isValidatedEncrypted: Bool
+
+    /// Returns the caller's original `Data` value for a validated encrypted
+    /// envelope. No JSON encoder or base64 decoder touches the payload.
+    static func rawEncryptedFrame(in data: Data, using decoder: JSONDecoder) throws -> Data? {
+        let envelope = try decoder.decode(Self.self, from: data)
+        return envelope.isValidatedEncrypted ? data : nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        guard type == "encrypted" else {
+            isValidatedEncrypted = false
+            return
+        }
+
+        let wrapper = try container.decode(EncryptedMessagePayload.self, forKey: .payload)
+        let encrypted = wrapper.payload
+        guard
+            Self.isValidBase64(encrypted.ciphertext),
+            !encrypted.senderKeyId.isEmpty,
+            encrypted.version > 0
+        else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .payload,
+                in: container,
+                debugDescription: "Invalid encrypted relay wrapper"
+            )
+        }
+        isValidatedEncrypted = true
+    }
+
+    private static func isValidBase64(_ value: String) -> Bool {
+        let bytes = value.utf8
+        guard !bytes.isEmpty, bytes.count.isMultiple(of: 4) else { return false }
+
+        var paddingCount = 0
+        var sawPadding = false
+        for byte in bytes {
+            if byte == 0x3D { // =
+                sawPadding = true
+                paddingCount += 1
+                guard paddingCount <= 2 else { return false }
+            } else {
+                guard !sawPadding, isBase64Byte(byte) else { return false }
+            }
+        }
+        return true
+    }
+
+    private static func isBase64Byte(_ byte: UInt8) -> Bool {
+        switch byte {
+        case 0x41...0x5A, 0x61...0x7A, 0x30...0x39, 0x2B, 0x2F:
+            true
+        default:
+            false
+        }
+    }
+}
+
 // MARK: - Device Type
 
 enum DeviceType: String {
@@ -261,42 +368,75 @@ enum DeviceType: String {
     case viewer
 }
 
+enum RelayFrameKind: Sendable, Equatable {
+    case text
+    case binary
+}
+
+private struct RelayInboundFrame: Sendable {
+    let data: Data
+    let kind: RelayFrameKind
+}
+
+private enum RelayAdmission: Sendable {
+    case relay
+    case buffered
+    case rejected
+}
+
 // MARK: - Relay Gate
 
-/// Per-connection gate that holds a host's inbound frames until its entitlement
-/// check passes, then replays them in order. Viewers construct it already-open,
-/// so `admit` is a pass-through with no buffering.
+/// Per-connection gate that holds inbound frames until pair validation and, for
+/// hosts, entitlement validation pass, then replays them in order.
 ///
 /// Actor isolation serializes `admit` and `drainOrOpen`, which gives the
 /// ordering guarantee: `drainOrOpen` only flips the gate open once its buffer is
 /// empty, so a frame that arrives while buffered frames are still being replayed
 /// is queued (not passed through ahead of them).
 private actor RelayGate {
+    private static let maximumPendingBytes = 1_024 * 1_024
+
     private var isOpen: Bool
-    private var pending: [Data] = []
+    private var pending: [RelayInboundFrame] = []
+    private var pendingBytes = 0
+    private var isRejected = false
 
     init(open: Bool) {
         self.isOpen = open
     }
 
-    /// Returns `true` if the caller should relay `data` now; `false` if it was
-    /// buffered to replay later (gate still closed).
-    func admit(_ data: Data) -> Bool {
-        if isOpen { return true }
-        pending.append(data)
-        return false
+    func admit(_ frame: RelayInboundFrame) -> RelayAdmission {
+        if isRejected { return .rejected }
+        if isOpen { return .relay }
+        guard pendingBytes + frame.data.count <= Self.maximumPendingBytes else {
+            pending.removeAll(keepingCapacity: false)
+            pendingBytes = 0
+            isRejected = true
+            return .rejected
+        }
+        pending.append(frame)
+        pendingBytes += frame.data.count
+        return .buffered
     }
 
     /// Drain step for opening the gate. Returns the next batch of buffered frames
     /// to replay, or `nil` once the buffer is empty — at which point the gate is
     /// flipped open so subsequent `admit` calls pass through directly. Call in a
     /// `while let` loop until it returns `nil`.
-    func drainOrOpen() -> [Data]? {
+    func drainOrOpen() -> [RelayInboundFrame]? {
+        guard !isRejected else { return nil }
         if pending.isEmpty {
             isOpen = true
             return nil
         }
-        defer { pending.removeAll() }
+        defer {
+            pending.removeAll()
+            pendingBytes = 0
+        }
         return pending
+    }
+
+    var isOpenNow: Bool {
+        isOpen && !isRejected
     }
 }

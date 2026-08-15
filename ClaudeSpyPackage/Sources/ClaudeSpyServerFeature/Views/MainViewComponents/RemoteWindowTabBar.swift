@@ -15,6 +15,8 @@ import UniformTypeIdentifiers
 ///   to a right pane and back.
 /// - Trailing drop zone for "drop past the last tab".
 struct RemoteWindowTabBar: View {
+    @Environment(AppSettings.self) private var settings
+
     let windows: [TmuxWindow]
     let selectedWindow: TmuxWindow
     let isHostConnected: Bool
@@ -43,7 +45,7 @@ struct RemoteWindowTabBar: View {
     /// Rearranges the tmux windows to match the supplied id order. Invoked
     /// when the user drops a window tab into a new slot. The caller persists
     /// the new order via `MoveTmuxWindows`.
-    let onReorderWindows: ([String]) -> Void
+    let onReorderWindows: (_ stableWindowIds: [String], _ rollbackOrder: [TabDragPayload]) -> Void
     /// Reorders the open browser tabs.
     let onReorderBrowserTabs: ([UUID]) -> Void
 
@@ -96,7 +98,7 @@ struct RemoteWindowTabBar: View {
     /// keyboard cyclers so all four surfaces stay in lockstep (issue #566).
     private var effectiveTabOrder: [TabDragPayload] {
         TabDragPayload.reconciledOrder(
-            windowIds: windows.map(\.id),
+            windowIds: windows.map(\.stableId),
             fileTabIds: [],
             browserTabIds: openBrowserTabs.map(\.id),
             storedOrder: sessionTabs?.tabOrder ?? [],
@@ -132,15 +134,15 @@ struct RemoteWindowTabBar: View {
                 } action: { newWidth in
                     splitRowWidth = newWidth
                 }
-                .background(.bar)
+                .background(settings.theme.chromeBackgroundColor)
                 .overlay(alignment: .bottom) {
-                    Divider()
+                    tabBarDivider
                 }
             } else {
                 singleSection
-                    .background(.bar)
+                    .background(settings.theme.chromeBackgroundColor)
                     .overlay(alignment: .bottom) {
-                        Divider()
+                        tabBarDivider
                     }
             }
         }
@@ -157,6 +159,17 @@ struct RemoteWindowTabBar: View {
             if sessionTabs?.tabOrder != computed {
                 sessionTabs?.tabOrder = computed
             }
+        }
+    }
+
+    @ViewBuilder
+    private var tabBarDivider: some View {
+        if settings.theme == .anysphereDark {
+            Rectangle()
+                .fill(settings.theme.workspaceBorderColor)
+                .frame(height: 1)
+        } else {
+            Divider()
         }
     }
 
@@ -239,7 +252,7 @@ struct RemoteWindowTabBar: View {
     private func tabView(for ref: TabDragPayload) -> some View {
         switch ref {
         case let .window(id):
-            if let window = windows.first(where: { $0.id == id }) {
+            if let window = windows.first(where: { $0.stableId == id }) {
                 windowTab(window)
             }
         case let .browser(id):
@@ -263,7 +276,7 @@ struct RemoteWindowTabBar: View {
     }
 
     private func windowTab(_ window: TmuxWindow) -> some View {
-        let payload = TabDragPayload.window(window.id)
+        let payload = TabDragPayload.window(window.stableId)
         let tabIsOnRight = isOnRight(payload)
         // Match the local `WindowTabBar` styling: when a browser tab is the
         // active detail view, deselect the window tab visually so the user
@@ -299,6 +312,13 @@ struct RemoteWindowTabBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("\(window.id) \(windowName)")
             .accessibilityValue(isSelected ? "selected" : "")
+            .modifier(WindowRenamingModifier(
+                currentName: window.windowName,
+                isDisabled: !isHostConnected,
+                onRename: { newName in
+                    onRenameWindow(window, newName)
+                }
+            ))
 
             TabSplitToggleButton(
                 isSplit: isSplit,
@@ -321,13 +341,6 @@ struct RemoteWindowTabBar: View {
         .overlay(alignment: .leading) {
             DropIndicator(visible: dropIndicator == payload)
         }
-        .modifier(WindowRenamingModifier(
-            currentName: window.windowName,
-            isDisabled: !isHostConnected,
-            onRename: { newName in
-                onRenameWindow(window, newName)
-            }
-        ))
         .onHover { hovering in
             hoveredWindowId = hovering ? window.id : nil
         }
@@ -378,20 +391,15 @@ struct RemoteWindowTabBar: View {
         defer { dropIndicator = nil }
         guard let source = payloads.first, source != target else { return false }
 
-        var order = effectiveTabOrder
-        guard
-            let sourceIndex = order.firstIndex(of: source),
-            let targetIndex = order.firstIndex(of: target),
-            sourceIndex != targetIndex
-        else { return false }
-
-        let moved = order.remove(at: sourceIndex)
-        order.insert(moved, at: targetIndex)
+        let previousOrder = effectiveTabOrder
+        guard let order = TabDragPayload.moving(source, before: target, in: previousOrder) else { return false }
+        let windowOrderChanged = order.compactMap(\.windowId) != windows.map(\.stableId)
+        guard !windowOrderChanged || sessionTabs?.isWindowReorderPending != true else { return false }
 
         sessionTabs?.tabOrder = order
 
         adjustSplitSideIfNeeded(source: source, to: sectionOf(target))
-        syncSubsequences(from: order)
+        syncSubsequences(from: order, rollbackOrder: previousOrder)
 
         return true
     }
@@ -400,7 +408,8 @@ struct RemoteWindowTabBar: View {
         defer { trailingDropTargetedSection = nil }
         guard let source = payloads.first else { return false }
 
-        var order = effectiveTabOrder
+        let previousOrder = effectiveTabOrder
+        var order = previousOrder
         guard let sourceIndex = order.firstIndex(of: source) else { return false }
 
         let moved = order.remove(at: sourceIndex)
@@ -415,9 +424,11 @@ struct RemoteWindowTabBar: View {
         }
 
         order.insert(moved, at: min(insertIndex, order.count))
+        let windowOrderChanged = order.compactMap(\.windowId) != windows.map(\.stableId)
+        guard !windowOrderChanged || sessionTabs?.isWindowReorderPending != true else { return false }
         sessionTabs?.tabOrder = order
         adjustSplitSideIfNeeded(source: source, to: section)
-        syncSubsequences(from: order)
+        syncSubsequences(from: order, rollbackOrder: previousOrder)
         return true
     }
 
@@ -432,16 +443,15 @@ struct RemoteWindowTabBar: View {
         }
     }
 
-    private func syncSubsequences(from order: [TabDragPayload]) {
-        let windowIds: [String] = order.compactMap { ref in
-            if case let .window(id) = ref { return id } else { return nil }
-        }
+    private func syncSubsequences(from order: [TabDragPayload], rollbackOrder: [TabDragPayload]) {
+        let windowIds = order.compactMap(\.windowId)
         let browserIds: [UUID] = order.compactMap { ref in
             if case let .browser(id) = ref { return id } else { return nil }
         }
 
-        if windowIds != windows.map(\.id), !windowIds.isEmpty {
-            onReorderWindows(windowIds)
+        if windowIds != windows.map(\.stableId), !windowIds.isEmpty {
+            sessionTabs?.isWindowReorderPending = true
+            onReorderWindows(windowIds, rollbackOrder)
         }
         if browserIds != openBrowserTabs.map(\.id) {
             onReorderBrowserTabs(browserIds)

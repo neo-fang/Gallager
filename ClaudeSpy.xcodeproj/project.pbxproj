@@ -74,11 +74,11 @@
 
 /* Begin PBXFileReference section */
 		81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ClaudeSpyNotificationExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		815F9E5D2F09BFF8003791F7 /* Gallager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gallager.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		815F9E5D2F09BFF8003791F7 /* CtrlX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CtrlX.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyServerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B41F6452DEDD0D5001A66F9 /* Gallager.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gallager.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Gallager.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F6452DEDD0D5001A66F9 /* CtrlX.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CtrlX.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B41F65C2DEDD0D6001A66F9 /* CtrlX.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CtrlX.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9EE526E9177246FAB164195B /* ClaudeSpyE2ERunner.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeSpyE2ERunner.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A45795AAFABA49589FBB2F35 /* ClaudeSpyE2EHost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeSpyE2EHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AABBCC102F2A00000063PLGN /* plugin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = plugin; sourceTree = "<group>"; };
@@ -282,9 +282,9 @@
 		8B41F6462DEDD0D5001A66F9 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				8B41F6452DEDD0D5001A66F9 /* Gallager.app */,
-				8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */,
-				815F9E5D2F09BFF8003791F7 /* Gallager.app */,
+				8B41F6452DEDD0D5001A66F9 /* CtrlX.app */,
+				8B41F65C2DEDD0D6001A66F9 /* CtrlX.xctest */,
+				815F9E5D2F09BFF8003791F7 /* CtrlX.app */,
 				815F9E692F09BFF9003791F7 /* ClaudeSpyServerTests.xctest */,
 				815F9E732F09BFF9003791F7 /* ClaudeSpyServerUITests.xctest */,
 				81581B4A2F11B9BF005EA7FD /* ClaudeSpyNotificationExtension.appex */,
@@ -376,7 +376,7 @@
 				81E2E1D42F8573260057AA49 /* Gallager */,
 			);
 			productName = ClaudeSpyServer;
-			productReference = 815F9E5D2F09BFF8003791F7 /* Gallager.app */;
+			productReference = 815F9E5D2F09BFF8003791F7 /* CtrlX.app */;
 			productType = "com.apple.product-type.application";
 		};
 		815F9E682F09BFF9003791F7 /* ClaudeSpyServerTests */ = {
@@ -451,7 +451,7 @@
 				819180912F467B82001A43BE /* ClaudeSpyFeature */,
 			);
 			productName = ClaudeSpy;
-			productReference = 8B41F6452DEDD0D5001A66F9 /* Gallager.app */;
+			productReference = 8B41F6452DEDD0D5001A66F9 /* CtrlX.app */;
 			productType = "com.apple.product-type.application";
 		};
 		8B41F65B2DEDD0D6001A66F9 /* ClaudeSpyUITests */ = {
@@ -475,7 +475,7 @@
 				8B41F6822DEDD23B001A66F9 /* ClaudeSpyFeature */,
 			);
 			productName = ClaudeSpyUITests;
-			productReference = 8B41F65C2DEDD0D6001A66F9 /* Gallager.xctest */;
+			productReference = 8B41F65C2DEDD0D6001A66F9 /* CtrlX.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		E3BC9293B2B7447CB28061F1 /* ClaudeSpyE2ERunner */ = {
@@ -673,7 +673,7 @@
 			shellScript = "\"${SRCROOT}/scripts/swiftlint.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		81E2E2332F8576310057AA49 /* Copy GallagerCLI to bundle */ = {
+		81E2E2332F8576310057AA49 /* Copy CtrlX CLI to bundle */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -683,15 +683,15 @@
 			inputPaths = (
 				"${BUILD_DIR}/${CONFIGURATION}/GallagerCLI",
 			);
-			name = "Copy GallagerCLI to bundle";
+			name = "Copy CtrlX CLI to bundle";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/GallagerCLI",
+				"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/CtrlXCLI",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Build GallagerCLI and copy into app bundle\nset -e\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerCLI\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    # GallagerEmoji is shared by the app and the CLI, so Xcode links it as a\n    # dynamic framework embedded in Contents/Frameworks. The bare copied CLI's\n    # rpaths don't cover that (Release has only /usr/lib/swift), so add it here\n    # or every CLI invocation dies in dyld before main().\n    install_name_tool -add_rpath \"@loader_path/../Frameworks\" \"${DEST}/GallagerCLI\"\n    codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --options runtime --timestamp \"${DEST}/GallagerCLI\"\nelse\n    echo \"warning: GallagerCLI not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
+			shellScript = "# Build the internal GallagerCLI target and install it as CtrlXCLI\nset -e\nEDITOR_PATH=\"${BUILD_DIR}/${CONFIGURATION}/GallagerCLI\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/MacOS/CtrlXCLI\"\n\nif [ -f \"$EDITOR_PATH\" ]; then\n    cp \"$EDITOR_PATH\" \"$DEST\"\n    # GallagerEmoji is shared by the app and the CLI, so Xcode links it as a\n    # dynamic framework embedded in Contents/Frameworks. The bare copied CLI's\n    # rpaths don't cover that (Release has only /usr/lib/swift), so add it here\n    # or every CLI invocation dies in dyld before main().\n    install_name_tool -add_rpath \"@loader_path/../Frameworks\" \"$DEST\"\n    if [ \"${CODE_SIGNING_ALLOWED:-YES}\" = YES ] && [ -n \"${EXPANDED_CODE_SIGN_IDENTITY:-}\" ]; then\n        codesign --force --sign \"${EXPANDED_CODE_SIGN_IDENTITY}\" --options runtime --timestamp \"$DEST\"\n    fi\nelse\n    echo \"warning: GallagerCLI build product not found at $EDITOR_PATH — build the ClaudeSpyPackage scheme first\"\nfi\n";
 		};
 		81B5E4A02F90000100000001 /* Sync Codex Skills */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -811,7 +811,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpyE2EHost/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -822,7 +822,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2ehost;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.e2ehost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -837,7 +837,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -845,7 +845,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2erunner;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.e2erunner;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -861,19 +861,19 @@
 			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
 			baseConfigurationReferenceRelativePath = Debug.xcconfig;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = ClaudeSpyNotificationExtension/ClaudeSpyNotificationExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(CTRLX_IOS_NOTIFICATION_EXTENSION_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpyNotificationExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpyNotificationExtension;
+				INFOPLIST_KEY_CFBundleDisplayName = "CtrlX Notification Service";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.ClaudeSpyNotificationExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(CTRLX_IOS_NOTIFICATION_EXTENSION_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -890,19 +890,19 @@
 			baseConfigurationReferenceAnchor = 8BD71C052DEE41D800CEDD92 /* Config */;
 			baseConfigurationReferenceRelativePath = Release.xcconfig;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = ClaudeSpyNotificationExtension/ClaudeSpyNotificationExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(CTRLX_IOS_NOTIFICATION_EXTENSION_ENTITLEMENTS)";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpyNotificationExtension/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = ClaudeSpyNotificationExtension;
+				INFOPLIST_KEY_CFBundleDisplayName = "CtrlX Notification Service";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.ClaudeSpyNotificationExtension;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(CTRLX_IOS_NOTIFICATION_EXTENSION_BUNDLE_IDENTIFIER)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -926,7 +926,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_MAC_DEVELOPMENT_TEAM)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -939,7 +939,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpyServer/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Gallager;
+				INFOPLIST_KEY_CFBundleDisplayName = CtrlX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -947,8 +947,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServer;
-				PRODUCT_NAME = Gallager;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.macos;
+				PRODUCT_NAME = CtrlX;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -977,7 +977,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_MAC_DEVELOPMENT_TEAM)";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -990,7 +990,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpyServer/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Gallager;
+				INFOPLIST_KEY_CFBundleDisplayName = CtrlX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -998,8 +998,8 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServer;
-				PRODUCT_NAME = Gallager;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.macos;
+				PRODUCT_NAME = CtrlX;
 				REGISTER_APP_GROUPS = YES;
 				RUNTIME_EXCEPTION_ALLOW_DYLD_ENVIRONMENT_VARIABLES = NO;
 				RUNTIME_EXCEPTION_ALLOW_JIT = NO;
@@ -1023,11 +1023,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_MAC_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.macos.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1035,7 +1035,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gallager.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Gallager";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CtrlX.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CtrlX";
 			};
 			name = Debug;
 		};
@@ -1046,11 +1046,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_MAC_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.macos.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1058,7 +1058,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Gallager.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Gallager";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CtrlX.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CtrlX";
 			};
 			name = Release;
 		};
@@ -1068,11 +1068,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_MAC_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.macos.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1090,11 +1090,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_MAC_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.1;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.ClaudeSpyServerUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.macos.uitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1111,7 +1111,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpyE2EHost/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -1122,7 +1122,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2ehost;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.e2ehost;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -1263,12 +1263,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpy/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Gallager;
+				INFOPLIST_KEY_CFBundleDisplayName = CtrlX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1292,12 +1292,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ClaudeSpy/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Gallager;
+				INFOPLIST_KEY_CFBundleDisplayName = CtrlX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1346,7 +1346,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = XG2WG7U93U;
+				DEVELOPMENT_TEAM = "$(CTRLX_IOS_DEVELOPMENT_TEAM)";
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1354,7 +1354,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = br.eng.gustavo.claudespy.e2erunner;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jicezeng.ctrlx.e2erunner;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

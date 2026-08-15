@@ -25,7 +25,7 @@ public enum NewTerminalScenario {
         // 3. Tap "New Terminal" in the project picker sheet
         TestStep.iosTap(.labelContains("New Terminal"))
 
-        // 4. Verify the terminal view was pushed (WindowLayoutView shows a keyboard toggle)
+        // 4. Verify the terminal view was pushed (default top-right keyboard control)
         TestStep.iosWaitForElement(.labelContains("Show Keyboard"), timeout: 15)
 
         // 5. Verify the terminal connected (the "Connecting to terminal..." text should disappear)

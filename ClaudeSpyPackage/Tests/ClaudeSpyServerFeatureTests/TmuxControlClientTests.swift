@@ -1,5 +1,8 @@
 #if os(macOS)
+    import ClaudeSpyCommon
     import ClaudeSpyNetworking
+    import Darwin
+    import Dependencies
     import Foundation
     import Testing
     @testable import ClaudeSpyServerFeature
@@ -14,9 +17,14 @@
         var titles: [String] = []
         var clipboards: [String] = []
         var progress: [TerminalProgressState] = []
+        var overflowCount = 0
 
         func pipePaneReader(_ paneId: String, didReceiveData data: Data) {
             self.data.append(data)
+        }
+
+        func pipePaneReaderDidOverflow(_ paneId: String) {
+            overflowCount += 1
         }
 
         func pipePaneReader(
@@ -45,6 +53,91 @@
 
     @Suite("TmuxControlClient Tests")
     struct TmuxControlClientTests {
+        @Suite("Control Client Environment")
+        struct ControlClientEnvironmentTests {
+            @Test("Unavailable TERM uses xterm-256color")
+            func unavailableTermUsesFallback() {
+                for term in [String?.none, "", "dumb", "DUMB"] {
+                    var inherited = ["PATH": "/usr/bin"]
+                    inherited["TERM"] = term
+
+                    let environment = TmuxControlClient.controlClientEnvironment(inheriting: inherited)
+
+                    #expect(environment["TERM"] == "xterm-256color")
+                    #expect(environment["PATH"] == "/usr/bin")
+                }
+            }
+
+            @Test("Existing terminal type is preserved")
+            func existingTermIsPreserved() {
+                let inherited = ["TERM": "tmux-256color", "PATH": "/opt/homebrew/bin"]
+
+                let environment = TmuxControlClient.controlClientEnvironment(inheriting: inherited)
+
+                #expect(environment == inherited)
+            }
+        }
+
+        @Suite("Process Lifecycle")
+        struct ProcessLifecycleTests {
+            @Test("Disconnect reaps only the control client and preserves its tmux pane")
+            @MainActor
+            func disconnectReapsControlClient() async throws {
+                let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
+                let suffix = UUID().uuidString.lowercased()
+                let socketPath = "/tmp/ctrlx-control-\(suffix.prefix(8)).sock"
+                let sessionName = "ctrlx-control-\(suffix)"
+                defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+
+                try await withDependencies {
+                    $0[ProcessRunner.self] = .liveValue
+                } operation: {
+                    let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                    let created = try await tmux.createSession(
+                        baseName: sessionName,
+                        width: 80,
+                        height: 24
+                    )
+                    let client = TmuxControlClient(tmuxPath: tmuxPath, socketPath: socketPath)
+
+                    try await client.connect(sessionTarget: created.sessionName)
+                    let firstPID = try #require(await client.testProcessIdentifier)
+                    #expect(processExists(firstPID))
+
+                    await client.disconnect()
+                    #expect(await client.testProcessIdentifier == nil)
+                    #expect(!processExists(firstPID))
+
+                    // Reusing the same actor catches a stale termination handler
+                    // clearing the next connection after the old process exits.
+                    try await client.connect(sessionTarget: created.sessionName)
+                    let secondPID = try #require(await client.testProcessIdentifier)
+                    #expect(secondPID != firstPID)
+                    #expect(processExists(secondPID))
+                    await client.disconnect()
+                    #expect(!processExists(secondPID))
+
+                    let panes = await tmux.refreshPanes()
+                    #expect(panes.contains { $0.paneId == created.paneId })
+                    _ = try await tmux.capturePaneText(created.paneId)
+                }
+            }
+
+            private func processExists(_ pid: Int32) -> Bool {
+                kill(pid, 0) == 0 || errno == EPERM
+            }
+
+            private func killTmuxServer(tmuxPath: String, socketPath: String) {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: tmuxPath)
+                process.arguments = ["-S", socketPath, "kill-server"]
+                process.environment = [:]
+                process.standardError = Pipe()
+                process.standardOutput = Pipe()
+                try? process.run()
+            }
+        }
+
         // MARK: - Session Name Extraction Tests
 
         @Suite("Session Name Extraction")
@@ -258,6 +351,57 @@
 
     @Suite("PipePaneReader Tests")
     struct PipePaneReaderTests {
+        @Suite("Ingress backpressure")
+        struct IngressBackpressureTests {
+            @Test("Overflow drops stale chunks and marks the exact retained boundary")
+            func overflowBoundary() {
+                let buffer = PipeIngressBuffer(paneId: "%0", maximumChunks: 2)
+
+                buffer.enqueue(Data("A".utf8))
+                buffer.enqueue(Data("B".utf8))
+                #expect(buffer.dequeue()?.data == Data("A".utf8))
+
+                // B and C fill the queue while A is already being processed.
+                // D must discard both and carry the reset marker itself.
+                buffer.enqueue(Data("C".utf8))
+                buffer.enqueue(Data("D".utf8))
+
+                let retained = buffer.dequeue()
+                #expect(retained?.data == Data("D".utf8))
+                #expect(retained?.requiresResyncBefore == true)
+                #expect(buffer.dequeue()?.data == nil)
+            }
+
+            @Test("Delegate backlog collapses to one snapshot boundary")
+            @MainActor
+            func delegateHighWater() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                let chunk = Data(repeating: 0x61, count: 65_536)
+                await reader.testEnqueueDelegateData(Array(repeating: chunk, count: 9))
+                await reader.testWaitForDelivery()
+
+                #expect(delegate.data.isEmpty)
+                #expect(delegate.overflowCount == 1)
+            }
+
+            @Test("Normal FIFO delivery does not request a snapshot")
+            func normalDelivery() {
+                let buffer = PipeIngressBuffer(paneId: "%0", maximumChunks: 2)
+                buffer.enqueue(Data("A".utf8))
+                buffer.enqueue(Data("B".utf8))
+
+                let first = buffer.dequeue()
+                let second = buffer.dequeue()
+                #expect(first?.data == Data("A".utf8))
+                #expect(first?.requiresResyncBefore == false)
+                #expect(second?.data == Data("B".utf8))
+                #expect(second?.requiresResyncBefore == false)
+            }
+        }
+
         @Suite("Tmux Escape Filtering")
         struct TmuxEscapeFilteringTests {
             @Test("Regular data passes through unchanged")
@@ -332,7 +476,7 @@
                 let reader = PipePaneReader(paneId: "%5")
                 let path = await reader.testFifoPath
                 let expectedDir = FileManager.default.temporaryDirectory.path
-                #expect(path == "\(expectedDir)/claudespy-pipe-5.fifo")
+                #expect(path == "\(expectedDir)/ctrlx-pipe-5.fifo")
             }
         }
 
@@ -353,7 +497,6 @@
                 #expect(delegate.data.isEmpty, "Buffered bytes must not reach delegate before flush")
 
                 await reader.flushBuffer()
-                await reader.testWaitForDelivery()
 
                 #expect(delegate.data.count == 3)
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8)
@@ -386,6 +529,21 @@
                 #expect(delegate.notifications.count == 1, "OSC 9 notification must still flow")
             }
 
+            @Test("A split OSC sequence is resumed even when the next chunk is plain")
+            func splitOSCResumesSlowPath() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+                await reader.setBuffering(false)
+
+                await reader.testProcessIncomingData(Data([0x1B, 0x5D]) + Data("9;split".utf8))
+                await reader.testProcessIncomingData(Data(" message".utf8) + Data([0x07]))
+                await reader.testWaitForDelivery()
+
+                #expect(delegate.data.isEmpty)
+                #expect(delegate.notifications.map(\.body) == ["split message"])
+            }
+
             @Test("flushBuffer keeps order even when bytes arrive during the drain")
             func flushBufferOrderingUnderConcurrentInput() async {
                 let reader = PipePaneReader(paneId: "%0")
@@ -410,6 +568,28 @@
 
                 let combined = String(data: delegate.concatenatedData, encoding: .utf8) ?? ""
                 #expect(combined == "ABC", "Expected A,B,C in order, got: \(combined)")
+            }
+
+            @Test("flushBuffer returns only after buffered bytes reach the delegate")
+            func flushWaitsForDelegateDelivery() async {
+                let reader = PipePaneReader(paneId: "%0")
+                let delegate = CapturingDelegate()
+                await reader.setDelegate(delegate)
+
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("ready".utf8))
+                await reader.flushBuffer()
+
+                #expect(delegate.concatenatedData == Data("ready".utf8))
+            }
+
+            @Test("flushBuffer completes when the weak delegate is gone")
+            func flushWithoutDelegateDoesNotHang() async {
+                let reader = PipePaneReader(paneId: "%0")
+                await reader.setBuffering(true)
+                await reader.testProcessIncomingData(Data("discarded".utf8))
+
+                await reader.flushBuffer()
             }
 
             @Test("flushBuffer transitions to live: subsequent bytes flow directly")

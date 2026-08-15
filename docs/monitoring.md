@@ -1,47 +1,40 @@
-# Monitoring Runbook
+# CtrlX Relay monitoring runbook
 
 ## Stack
 - **Source:** Vapor `/metrics` (token-protected) + `node_exporter` on the VM
 - **Collector:** Grafana Alloy (systemd) on the VM, push to Grafana Cloud Prometheus
-- **Storage / UI:** Grafana Cloud free tier (`gpambrozio.grafana.net`)
-- **Alerts:** Discord webhook → `#claudespy-alerts`
+- **Storage / UI:** an operator-owned Grafana Cloud stack
+- **Alerts:** an operator-owned Discord webhook
 - **Config-as-code:** `ClaudeSpyPackage/monitoring/grizzly/` applied via `grr apply`
 
 ## Initial Setup
 
-One-time bootstrap. Detailed steps in the plan at `docs/superpowers/plans/2026-04-27-relay-server-monitoring.md` (Phases 3–5). Track progress here:
+The following is an operator checklist, not a record of any existing CtrlX
+production service. Keep credentials outside the repository.
 
 ### Grafana Cloud (Phase 3)
-- [x] Sign up at <https://grafana.com/auth/sign-up/create-user>; create stack `claudespy` in a region near Hetzner.
-- [x] From "Send Metrics" → "Hosted Prometheus": save `GRAFANA_PROM_URL` and `GRAFANA_PROM_USER`.
-- [x] Create access policy `claudespy-alloy-write` with scope `metrics:write`; save the token as `GRAFANA_PROM_TOKEN`.
-- [x] Save the stack's Grafana URL as `GRAFANA_URL`.
-- [x] Create service account `grizzly` (Admin role); save its token as `GRAFANA_SA_TOKEN` (= `GRAFANA_TOKEN` in `.env`).
-- [x] Generate `METRICS_TOKEN` with `openssl rand -hex 32`; add it to `/opt/claudespy/.env` on the Hetzner VM and redeploy the relay.
-- [x] Verify `/metrics` from inside the VM: `curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8080/metrics | head`.
-- [x] Verify external port is closed: `curl http://$DEPLOY_HOST:8080/metrics` should refuse connection (not 401).
-- [x] `scp -r ClaudeSpyPackage/monitoring/agents root@$DEPLOY_HOST:/opt/claudespy-monitoring`.
-- [x] Run installer with all four env vars: `ssh root@$DEPLOY_HOST METRICS_TOKEN=… GRAFANA_PROM_URL=… GRAFANA_PROM_USER=… GRAFANA_PROM_TOKEN=… bash /opt/claudespy-monitoring/install.sh`.
-- [x] Confirm both services active: `systemctl is-active node_exporter alloy`.
-- [ ] In Grafana Explore, query `claudespy_active_pairs` and `node_filesystem_avail_bytes` to confirm data is flowing.
+- [ ] Create an operator-owned Grafana stack and record its Prometheus URL/user.
+- [ ] Create a `metrics:write` access token and a separate Grizzly service-account token.
+- [ ] Generate `METRICS_TOKEN` with `openssl rand -hex 32`; add it to `/opt/ctrlx/.env.production` and redeploy.
+- [ ] Verify `/metrics` through loopback with the bearer token and verify port 8080 is not public.
+- [ ] Copy `ClaudeSpyPackage/monitoring/agents` to `/opt/ctrlx-monitoring` on the Relay host.
+- [ ] Run `install.sh` with `METRICS_TOKEN`, `GRAFANA_PROM_URL`, `GRAFANA_PROM_USER`, and `GRAFANA_PROM_TOKEN`.
+- [ ] Confirm `node_exporter` and `alloy` are active.
+- [ ] Query `ctrlx_active_pairs` and `node_filesystem_avail_bytes` in Grafana.
 
 ### Discord (Phase 4)
-- [x] Create private channel `#claudespy-alerts` on a Discord server you control.
-- [x] Add webhook named `Grafana`; save URL as `DISCORD_WEBHOOK_URL`.
-- [x] Smoke-test: `curl -X POST -H 'Content-Type: application/json' -d '{"content":"hello"}' "$DISCORD_WEBHOOK_URL"`.
+- [ ] Create a private alert channel and save its webhook as `DISCORD_WEBHOOK_URL`.
+- [ ] Smoke-test the webhook without committing it.
 
 ### grizzly config-as-code (Phase 5)
-- [x] `brew install grafana/grafana/grizzly` (installed v0.7.1 via `brew install grizzly`).
-- [x] `cd ClaudeSpyPackage/monitoring/grizzly && cp .env.example .env`; fill in `GRAFANA_URL`, `GRAFANA_TOKEN`, `DISCORD_WEBHOOK_URL`.
-- [x] Pull current state to discover the Prometheus datasource UID (`grafanacloud-prom`); updated all alert YAMLs and `.env`.
-- [x] Applied contact point (`discord-alerts`) and notification policy via `grr apply`. Alert rules applied via Grafana provisioning API (grr 0.7.1 has a bug with AlertRuleGroup).
-- [x] In Grafana UI → Alerting → Contact points → `discord-alerts` → Test. Verified message in `#claudespy-alerts`.
-- [x] Build the Relay Overview dashboard via Grafana API; pulled back as `dashboards/relay.yaml` via `grr pull`.
-- [x] Committed `dashboards/relay.yaml`.
+- [ ] Install Grizzly and copy `.env.example` to the ignored `.env` file.
+- [ ] Set `GRAFANA_URL`, `GRAFANA_TOKEN`, and `DISCORD_WEBHOOK_URL`.
+- [ ] If the Prometheus datasource UID is not `grafanacloud-prom`, replace that UID in the checked-in alert and dashboard YAML before applying it.
+- [ ] Run `make diff`, then `make apply`, and test the contact point in Grafana.
 
 ### Smoke test (Phase 6 / Task 24)
-- [ ] `ssh root@$DEPLOY_HOST 'docker stop claudespy-relay'`. Wait 3 min. Expect a Discord alert.
-- [ ] `ssh root@$DEPLOY_HOST 'docker start claudespy-relay'`. Wait 1–2 min. Expect a Discord "resolved" message.
+- [ ] Stop `relay` with Docker Compose from `/opt/ctrlx`; expect an alert after 2–3 minutes.
+- [ ] Start `relay` again; expect a resolved notification.
 
 ## Daily life
 
@@ -70,7 +63,8 @@ ssh root@$DEPLOY_HOST 'journalctl -u alloy -n 100 --no-pager'
 Common causes: bad `GRAFANA_PROM_TOKEN`, expired access policy, network egress blocked.
 
 ### `/metrics` returns 401 from Alloy
-The token in `/etc/alloy/alloy.env` does not match `METRICS_TOKEN` in `/opt/claudespy/.env`. Re-run `install.sh` with the correct value.
+The token in `/etc/alloy/alloy.env` does not match `METRICS_TOKEN` in
+`/opt/ctrlx/.env.production`. Re-run `install.sh` with the correct value.
 
 ### node_exporter shows no data
 ```bash
@@ -92,29 +86,30 @@ Test the contact point in Grafana UI (Alerting → Contact points → `discord-a
 ## Rotating the metrics token
 
 1. Generate a new value: `openssl rand -hex 32`.
-2. Update `/opt/claudespy/.env` on the VM and restart relay: `docker compose up -d relay`.
+2. Update `/opt/ctrlx/.env.production` on the VM and restart Relay with Docker Compose.
 3. Update `/etc/alloy/alloy.env` and restart Alloy: `systemctl restart alloy`.
 
 ## Free-tier limits
 
-Grafana Cloud free: 10k active series, 14-day retention, 1 user. Current usage: ~50 series. Plenty of headroom unless we add per-pair labels (which we deliberately avoided).
+Confirm the current limits with the selected monitoring provider. CtrlX metrics
+deliberately avoid per-pair labels to prevent unbounded cardinality.
 
 ## Metrics emitted
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `claudespy_messages_relayed_total` | counter | Encrypted messages relayed since process start |
-| `claudespy_push_notifications_total` | counter | Push notifications sent to APNs since process start |
-| `claudespy_trial_starts_total` | counter | Trial licenses started; 0 if licensing is disabled |
-| `claudespy_license_activations_total` | counter | License keys activated; 0 if licensing is disabled |
-| `claudespy_license_deactivations_total` | counter | License keys deactivated; 0 if licensing is disabled |
-| `claudespy_license_validation_failures_total` | counter | License validation failures from Lemon Squeezy; 0 if licensing is disabled |
-| `claudespy_blocked_host_attempts_total` | counter | Connection attempts blocked due to licensing; 0 if licensing is disabled |
-| `claudespy_paused_pairing_attempts_total` | counter | Pairing registrations refused by the pairing-pause switch (`PAIRING_PAUSED_MESSAGE`) |
-| `claudespy_active_pairs` | gauge | Currently-paired devices |
-| `claudespy_ws_connections{device_type="host\|viewer"}` | gauge | Active WebSocket connections per device type |
-| `claudespy_uptime_seconds` | gauge | Process uptime |
-| `claudespy_build_info{version="..."}` | gauge | Always 1; the `version` label carries the build identifier |
+| `ctrlx_messages_relayed_total` | counter | Encrypted messages relayed since process start |
+| `ctrlx_push_notifications_total` | counter | Push notifications sent to APNs since process start |
+| `ctrlx_trial_starts_total` | counter | Trial licenses started; 0 if licensing is disabled |
+| `ctrlx_license_activations_total` | counter | License keys activated; 0 if licensing is disabled |
+| `ctrlx_license_deactivations_total` | counter | License keys deactivated; 0 if licensing is disabled |
+| `ctrlx_license_validation_failures_total` | counter | License validation failures from Lemon Squeezy; 0 if licensing is disabled |
+| `ctrlx_blocked_host_attempts_total` | counter | Connection attempts blocked due to licensing; 0 if licensing is disabled |
+| `ctrlx_paused_pairing_attempts_total` | counter | Pairing registrations refused by the pairing-pause switch (`PAIRING_PAUSED_MESSAGE`) |
+| `ctrlx_active_pairs` | gauge | Currently-paired devices |
+| `ctrlx_ws_connections{device_type="host\|viewer"}` | gauge | Active WebSocket connections per device type |
+| `ctrlx_uptime_seconds` | gauge | Process uptime |
+| `ctrlx_build_info{version="..."}` | gauge | Always 1; the `version` label carries the build identifier |
 
 Plus the standard `node_exporter` metrics for host CPU/RAM/disk/net, including the `vmstat` collector (`node_vmstat_oom_kill`, `node_vmstat_pswpin`, `node_vmstat_pswpout`) used by the host-pressure alerts.
 
@@ -122,7 +117,7 @@ Plus the standard `node_exporter` metrics for host CPU/RAM/disk/net, including t
 
 | Alert | Severity | Fires when | Hint |
 |-------|----------|------------|------|
-| `relay-down` | critical | `up{job="claudespy-relay"} == 0` for 2m | Vapor process or alloy scrape is broken |
+| `relay-down` | critical | `up{job="ctrlx-relay"} == 0` for 2m | Vapor process or alloy scrape is broken |
 | `host-oom-kill` | critical | `increase(node_vmstat_oom_kill[5m]) > 0` | A process was OOM-killed; check `journalctl -k \| grep -i oom` |
 | `host-load-high` | warning | `node_load5 / cpu_count > 2` for 10m | Sustained CPU contention; usually a noisy-neighbor container |
 | `host-swap-thrash` | warning | `rate(pswpin+pswpout) > 100` for 5m | Memory pressure; an OOM kill is usually imminent |

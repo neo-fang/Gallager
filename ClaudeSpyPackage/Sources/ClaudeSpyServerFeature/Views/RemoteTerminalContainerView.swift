@@ -27,6 +27,8 @@ struct RemoteTerminalContainerView: View {
     /// When false, the terminal won't auto-grab focus on window add or window-becomes-key.
     /// Used in multi-pane layouts where multiple terminals share one window.
     var autoFocus = true
+    /// Shows a focus outline when this terminal is one tile in a multi-pane layout.
+    var showsFocusIndicator = false
     /// Fires whenever this terminal becomes the window's first responder.
     /// Used to mirror focus back to the remote tmux via `SelectTmuxPane`.
     var onFocus: (@MainActor () -> Void)?
@@ -41,6 +43,7 @@ struct RemoteTerminalContainerView: View {
     @State private var streamHeight = 24
     @State private var terminalTitle: String?
     @State private var upload: UploadState?
+    @State private var streamRetryGeneration = 0
 
     private var windowTitle: String {
         if let terminalTitle, !terminalTitle.isEmpty {
@@ -54,9 +57,12 @@ struct RemoteTerminalContainerView: View {
             RemoteTerminalNSView(
                 paneId: paneId,
                 connection: connection,
+                isHostConnected: connection.isHostConnected,
+                retryGeneration: streamRetryGeneration,
                 settings: settings,
                 isEditorActive: isEditorActive,
                 autoFocus: autoFocus,
+                showsFocusIndicator: showsFocusIndicator,
                 onFocus: onFocus,
                 onOpenURL: onOpenURL,
                 onStateChange: { state, width, height in
@@ -72,9 +78,32 @@ struct RemoteTerminalContainerView: View {
                 },
                 onFileDrop: { urls in
                     startFileDropUpload(urls)
-                }
+                },
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: settings.theme.palette.background.nativeColor))
+            .overlay {
+                if streamState == .connecting {
+                    Color(nsColor: settings.theme.palette.background.nativeColor)
+                        .allowsHitTesting(false)
+                        .accessibilityIdentifier("remote-terminal-bootstrap")
+                } else if case let .error(message) = streamState {
+                    ContentUnavailableView(
+                        "Terminal Stream Error",
+                        symbol: .exclamationmarkTriangle,
+                        description: message,
+                    ) {
+                        Button("Retry") {
+                            streamRetryGeneration &+= 1
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!connection.isHostConnected)
+                        .accessibilityIdentifier("remote-terminal-retry")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(settings.theme.workspaceBackgroundColor.opacity(0.96))
+                }
+            }
             .overlay(alignment: .center) {
                 if let upload {
                     UploadOverlay(state: upload, onCancel: cancelUpload)
@@ -118,36 +147,47 @@ struct RemoteTerminalContainerView: View {
         // failure auto-dismiss timer.
         upload?.cancel()
 
-        // Refuse images that won't fit the relay's WebSocket frame budget
-        // before we even open the connection — the user gets a clear error
-        // instead of a silent disconnect on the wire.
-        if image.data.count > SendDroppedFiles.maxRawBytes {
-            let mb = Double(image.data.count) / (1_024 * 1_024)
-            let message = String(
-                format: "Image is %.1f MB. The relay only supports drops under %d KB.",
-                mb,
-                SendDroppedFiles.maxRawBytes / 1_024
-            )
-            upload = .failed(
-                kind: .image,
-                sizeBytes: image.data.count,
-                message: message,
-                dismissTask: dismissTimer(after: .seconds(4))
-            )
-            return
-        }
-
-        // The image rides the same `SendDroppedFiles` flow Finder drops use,
-        // wrapped as a single synthetic file. The host saves it to
-        // `$TMPDIR/gallager-drop-<UUID>/pasted-image-<UUID>.<ext>` and
-        // bracketed-pastes the resolved path into the target tmux pane, so
-        // the in-pane app (Claude Code, vim, …) reads the image off disk
-        // instead of the host's pasteboard.
-        let sizeBytes = image.data.count
-        let name = "pasted-image-\(UUID().uuidString).\(image.format.fileExtension)"
-        let file = DroppedFile(name: name, data: image.data)
-
         let task = Task { @MainActor in
+            // Clipboard TIFFs can be tens of times larger than their PNG form.
+            // Normalize and, only when necessary, resize/compress off the main
+            // actor before constructing the base64 command payload.
+            let prepared = await Task.detached(priority: .userInitiated) {
+                RelayImagePreparer.prepare(
+                    image,
+                    maxBytes: SendDroppedFiles.maxRawBytes
+                )
+            }.value
+            if Task.isCancelled { return }
+
+            guard let prepared else {
+                let message = String(
+                    format: "Unable to optimize this image for the relay's %d KB limit.",
+                    SendDroppedFiles.maxRawBytes / 1_024
+                )
+                upload = .failed(
+                    kind: .image,
+                    sizeBytes: image.data.count,
+                    message: message,
+                    dismissTask: dismissTimer(after: .seconds(4))
+                )
+                return
+            }
+
+            // Refresh the overlay with the bytes that will actually cross the
+            // relay while preserving the task and animation identity.
+            if case let .uploading(id, _, _, currentTask) = upload {
+                upload = .uploading(
+                    id: id,
+                    kind: .image,
+                    sizeBytes: prepared.data.count,
+                    task: currentTask
+                )
+            }
+
+            // The image rides the same `SendDroppedFiles` flow Finder drops use.
+            // The host saves it under $TMPDIR and bracketed-pastes its path.
+            let name = "pasted-image-\(UUID().uuidString).\(prepared.format.fileExtension)"
+            let file = DroppedFile(name: name, data: prepared.data)
             let result = await connection.relayClient.sendCommand(
                 SendDroppedFiles(files: [file]),
                 paneId: paneId,
@@ -166,14 +206,14 @@ struct RemoteTerminalContainerView: View {
                 } else {
                     upload = .failed(
                         kind: .image,
-                        sizeBytes: sizeBytes,
+                        sizeBytes: prepared.data.count,
                         message: error.localizedDescription,
                         dismissTask: dismissTimer(after: .seconds(3))
                     )
                 }
             }
         }
-        upload = .uploading(kind: .image, sizeBytes: sizeBytes, task: task)
+        upload = .uploading(kind: .image, sizeBytes: image.data.count, task: task)
     }
 
     /// Reads each dropped file's bytes off-main-actor and ships them as a
@@ -310,7 +350,7 @@ struct RemoteTerminalContainerView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(.bar)
+        .background(settings.theme.chromeBackgroundColor)
     }
 
     private var statusColor: SwiftUI.Color {
@@ -542,9 +582,12 @@ enum RemoteStreamState: Equatable {
 private struct RemoteTerminalNSView: NSViewRepresentable {
     let paneId: String
     let connection: ViewerConnection
+    let isHostConnected: Bool
+    let retryGeneration: Int
     let settings: AppSettings
     let isEditorActive: Bool
     let autoFocus: Bool
+    let showsFocusIndicator: Bool
     let onFocus: (@MainActor () -> Void)?
     let onOpenURL: TerminalOpenURLHandler?
     let onStateChange: @MainActor (RemoteStreamState, Int, Int) -> Void
@@ -561,13 +604,16 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         // Configure auto-focus before starting (must be set before viewDidMoveToWindow fires).
         coordinator.terminalView.autoFocusEnabled = autoFocus
+        coordinator.terminalView.showsFocusIndicator = showsFocusIndicator
 
         coordinator.start(
             paneId: paneId,
             connection: connection,
+            isHostConnected: isHostConnected,
+            retryGeneration: retryGeneration,
             settings: settings,
             onStateChange: onStateChange,
-            onTitleChange: onTitleChange
+            onTitleChange: onTitleChange,
         )
         coordinator.terminalView.isEditorActive = isEditorActive
         coordinator.terminalView.onBecomeFirstResponder = onFocus
@@ -591,8 +637,13 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: InteractiveTerminalView, context: Context) {
+        nsView.showsFocusIndicator = showsFocusIndicator
         context.coordinator.updateSettings(settings)
         context.coordinator.updateContainerSize(nsView.frame.size)
+        context.coordinator.synchronizeStream(
+            isHostConnected: isHostConnected,
+            retryGeneration: retryGeneration,
+        )
 
         // Re-bind focus, paste and URL-click callbacks so closures captured
         // here reflect the current parent state on every layout pass.
@@ -610,8 +661,8 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         // responder to the terminal so typing resumes without a manual click.
         let wasEditorActive = nsView.isEditorActive
         nsView.isEditorActive = isEditorActive
-        if wasEditorActive, !isEditorActive {
-            nsView.window?.makeFirstResponder(nsView)
+        if wasEditorActive, !isEditorActive, !nsView.isHidden {
+            nsView.focusTerminal()
         }
     }
 
@@ -629,18 +680,34 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private var paneId: String?
         private weak var connection: ViewerConnection?
         private var streamSubscriptionId: UUID?
+        private var streamAttemptId: UUID?
+        private var activeLeaseId: UUID?
         private var streamState: RemoteStreamState = .connecting
         private var columns = 80
         private var rows = 24
         private var fontName: String?
         private var fontSize: CGFloat?
         private var containerSize: NSSize = .zero
-        private var hasReceivedInitialState = false
+        private var bootstrapPolicy = TerminalStreamBootstrapPolicy()
+        private var bootstrapBuffer = TerminalStreamBootstrapBuffer()
         private var streamTask: Task<Void, Never>?
+        private var lastIsHostConnected: Bool?
+        private var lastRetryGeneration: Int?
+        private var recoveryPolicy = TerminalStreamRecoveryPolicy()
         private var onStateChange: (@MainActor (RemoteStreamState, Int, Int) -> Void)?
         private var onTitleChange: (@MainActor (String) -> Void)?
 
         private var keystrokeDebouncer: KeystrokeDebouncer?
+        private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
+            self?.enqueueKeySend(keys: batch.keys)
+        }
+
+        private lazy var feedCoalescer = TerminalFeedCoalescer(
+            id: "mac-remote:\(paneId ?? "unknown")"
+        ) { [weak self] data in
+            guard let terminalView = self?.terminalView else { return }
+            terminalView.feedPreservingScroll([UInt8](data)[...])
+        }
 
         init() {
             self.terminalView = InteractiveTerminalView(
@@ -648,59 +715,77 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             )
             // Disable custom block glyph rendering — see TerminalContainerView.init for details.
             terminalView.customBlockGlyphs = false
-            applyDarkTheme()
+            terminalView.applyTheme(.defaultDark)
+            terminalView.isHidden = true
         }
 
         func start(
             paneId: String,
-            connection: ViewerConnection,
+            connection initialConnection: ViewerConnection,
+            isHostConnected: Bool,
+            retryGeneration: Int,
             settings: AppSettings,
             onStateChange: @MainActor @escaping (RemoteStreamState, Int, Int) -> Void,
-            onTitleChange: @MainActor @escaping (String) -> Void
+            onTitleChange: @MainActor @escaping (String) -> Void,
         ) {
             self.paneId = paneId
-            self.connection = connection
+            connection = initialConnection
             self.onStateChange = onStateChange
 
             terminalView.terminalAccessibilityIdentifier = "terminal-\(paneId)"
             self.onTitleChange = onTitleChange
 
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
 
             // Wire keystroke forwarding via relay
             terminalView.onInput = { [weak self] keys in
-                guard let self, let connection = self.connection else { return }
-                self.enqueueKeySend(keys: keys, connection: connection)
+                guard
+                    let self,
+                    streamState == .streaming,
+                    let connection,
+                    connection.isHostConnected
+                else { return }
+                keyCoalescer.enqueue(keys)
             }
 
             // Wire raw input (mouse escape sequences) forwarding via relay
             terminalView.onRawInput = { [weak self] data in
-                guard let self, let connection = self.connection else { return }
-                self.enqueueRawInput(data: data, connection: connection)
+                guard
+                    let self,
+                    streamState == .streaming,
+                    let connection,
+                    connection.isHostConnected
+                else { return }
+                keyCoalescer.flushPending()
+                enqueueRawInput(data: data, connection: connection)
             }
 
             // Subscribe to terminal stream for this specific pane
-            let subscriptionId = connection.subscribeToTerminalStream(paneId: paneId) { [weak self] message in
+            let subscriptionId = initialConnection.subscribeToTerminalStream(paneId: paneId) { [weak self] message in
                 self?.handleStreamMessage(message)
             }
             streamSubscriptionId = subscriptionId
 
-            // Start streaming
-            streamTask = Task {
-                updateState(.connecting)
-                let result = await connection.relayClient.sendCommand(
-                    StartTerminalStream(),
-                    paneId: paneId
-                )
+            synchronizeStream(
+                isHostConnected: isHostConnected,
+                retryGeneration: retryGeneration,
+            )
+        }
 
-                switch result {
-                case .success:
-                    break // Stream messages will arrive via subscription
-                case let .failure(error):
-                    updateState(.error(error.localizedDescription))
-                }
+        func synchronizeStream(isHostConnected: Bool, retryGeneration: Int) {
+            let connectionChanged = lastIsHostConnected != isHostConnected
+            let retryRequested = lastRetryGeneration != retryGeneration
+            lastIsHostConnected = isHostConnected
+            lastRetryGeneration = retryGeneration
+
+            guard connectionChanged || retryRequested else { return }
+            guard isHostConnected else {
+                prepareForReconnect()
+                return
             }
+
+            restartStreaming()
         }
 
         func stop() {
@@ -712,9 +797,14 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
             keystrokeDebouncer?.cancelAll()
             keystrokeDebouncer = nil
+            keyCoalescer.reset()
+            feedCoalescer.discardPending()
 
             streamTask?.cancel()
             streamTask = nil
+            streamAttemptId = nil
+            bootstrapBuffer.reset()
+            terminalView.lockedDimensions = nil
 
             // Unsubscribe from terminal stream
             if let subscriptionId = streamSubscriptionId {
@@ -722,25 +812,153 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 streamSubscriptionId = nil
             }
 
-            // Tell the host to stop streaming this pane
-            if let connection, let paneId {
+            // Tell the host to stop streaming this pane only if this view made
+            // a request that may still own a host-side subscription.
+            if
+                recoveryPolicy.hasRequestedStream,
+                let leaseId = activeLeaseId,
+                let connection,
+                connection.isHostConnected,
+                let paneId {
                 let relayClient = connection.relayClient
                 let id = paneId
                 Task {
-                    _ = await relayClient.sendCommand(StopTerminalStream(), paneId: id)
+                    _ = await relayClient.sendCommand(
+                        StopTerminalStream(leaseId: leaseId),
+                        paneId: id
+                    )
+                }
+            }
+            activeLeaseId = nil
+        }
+
+        // MARK: - Stream Lifecycle
+
+        private func restartStreaming() {
+            streamTask?.cancel()
+            streamTask = Task { [weak self] in
+                await self?.startStreaming()
+            }
+        }
+
+        private func startStreaming() async {
+            guard let connection, let paneId else { return }
+            var startMode = recoveryPolicy.nextStartMode()
+
+            // A single retry covers a command response lost during a healthy
+            // reconnect. The relay client owns long-lived WebSocket backoff.
+            for attempt in 0..<2 {
+                guard !Task.isCancelled, connection.isHostConnected else {
+                    prepareForReconnect()
+                    return
+                }
+
+                let previousLeaseId = activeLeaseId
+                let leaseId = UUID()
+                let attemptId = beginStreamAttempt(leaseId: leaseId)
+
+                if startMode == .replaceExisting, let previousLeaseId {
+                    _ = await connection.relayClient.sendCommand(
+                        StopTerminalStream(leaseId: previousLeaseId),
+                        paneId: paneId,
+                    )
+
+                    guard
+                        !Task.isCancelled,
+                        connection.isHostConnected,
+                        streamAttemptId == attemptId
+                    else {
+                        prepareForReconnect()
+                        return
+                    }
+                }
+
+                bootstrapPolicy.willSendStartRequest()
+
+                let result = await connection.relayClient.sendCommand(
+                    StartTerminalStream(leaseId: leaseId),
+                    paneId: paneId,
+                )
+
+                guard streamAttemptId == attemptId else { return }
+
+                switch result {
+                case .success:
+                    // A Stage 16 host sends every bootstrap byte before this
+                    // response. Older hosts still preserve initial-before-ack.
+                    bootstrapPolicy.receiveStartAcknowledgement()
+                    revealTerminalIfReady()
+                    return
+
+                case let .failure(error):
+                    guard !Task.isCancelled, connection.isHostConnected else {
+                        prepareForReconnect()
+                        return
+                    }
+
+                    if attempt == 0 {
+                        startMode = .replaceExisting
+                        do {
+                            try await Task.sleep(for: .milliseconds(500))
+                        } catch {
+                            return
+                        }
+                        continue
+                    }
+
+                    bootstrapBuffer.reset()
+                    updateState(.error(error.localizedDescription))
                 }
             }
         }
 
+        private func beginStreamAttempt(leaseId: UUID) -> UUID {
+            keystrokeDebouncer?.cancelAll()
+            keyCoalescer.reset()
+            bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
+            feedCoalescer.discardPending()
+            terminalView.preserveUserScroll = false
+            terminalView.isHidden = true
+            terminalView.getTerminal().resetToInitialState()
+
+            let id = UUID()
+            streamAttemptId = id
+            activeLeaseId = leaseId
+            updateState(.connecting)
+            return id
+        }
+
+        private func prepareForReconnect() {
+            streamTask?.cancel()
+            streamTask = nil
+            streamAttemptId = nil
+            bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
+            feedCoalescer.discardPending()
+            terminalView.preserveUserScroll = false
+            terminalView.isHidden = true
+            keystrokeDebouncer?.cancelAll()
+            keyCoalescer.reset()
+            updateState(.connecting)
+        }
+
         // MARK: - Key Sends
 
-        /// Accumulates rapid keystrokes and flushes them as a single command after a short delay.
-        private func enqueueKeySend(keys: [TmuxKey], connection: ViewerConnection) {
-            guard let paneId else { return }
+        /// SwiftTerm's synchronous Meta/Option callbacks have already been
+        /// coalesced for this runloop turn. Queue the complete batch immediately
+        /// instead of competing with terminal rendering on a 10 ms timer.
+        private func enqueueKeySend(keys: [TmuxKey]) {
+            guard
+                streamState == .streaming,
+                let paneId,
+                let connection,
+                connection.isHostConnected
+            else { return }
             if keystrokeDebouncer == nil {
                 keystrokeDebouncer = KeystrokeDebouncer(paneId: paneId, relayClient: connection.relayClient)
             }
-            keystrokeDebouncer?.enqueue(keys)
+            keystrokeDebouncer?.enqueueImmediately(keys)
         }
 
         /// Forwards raw bytes (mouse escape sequences) to the host via the relay.
@@ -757,34 +975,53 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
         private func handleStreamMessage(_ message: TerminalStreamMessage) {
             switch message.updateType {
             case let .initialState(state):
+                guard
+                    let data = Data(base64Encoded: state.contentBase64),
+                    bootstrapPolicy.receiveInitialState()
+                else { return }
+
                 columns = state.width
                 rows = state.height
-                terminalView.getTerminal().resize(cols: columns, rows: rows)
-                updateTerminalFrameSize()
+                bootstrapBuffer.appendDimensions(cols: columns, rows: rows)
+                bootstrapBuffer.appendData(data)
 
-                if let data = Data(base64Encoded: state.contentBase64) {
-                    let bytes = [UInt8](data)[...]
-                    terminalView.feed(byteArray: bytes)
-                    terminalView.scroll(toPosition: 1)
-                    terminalView.preserveUserScroll = true
+                revealTerminalIfReady()
+
+            case let .resetState(state):
+                guard let data = Data(base64Encoded: state.contentBase64) else { return }
+                columns = state.width
+                rows = state.height
+                applyTerminalDimensions(cols: columns, rows: rows)
+                feedCoalescer.replace(with: data) { [terminalView] in
+                    terminalView.getTerminal().resetToInitialState()
+                    terminalView.preserveUserScroll = false
                 }
-
-                hasReceivedInitialState = true
-                updateState(.streaming)
+                terminalView.scroll(toPosition: 1)
+                terminalView.preserveUserScroll = true
+                terminalView.isHidden = false
+                terminalView.needsDisplay = true
+                notifyStateChange()
 
             case let .dataChunk(chunk):
-                guard hasReceivedInitialState else { return }
+                guard bootstrapPolicy.hasInitialState else { return }
                 if let data = Data(base64Encoded: chunk.dataBase64) {
-                    let bytes = [UInt8](data)[...]
-                    terminalView.feedPreservingScroll(bytes)
+                    if streamState == .streaming {
+                        feedCoalescer.enqueue(data)
+                    } else {
+                        bootstrapBuffer.appendData(data)
+                    }
                 }
 
             case let .dimensionChange(change):
+                guard bootstrapPolicy.hasInitialState else { return }
                 columns = change.width
                 rows = change.height
-                terminalView.getTerminal().resize(cols: columns, rows: rows)
-                updateTerminalFrameSize()
-                notifyStateChange()
+                if streamState == .streaming {
+                    applyTerminalDimensions(cols: columns, rows: rows)
+                    notifyStateChange()
+                } else {
+                    bootstrapBuffer.appendDimensions(cols: columns, rows: rows)
+                }
 
             case let .titleChange(change):
                 onTitleChange?(change.title)
@@ -797,7 +1034,42 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
                 applyClipboardIfFocused(update.content)
 
             case .streamEnd:
+                // A stop sent while replacing our stale subscription can end
+                // the old host stream before the matching start arrives.
+                guard streamState == .streaming else { return }
                 updateState(.disconnected)
+            }
+        }
+
+        private func revealTerminalIfReady() {
+            guard bootstrapPolicy.isReady, streamState != .streaming else { return }
+
+            var replacedTerminal = false
+            for event in bootstrapBuffer.takeEvents() {
+                switch event {
+                case let .dimensions(cols, rows):
+                    applyTerminalDimensions(cols: cols, rows: rows)
+                case let .data(data):
+                    if replacedTerminal {
+                        feedCoalescer.enqueue(data)
+                    } else {
+                        feedCoalescer.replace(with: data) { [terminalView] in
+                            terminalView.getTerminal().resetToInitialState()
+                        }
+                        replacedTerminal = true
+                    }
+                }
+            }
+            feedCoalescer.flushPendingNow()
+
+            terminalView.scroll(toPosition: 1)
+            terminalView.preserveUserScroll = true
+            terminalView.isHidden = false
+            terminalView.needsDisplay = true
+            updateState(.streaming)
+
+            if terminalView.autoFocusEnabled, !terminalView.isEditorActive {
+                terminalView.focusTerminal()
             }
         }
 
@@ -816,7 +1088,7 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
 
         func updateSettings(_ settings: AppSettings) {
             updateFont(name: settings.fontName, size: CGFloat(settings.fontSize))
-            applyTheme(settings.theme)
+            terminalView.applyTheme(settings.theme)
             terminalView.autoCopyOnSelect = settings.autoCopyOnSelect
         }
 
@@ -836,32 +1108,19 @@ private struct RemoteTerminalNSView: NSViewRepresentable {
             updateTerminalFrameSize()
         }
 
-        func applyTheme(_ theme: TerminalTheme) {
-            switch theme {
-            case .defaultDark,
-                 .solarizedDark:
-                applyDarkTheme()
-            case .defaultLight,
-                 .solarizedLight:
-                applyLightTheme()
-            }
-        }
-
-        private func applyDarkTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-        }
-
-        private func applyLightTheme() {
-            terminalView.nativeForegroundColor = NSColor(red: 0.1, green: 0.1, blue: 0.1, alpha: 1)
-            terminalView.nativeBackgroundColor = NSColor(red: 0.95, green: 0.95, blue: 0.95, alpha: 1)
-        }
-
         // MARK: - Private Helpers
 
         private func updateTerminalFrameSize() {
             let optimalSize = terminalView.getOptimalFrameSize().size
             terminalView.setTerminalSize(optimalSize)
+        }
+
+        private func applyTerminalDimensions(cols: Int, rows: Int) {
+            columns = cols
+            self.rows = rows
+            terminalView.lockedDimensions = (cols: cols, rows: rows)
+            terminalView.getTerminal().resize(cols: cols, rows: rows)
+            updateTerminalFrameSize()
         }
 
         private func updateState(_ state: RemoteStreamState) {

@@ -4,8 +4,8 @@ import Foundation
 enum SocketClient {
     /// Resolves the socket path from environment or default.
     static var socketPath: String {
-        ProcessInfo.processInfo.environment["GALLAGER_SOCKET"]
-            ?? NSTemporaryDirectory() + "gallager.sock"
+        ProcessInfo.processInfo.environment["CTRLX_SOCKET"]
+            ?? NSTemporaryDirectory() + "ctrlx.sock"
     }
 
     /// Sends a JSON-RPC request and returns the response.
@@ -81,7 +81,7 @@ enum CLIError: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .socketCreationFailed: "Failed to create socket"
-        case .connectionFailed: "Failed to connect to Gallager (is it running?)"
+        case .connectionFailed: "Failed to connect to CtrlX (is it running?)"
         case .writeFailed: "Failed to send request"
         case .emptyResponse: "Empty response from server"
         case .pathTooLong: "Socket path exceeds maximum length"

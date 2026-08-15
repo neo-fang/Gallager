@@ -316,6 +316,14 @@ private extension TmuxKey {
             case 3: return CsiParseResult(keys: [.delete], nextIndex: nextIndex)
             case 5: return CsiParseResult(keys: [.pageUp], nextIndex: nextIndex)
             case 6: return CsiParseResult(keys: [.pageDown], nextIndex: nextIndex)
+            // SwiftTerm emits these around a system paste when the target has
+            // enabled bracketed-paste mode. They are terminal input, not keys;
+            // preserve the exact bytes so newlines inside the paste are not
+            // interpreted as independent Enter submissions.
+            case 200 where params.count == 1:
+                return CsiParseResult(keys: [.text("\u{1B}[200~")], nextIndex: nextIndex)
+            case 201 where params.count == 1:
+                return CsiParseResult(keys: [.text("\u{1B}[201~")], nextIndex: nextIndex)
             default:
                 // Unknown extended key — consume the sequence silently
                 return CsiParseResult(keys: [], nextIndex: nextIndex)
@@ -424,7 +432,13 @@ public struct CancelOperation: CommandSpec, Equatable {
 public struct StartTerminalStream: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    public init() { }
+    /// Identifies this specific viewer-side subscription attempt. Optional so
+    /// older peers that encode an empty command remain wire-compatible.
+    public let leaseId: UUID?
+
+    public init(leaseId: UUID? = nil) {
+        self.leaseId = leaseId
+    }
 
     public var commandType: CommandType {
         .startTerminalStream(self)
@@ -435,7 +449,13 @@ public struct StartTerminalStream: CommandSpec, Equatable {
 public struct StopTerminalStream: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    public init() { }
+    /// Only the matching lease may release a modern subscription. Nil retains
+    /// the legacy empty-command wire format and semantics for older peers.
+    public let leaseId: UUID?
+
+    public init(leaseId: UUID? = nil) {
+        self.leaseId = leaseId
+    }
 
     public var commandType: CommandType {
         .stopTerminalStream(self)
@@ -533,6 +553,26 @@ public struct CreateTmuxSession: CommandSpec, Equatable {
     }
 }
 
+/// Rename a tmux session on the host. Returns success/failure.
+public struct RenameTmuxSession: CommandSpec, Equatable {
+    public typealias Response = CommandResponseMessage
+
+    /// Current tmux session name.
+    public let sessionName: String
+
+    /// Requested replacement name.
+    public let newName: String
+
+    public init(sessionName: String, newName: String) {
+        self.sessionName = sessionName
+        self.newName = newName
+    }
+
+    public var commandType: CommandType {
+        .renameTmuxSession(self)
+    }
+}
+
 /// Set a custom description for a tmux session. Returns success/failure.
 /// When handled by the host, the description is applied to every pane in every
 /// window and then pushed to all connected viewers, so it persists when
@@ -557,7 +597,7 @@ public struct SetSessionDescription: CommandSpec, Equatable {
 }
 
 /// Set a custom color for a tmux session. Returns success/failure.
-/// Persisted as the tmux `@gallager-color` user option so the dot in the
+/// Persisted as the tmux `@ctrlx-color` user option so the dot in the
 /// sidebar comes back after restarting the host app.
 public struct SetSessionColor: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -579,7 +619,7 @@ public struct SetSessionColor: CommandSpec, Equatable {
 }
 
 /// Set a custom emoji icon for a tmux session. Returns success/failure.
-/// Persisted as the tmux `@gallager-emoji` user option so the icon in the
+/// Persisted as the tmux `@ctrlx-emoji` user option so the icon in the
 /// sidebar comes back after restarting the host app.
 public struct SetSessionEmoji: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -647,8 +687,8 @@ public struct SetWindowName: CommandSpec, Equatable {
 }
 
 /// Reorder tmux windows inside a remote session so the windows match the
-/// supplied id list. Applied on the host via `TmuxService.moveWindows` (a
-/// two-phase park-then-place that rewrites the session's window indices).
+/// supplied id list. Applied on the host via `TmuxService.moveWindows`, which
+/// swaps stable tmux window identities into the session's existing slots.
 ///
 /// The viewer renders an optimistic order locally and then sends this command
 /// to make the host's tmux state match. On success the host pushes a fresh
@@ -659,9 +699,9 @@ public struct MoveTmuxWindows: CommandSpec, Equatable {
     /// The session whose windows are being reordered.
     public let sessionName: String
 
-    /// The desired window order, listed as the current window ids
-    /// (`sessionName:N`). Every window in the session must appear; partial
-    /// reorders are rejected by the host.
+    /// The desired order, listed as stable tmux window ids (`@N`). Every
+    /// window in the session must appear exactly once. A host also accepts
+    /// legacy `sessionName:N` ids from an older viewer.
     public let windowIds: [String]
 
     public init(sessionName: String, windowIds: [String]) {
@@ -793,18 +833,16 @@ public struct DroppedFile: Codable, Sendable, Equatable {
 }
 
 /// Forward a Finder file drop from a Mac viewer to a remote Mac host. The
-/// host saves each file to `$TMPDIR/gallager-drop-<UUID>/<name>`, joins the
+/// host saves each file to `$TMPDIR/ctrlx-drop-<UUID>/<name>`, joins the
 /// resolved paths into a shell-escaped string, and pastes the result into
 /// the target tmux pane via `tmux load-buffer` + `paste-buffer -p` so apps
 /// that have enabled bracketed-paste mode see it as a paste event.
 public struct SendDroppedFiles: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
 
-    /// Maximum total raw bytes a viewer should attempt to send across all
-    /// files in one drop. The relay enforces a 1 MiB max WebSocket frame and
-    /// base64 adds ~33% overhead, so 700 KiB raw stays under the ceiling.
-    /// Mirrors `SendImage.maxRawBytes` so both upload paths share one limit.
-    public static let maxRawBytes = 700 * 1_024
+    /// Maximum total raw bytes a viewer should send across all files in one
+    /// drop. The shared budget includes both Base64 layers and E2EE overhead.
+    public static let maxRawBytes = RelayPayloadLimits.maxDroppedFilesRawBytes
 
     /// The dropped files in the order the user dropped them.
     public let files: [DroppedFile]
@@ -943,6 +981,8 @@ public enum CommandType: Codable, Sendable, Equatable {
     case setYoloMode(SetYoloMode)
     /// Mark a session as handled (user has seen it)
     case markHandled(MarkHandled)
+    /// Rename a tmux session on the host
+    case renameTmuxSession(RenameTmuxSession)
     /// Set a custom description for a tmux session (applied to all panes)
     case setSessionDescription(SetSessionDescription)
     /// Set a custom color dot for a tmux session
@@ -1034,6 +1074,11 @@ public enum CommandType: Codable, Sendable, Equatable {
     /// Create a markHandled command
     public static var markHandled: CommandType {
         .markHandled(MarkHandled())
+    }
+
+    /// Create a renameTmuxSession command
+    public static func renameTmuxSession(sessionName: String, newName: String) -> CommandType {
+        .renameTmuxSession(RenameTmuxSession(sessionName: sessionName, newName: newName))
     }
 
     /// Create a setSessionDescription command

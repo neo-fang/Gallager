@@ -21,6 +21,12 @@ public struct TmuxWindow: Identifiable, Sendable {
     /// Pane states in this window, sorted by pane index
     public let panes: [PaneState]
 
+    /// Identity used by tab/split state. Falls back for snapshots produced by
+    /// an older host that did not transmit tmux's stable window id.
+    public var stableId: String {
+        panes.first?.stableWindowId ?? id
+    }
+
     /// Whether this window has only a single pane
     public var isSinglePane: Bool {
         panes.count == 1
@@ -38,7 +44,7 @@ public struct TmuxWindow: Identifiable, Sendable {
 
     /// The custom description for this window.
     ///
-    /// Although persisted at session scope (via `@gallager-description`),
+    /// Although persisted at session scope (via `@ctrlx-description`),
     /// tmux's option-resolution chain makes every pane in the session report
     /// the same value, so any pane is a valid source. We scan rather than
     /// pick a fixed pane to tolerate partial refreshes.

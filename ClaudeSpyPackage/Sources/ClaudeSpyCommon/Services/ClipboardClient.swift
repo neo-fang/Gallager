@@ -13,12 +13,14 @@ import os.log
 /// extension when the image is wrapped as a synthetic `DroppedFile` for
 /// the relay-forward image-paste flow.
 public enum ImageFormat: String, Sendable, Equatable {
+    case jpeg
     case png
     case tiff
 
     /// Filename extension to use when saving the clipboard image to disk.
     public var fileExtension: String {
         switch self {
+        case .jpeg: "jpg"
         case .png: "png"
         case .tiff: "tiff"
         }
@@ -90,7 +92,7 @@ public extension ClipboardClient {
 
 final private class FileBackedClipboard: Sendable {
     private static let logger = Logger(
-        subsystem: "com.claudespy",
+        subsystem: "com.jicezeng.ctrlx",
         category: "FileBackedClipboard"
     )
 

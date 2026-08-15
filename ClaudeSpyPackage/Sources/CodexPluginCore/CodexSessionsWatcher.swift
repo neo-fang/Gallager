@@ -18,7 +18,7 @@
         private let debounce: DispatchTimeInterval
         private let onChange: @Sendable () -> Void
 
-        private let queue = DispatchQueue(label: "com.gallager.codex.sessions-watcher")
+        private let queue = DispatchQueue(label: "com.jicezeng.ctrlx.codex.sessions-watcher")
         private var stream: FSEventStreamRef?
         private var debounceWorkItem: DispatchWorkItem?
 

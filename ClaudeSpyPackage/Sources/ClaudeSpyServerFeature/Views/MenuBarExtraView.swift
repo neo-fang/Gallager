@@ -43,7 +43,8 @@ public struct MenuBarExtraView: View {
                 mode: settings.sidebarSortMode,
                 sidebarFields: settings.sidebarFields,
                 sidebarTerminalFields: settings.sidebarTerminalFields,
-                homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+                preferredSessionNames: settings.remoteSessionOrder(for: host.id)
             )
             guard !sessions.isEmpty else { return nil }
             return (host: host, sessions: sessions)
@@ -109,7 +110,7 @@ public struct MenuBarExtraView: View {
 
         Divider()
 
-        Button("Quit Gallager") {
+        Button("Quit CtrlX") {
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: .command)
@@ -258,15 +259,14 @@ public struct MenuBarExtraView: View {
         }
     }
 
-    /// Row title for a local agent session: the user's session description
-    /// when one is set, else the agent's project-derived name. Falls back to
-    /// the agent's name if the pane isn't tracked.
+    /// Row title for a local agent session. The pane-state formatter keeps the
+    /// tmux session name first and appends description/project context.
     private func localTitle(for session: AgentSession) -> String {
         windowManager.paneStates[session.paneId]?.agentRowTitle ?? session.displayName
     }
 
-    /// Row title for a remote agent session, honoring the session description
-    /// the host pushed with its pane state.
+    /// Row title for a remote agent session, using the same identity-first
+    /// formatter against the pane state pushed by the host.
     private func remoteTitle(for session: AgentSession, host: PairedHost) -> String {
         coordinator.remoteSessionStore?.paneState(for: session.paneId, hostId: host.id)?.agentRowTitle
             ?? session.displayName

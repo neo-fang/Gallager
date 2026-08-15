@@ -1,8 +1,8 @@
 #!/bin/bash
 # Copies every skill from the Claude plugin into the Codex plugin
 # folder inside the built .app bundle. The skills live in the repo only
-# once (under plugin/gallager/skills/) and are mirrored into
-# plugin/codex/gallager/skills/ at build time so both plugins expose
+# once (under plugin/ctrlx/skills/) and are mirrored into
+# plugin/codex/ctrlx/skills/ at build time so both plugins expose
 # the same set without keeping a second copy in the repo.
 #
 # Runs after the "Copy Bundle Resources" phase, so the plugin/ tree is
@@ -12,8 +12,8 @@
 set -euo pipefail
 
 APP_PLUGIN_DIR="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/plugin"
-SOURCE_DIR="${APP_PLUGIN_DIR}/gallager/skills"
-DEST_DIR="${APP_PLUGIN_DIR}/codex/gallager/skills"
+SOURCE_DIR="${APP_PLUGIN_DIR}/ctrlx/skills"
+DEST_DIR="${APP_PLUGIN_DIR}/codex/ctrlx/skills"
 
 if [ ! -d "$SOURCE_DIR" ]; then
     echo "warning: no skills directory at $SOURCE_DIR — Codex plugin will ship without skills"

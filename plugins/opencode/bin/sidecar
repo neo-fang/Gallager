@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Gallager sidecar plugin for opencode (https://opencode.ai).
+CtrlX sidecar plugin for opencode (https://opencode.ai).
 
-A sidecar is a long-lived child process Gallager spawns once and talks to over
+A sidecar is a long-lived child process CtrlX spawns once and talks to over
 stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sidecar
-turns opencode's event-bus events (forwarded by the companion `gallager.js`
-opencode plugin → Gallager's ingress socket → here as `translate_event` calls)
-into the agent-blind `PluginEvent` shape Gallager understands, and answers
+turns opencode's event-bus events (forwarded by the companion `ctrlx.js`
+opencode plugin → CtrlX's ingress socket → here as `translate_event` calls)
+into the agent-blind `PluginEvent` shape CtrlX understands, and answers
 opencode's permission/question forms back by injecting keystrokes into the pane
 (opencode's TUI exposes no reachable HTTP endpoint). The bridge also emits two
-synthetic lifecycle frames — `gallager.lifecycle.started` (on plugin load ≈ TUI
-start) and `gallager.lifecycle.stopped` (from its `dispose` hook ≈ TUI quit) —
+synthetic lifecycle frames — `ctrlx.lifecycle.started` (on plugin load ≈ TUI
+start) and `ctrlx.lifecycle.stopped` (from its `dispose` hook ≈ TUI quit) —
 which map to an idle session appearing / the session being removed.
 
 Casing reminder (the #1 footgun):
@@ -50,7 +50,7 @@ def read_message():
     while b"\r\n\r\n" not in header:
         ch = sys.stdin.buffer.read(1)
         if not ch:
-            return None  # stdin closed → Gallager is gone
+            return None  # stdin closed → CtrlX is gone
         header += ch
     length = 0
     for line in header.split(b"\r\n"):
@@ -166,7 +166,7 @@ def state_awaiting_replies(request, request_id):
 #          the child's own churn. Child permission/question prompts are NOT
 #          dropped (see handle_translate_event); they're re-keyed to the root
 #          session via _root_session.
-# PENDING: gallager-requestID → {server_url, permission_id, session_id} so a
+# PENDING: ctrlx-requestID → {server_url, permission_id, session_id} so a
 #          later deliver_response can answer the right opencode permission.
 # ---------------------------------------------------------------------------
 WORKING = set()
@@ -179,9 +179,9 @@ SESSION_PENDING = {}  # session_id → set(request_id)
 # command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
 SETTINGS = {}
 
-# Gallager's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
+# CtrlX's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
 # delivered on the initialize env (PluginEnvWire.otlpReceiverEndpoint). Baked
-# into the bridge at install so opencode — which does not inherit Gallager's
+# into the bridge at install so opencode — which does not inherit CtrlX's
 # env — can POST telemetry to it (issue #617). Empty when the receiver failed
 # to bind: the install then bakes an empty endpoint and telemetry stays off.
 OTLP_ENDPOINT = ""
@@ -311,7 +311,7 @@ def _build_question(props, session_id, server_url):
     """Map an opencode `question.asked` into an awaitingReplies form.
 
     opencode's QuestionInfo (`{question, header, options:[{label,description}],
-    multiple?, custom?}`) maps directly onto Gallager's AskUserQuestionRequest.
+    multiple?, custom?}`) maps directly onto CtrlX's AskUserQuestionRequest.
     """
     req_id = props.get("id")
     questions = props.get("questions")
@@ -454,7 +454,7 @@ def handle_translate_event(req_id, params):
         _clear_session_pending(session_id)
         state = state_working()
 
-    elif etype == "gallager.lifecycle.started":
+    elif etype == "ctrlx.lifecycle.started":
         # Synthetic event the bridge emits once when opencode loads it (≈ TUI
         # start). opencode fires nothing on a fresh idle launch, and the host's
         # process scan only re-runs on pane add/remove — not when a process starts
@@ -464,7 +464,7 @@ def handle_translate_event(req_id, params):
         SEEN.add(session_id)
         state = state_idle()
 
-    elif etype == "gallager.lifecycle.stopped":
+    elif etype == "ctrlx.lifecycle.stopped":
         # Synthetic event the bridge emits from its opencode `dispose` hook on a
         # graceful quit. Nothing else signals exit (the bridge dies with the
         # process; the host never reconciles a vanished process), so end the
@@ -508,10 +508,10 @@ def _done_body(project_path):
 
 
 # The bridge attaches the turn's last assistant text to the idle event as
-# properties.gallagerSummary (fetched via opencode's in-process SDK client —
+# properties.ctrlxSummary (fetched via opencode's in-process SDK client —
 # idle events themselves carry no text). Absent on older bridges.
 def _idle_summary(props):
-    summary = props.get("gallagerSummary")
+    summary = props.get("ctrlxSummary")
     if isinstance(summary, str) and summary.strip():
         return summary
     return None
@@ -547,7 +547,7 @@ def handle_deliver_response(req_id, params):
 # opencode's TUI has no reachable HTTP server (the server↔TUI link is a unix
 # socket; the plugin's reported serverUrl is not a live TCP endpoint), so forms
 # are answered by injecting keystrokes into the pane — the same mechanism
-# Gallager's built-in agents use. Verified against opencode v1.17.11's TUI.
+# CtrlX's built-in agents use. Verified against opencode v1.17.11's TUI.
 def _answer_permission(perm, mapping, session_id):
     decision = perm.get("decision") or {}
     applied = perm.get("appliedSuggestionID")
@@ -648,22 +648,22 @@ def _bridge_dest(config_root=None):
     `.opencode/plugin/` so opencode loads it for that project only.
     """
     if config_root:
-        return os.path.join(os.path.expanduser(config_root), ".opencode", "plugin", "gallager.js")
-    return os.path.join(_global_plugin_dir(), "gallager.js")
+        return os.path.join(os.path.expanduser(config_root), ".opencode", "plugin", "ctrlx.js")
+    return os.path.join(_global_plugin_dir(), "ctrlx.js")
 
 
 def handle_install(req_id, params):
-    sock = os.environ.get("GALLAGER_INGRESS_SOCK", "")
-    plugin_id = os.environ.get("GALLAGER_PLUGIN_ID", "opencode")
-    plugin_root = os.environ.get("GALLAGER_PLUGIN_ROOT", os.getcwd())
-    template = os.path.join(plugin_root, "opencode-bridge", "gallager.js")
+    sock = os.environ.get("CTRLX_INGRESS_SOCK", "")
+    plugin_id = os.environ.get("CTRLX_PLUGIN_ID", "opencode")
+    plugin_root = os.environ.get("CTRLX_PLUGIN_ROOT", os.getcwd())
+    template = os.path.join(plugin_root, "opencode-bridge", "ctrlx.js")
     dest = _bridge_dest((params or {}).get("configRoot"))
     try:
         with open(template, "r", encoding="utf-8") as f:
             content = f.read()
-        content = content.replace("__GALLAGER_INGRESS_SOCK__", sock)
-        content = content.replace("__GALLAGER_PLUGIN_ID__", plugin_id)
-        content = content.replace("__GALLAGER_OTLP_ENDPOINT__", OTLP_ENDPOINT)
+        content = content.replace("__CTRLX_INGRESS_SOCK__", sock)
+        content = content.replace("__CTRLX_PLUGIN_ID__", plugin_id)
+        content = content.replace("__CTRLX_OTLP_ENDPOINT__", OTLP_ENDPOINT)
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         tmp = dest + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -688,7 +688,7 @@ def handle_install_status(req_id, params):
     dest = _bridge_dest((params or {}).get("configRoot"))
     try:
         with open(dest, "r", encoding="utf-8") as f:
-            installed = "GallagerMonitor" in f.read()
+            installed = "CtrlXMonitor" in f.read()
     except OSError:
         installed = False
     if installed:
@@ -698,7 +698,7 @@ def handle_install_status(req_id, params):
 
 
 # ---------------------------------------------------------------------------
-# Project discovery — surface opencode's projects in Gallager's "+" sidebar
+# Project discovery — surface opencode's projects in CtrlX's "+" sidebar
 # menu, the same way Claude Code / Codex do. opencode stores projects in a
 # SQLite DB (~/.local/share/opencode/opencode.db, `project` table); we read it
 # read-only and emit `set_projects`. Works offline (no running opencode needed).

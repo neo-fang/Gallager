@@ -16,7 +16,7 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        private static let downloadURL = URL(staticString: "https://updates.gallager.app/Gallager.dmg")
+        private static let sourceURL = AppBuildInfo.current.correspondingSourceURL
 
         private let codeLength = 6
 
@@ -24,6 +24,8 @@
             ScrollView {
                 VStack(spacing: 12) {
                     compactHeaderSection
+
+                    serverURLSection
 
                     codeInputSection
 
@@ -49,13 +51,49 @@
         }
 
         private var compactHeaderSection: some View {
-            Text("Enter the 6-character pairing code shown in the Gallager host app")
+            Text("Enter the 6-character pairing code shown in the CtrlX host app")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
 
         // MARK: - Sections
+
+        private var serverURLSection: some View {
+            @Bindable var settings = settings
+            let isValid = RelayServerURL.normalized(settings.externalServerURL) != nil
+
+            return VStack(alignment: .leading, spacing: 8) {
+                Text("Relay Server")
+                    .font(.headline)
+
+                TextField("wss://relay.example.com", text: $settings.externalServerURL)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                    .autocorrectionDisabled()
+                    .textContentType(.URL)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        normalizeServerURLIfValid()
+                    }
+
+                if isValid {
+                    Text("Use the same WSS address configured in the CtrlX host app.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Label("Enter a valid ws:// or wss:// address.", symbol: .exclamationmarkTriangle)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+            )
+        }
 
         private var codeInputSection: some View {
             VStack(spacing: 16) {
@@ -157,7 +195,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Open Gallager on your mac")
+                    instructionRow(number: 1, text: "Open CtrlX on your Mac")
                     instructionRow(number: 2, text: "Go to Settings > Remote Access")
                     instructionRow(number: 3, text: "Click \"Generate Pairing Code\"")
                     instructionRow(number: 4, text: "Enter the code above")
@@ -180,13 +218,13 @@
                 VStack(alignment: .leading, spacing: 8) {
                     instructionRow(number: 1, text: "Send yourself the download link below")
                     instructionRow(number: 2, text: "Open the DMG and drag to Applications")
-                    instructionRow(number: 3, text: "Launch Gallager and complete setup")
+                    instructionRow(number: 3, text: "Build or install CtrlX and complete setup")
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-                ShareLink(item: Self.downloadURL) {
-                    Label("Send Download Link", symbol: .squareAndArrowUp)
+                ShareLink(item: Self.sourceURL) {
+                    Label("Open Source Repository", symbol: .squareAndArrowUp)
                 }
                 .buttonStyle(.bordered)
             }
@@ -229,14 +267,26 @@
 
         // MARK: - Actions
 
+        private func normalizeServerURLIfValid() {
+            guard let normalized = RelayServerURL.normalized(settings.externalServerURL) else { return }
+            settings.externalServerURL = normalized
+        }
+
         private func performPairing() async {
             guard pairingCode.count == codeLength else { return }
 
+            guard let serverURL = RelayServerURL.normalized(settings.externalServerURL) else {
+                errorMessage = "Enter a valid ws:// or wss:// relay server address"
+                pairingCode = ""
+                return
+            }
+
             isLoading = true
             errorMessage = nil
+            settings.externalServerURL = serverURL
 
             do {
-                let response = try await completePairing(code: pairingCode)
+                let response = try await completePairing(code: pairingCode, serverURL: serverURL)
 
                 switch response {
                 case let .paired(info):
@@ -267,8 +317,8 @@
             isLoading = false
         }
 
-        private func completePairing(code: String) async throws -> PairingResponse {
-            let serverURL = settings.externalServerURL.httpURL
+        private func completePairing(code: String, serverURL: String) async throws -> PairingResponse {
+            let serverURL = serverURL.httpURL
 
             guard let url = URL(string: "\(serverURL)/api/pairing/complete") else {
                 throw PairingError.invalidURL

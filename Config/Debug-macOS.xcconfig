@@ -3,4 +3,6 @@
 
 #include "Shared-macOS.xcconfig"
 
-// No additional debug-specific overrides needed
+// Optional, untracked signing overrides for local development builds.
+CTRLX_MAC_DEVELOPMENT_TEAM =
+#include? "Local-macOS.xcconfig"

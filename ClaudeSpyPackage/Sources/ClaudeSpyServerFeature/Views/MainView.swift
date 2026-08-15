@@ -23,6 +23,7 @@ public struct MainView: View {
     @State private var selectedWindow: LocalTmuxWindow?
     @State private var selectedRemoteSession: RemoteSessionSelection?
     @State private var selectedRemoteWindowId: String?
+    @State private var localSessionRenameRequest: String?
     @State private var attachError: String?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var projects: [AgentProject] = []
@@ -44,6 +45,12 @@ public struct MainView: View {
     @State private var trackedActiveSessionPaneIds: Set<String> = []
     /// ID to scroll to in the sidebar when a window moves between sections
     @State private var scrollToWindowId: String?
+
+    /// Global frames let the remote Host drag handle resolve a destination
+    /// without relying on data-drop support from `List` section headers.
+    @State private var remoteHostHeaderFrames: [String: CGRect] = [:]
+    @State private var remoteHostDragSourceID: String?
+    @State private var remoteHostDropTargetID: String?
 
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
@@ -130,8 +137,10 @@ public struct MainView: View {
 
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
+                .background(settings.theme.sidebarBackgroundColor)
         } detail: {
             detailContent
+                .background(settings.theme.workspaceBackgroundColor)
                 .onGeometryChange(for: CGSize.self) { proxy in
                     proxy.size
                 } action: { newSize in
@@ -140,7 +149,11 @@ public struct MainView: View {
                 }
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle(selectedSessionTitle ?? "Gallager")
+        .background(settings.theme.workspaceBackgroundColor)
+        .containerBackground(settings.theme.workspaceBackgroundColor, for: .window)
+        .toolbarBackground(settings.theme.chromeBackgroundColor, for: .windowToolbar)
+        .preferredColorScheme(settings.theme.workspaceColorScheme)
+        .navigationTitle(selectedSessionTitle ?? "CtrlX")
         .toolbar {
             toolbarContent
         }
@@ -223,14 +236,38 @@ public struct MainView: View {
         .onChange(of: coordinator.editorOverrideProbeResult) {
             coordinator.maybePresentEditorOverrideDialog()
         }
-        .onChange(of: tmuxService.panes) { _, newPanes in
+        .onChange(of: tmuxService.panes) { oldPanes, newPanes in
             // Ensure pane states exist for all known panes so the detail view
             // can render immediately when a window is selected (without waiting
             // for the periodic validation timer).
             windowManager.updatePaneStates(from: newPanes)
 
+            // A session rename keeps the exact pane set but changes every
+            // session/window textual ID. Migrate private view state before the
+            // stale-session cleanup below can interpret the old key as deleted.
+            for rename in SessionRenameMapping.detect(from: oldPanes, to: newPanes) {
+                migrateLocalSessionState(rename)
+            }
+
+            // A reorder changes executable `session:index` targets even when
+            // it was initiated by a remote viewer or directly in tmux. Migrate
+            // target-keyed UI state before stale-window cleanup can discard it.
+            let reindexedWindowIDs = WindowReindexMapping.detect(from: oldPanes, to: newPanes)
+            if !reindexedWindowIDs.isEmpty {
+                for tabs in sessionFileTabsStates.values {
+                    tabs.remapWindowIDs(reindexedWindowIDs)
+                }
+                fileBrowserActiveWindowIds = Set(fileBrowserActiveWindowIds.map {
+                    reindexedWindowIDs[$0] ?? $0
+                })
+                gitActiveWindowIds = Set(gitActiveWindowIds.map {
+                    reindexedWindowIDs[$0] ?? $0
+                })
+            }
+
             // Clean up explorer-active flags for windows that no longer exist
-            let currentWindowIds = Set(tmuxService.windows.map(\.id))
+            let currentWindows = tmuxService.windows
+            let currentWindowIds = Set(currentWindows.map(\.id))
             for key in fileBrowserActiveWindowIds where !currentWindowIds.contains(key) {
                 fileBrowserActiveWindowIds.remove(key)
             }
@@ -244,8 +281,11 @@ public struct MainView: View {
             // true and the right pane shows "No Tab Selected" forever even
             // though there's no real tab on the right anymore.
             for (sessionName, tabs) in sessionFileTabsStates {
+                let liveStableIds = Set(currentWindows.lazy
+                    .filter { $0.sessionName == sessionName }
+                    .map(\.stableId))
                 let stale = tabs.rightSide.filter {
-                    if case let .window(id) = $0 { !currentWindowIds.contains(id) } else { false }
+                    if case let .window(id) = $0 { !liveStableIds.contains(id) } else { false }
                 }
                 if !stale.isEmpty {
                     tabs.rightSide.subtract(stale)
@@ -297,17 +337,18 @@ public struct MainView: View {
             }
 
             guard let selected = selectedWindow else { return }
-            let currentWindows = tmuxService.windows
             // Windows parked on the right pane shouldn't be picked as the
             // left's selection — otherwise the same terminal would render
             // twice once tmux's active window points at a right-side tab.
             let rightSideIds = sessionFileTabsStates[selected.sessionName]?.rightSideWindowIds ?? []
-            if let updated = currentWindows.first(where: { $0.id == selected.id }) {
+            if let updated = currentWindows.first(where: {
+                $0.sessionName == selected.sessionName && $0.stableId == selected.stableId
+            }) {
                 // Follow the tmux-active window if it changed to a different window
                 // (e.g., a remote viewer switched tabs via select-window),
                 // but only across left-side windows.
                 let leftSessionWindows = currentWindows.filter {
-                    $0.sessionName == selected.sessionName && !rightSideIds.contains($0.id)
+                    $0.sessionName == selected.sessionName && !rightSideIds.contains($0.stableId)
                 }
                 if
                     !updated.isWindowActive,
@@ -321,7 +362,7 @@ public struct MainView: View {
                 // Selected window was removed — prefer the tmux-active window
                 // in the same session that isn't already on the right pane.
                 let leftSessionWindows = currentWindows.filter {
-                    $0.sessionName == selected.sessionName && !rightSideIds.contains($0.id)
+                    $0.sessionName == selected.sessionName && !rightSideIds.contains($0.stableId)
                 }
                 let fallback = leftSessionWindows.first(where: \.isWindowActive) ?? leftSessionWindows.first
                 selectedWindow = fallback
@@ -348,6 +389,14 @@ public struct MainView: View {
             onPrune: pruneStaleRemoteRightSideEntries
         ))
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
+            remoteHostHeaderFrames = remoteHostHeaderFrames.filter { currentHostIds.contains($0.key) }
+            if let targetID = remoteHostDropTargetID, !currentHostIds.contains(targetID) {
+                remoteHostDropTargetID = nil
+            }
+            if let sourceID = remoteHostDragSourceID, !currentHostIds.contains(sourceID) {
+                remoteHostDragSourceID = nil
+            }
+
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
             // forever. Per-session cleanup for sessions killed on a still-
@@ -405,6 +454,7 @@ public struct MainView: View {
             markSelectedSessionsHandledIfActive()
         }
         .focusedSceneValue(\.closeCurrentTabAction, handleCloseCurrentTab)
+        .focusedSceneValue(\.terminalWindowNavigationActions, terminalWindowNavigationActions)
         .modifier(MenuCommandsModifier(
             onOpenContentSearch: { handleOpenContentSearch() },
             onSelectPreviousTab: { selectAdjacentTab(direction: -1) },
@@ -490,6 +540,8 @@ public struct MainView: View {
                 remoteHostSections
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .background(settings.theme.sidebarBackgroundColor)
             .refreshable {
                 await refreshPanes()
                 await coordinator.viewerConnectionManager?.requestAllSessionStates()
@@ -595,6 +647,30 @@ public struct MainView: View {
                     sessionStore: sessionStore,
                     creatingSelection: creatingSelection,
                     selectedRemoteSession: $selectedRemoteSession,
+                    isHostDragging: remoteHostDragSourceID == host.id,
+                    isHostDropTargeted: remoteHostDropTargetID == host.id,
+                    onHeaderFrameChange: { frame in
+                        if let frame {
+                            remoteHostHeaderFrames[host.id] = frame
+                        } else {
+                            remoteHostHeaderFrames.removeValue(forKey: host.id)
+                        }
+                    },
+                    onHostDragChanged: { location in
+                        remoteHostDragSourceID = host.id
+                        remoteHostDropTargetID = remoteHostTarget(
+                            for: host.id,
+                            at: location
+                        )
+                    },
+                    onHostDragEnded: { location in
+                        defer {
+                            remoteHostDragSourceID = nil
+                            remoteHostDropTargetID = nil
+                        }
+                        guard let targetID = remoteHostTarget(for: host.id, at: location) else { return }
+                        settings.moveHostPairing(sourceID: host.id, targetID: targetID)
+                    },
                     onSelect: { selection in
                         selectedRemoteSession = selection
                         selectedRemoteWindowId = nil
@@ -604,6 +680,9 @@ public struct MainView: View {
                         Task {
                             await createRemoteSession(on: host, inProject: project)
                         }
+                    },
+                    onRename: { sessionName, newName in
+                        renameRemoteSession(on: host, from: sessionName, to: newName)
                     },
                     onSetDescription: { sessionName, description in
                         Task {
@@ -651,6 +730,15 @@ public struct MainView: View {
         }
     }
 
+    private func remoteHostTarget(for sourceID: String, at location: CGPoint) -> String? {
+        RemoteHostDropTarget.hostID(
+            at: location,
+            orderedHostIDs: settings.pairedHosts.map(\.id),
+            headerFrames: remoteHostHeaderFrames,
+            excluding: sourceID
+        )
+    }
+
     private func sessionButton(session: LocalTmuxSession, help: String? = nil) -> some View {
         let activeWindow = session.activeWindow
         let description = activeWindow?.activePane.flatMap { windowManager.paneStates[$0.paneId]?.customDescription }
@@ -670,26 +758,34 @@ public struct MainView: View {
         let activePane = activeWindow?.activePane
         let isSessionAttached = tmuxService.attachedSessionNames.contains(session.sessionName)
         let isSelected = selectedWindow.map { selected in session.windows.contains(where: { $0.id == selected.id }) } ?? false
-        // Compute progress here (and not just inside the row) so we can expose
+        // Compute effective progress here (and not just inside the row) so we can expose
         // a sibling AX element OUTSIDE the Button label below — when the row
         // shows a "Working" indicator, SwiftUI flips the merged button to
         // `AXBusyIndicator` and absorbs the inner `TerminalProgressBar`'s
         // separate accessibility element, dropping its `accessibilityValue`.
         // The outer mirror keeps `valueContains("60%")` queries working.
-        let sessionProgress: TerminalProgressState? = session.windows.lazy
+        let sessionProgress: TerminalProgressState? = session.windows
             .flatMap(\.panes)
-            .compactMap { windowManager.paneStates[$0.paneId]?.progress }
-            .first
+            .compactMap { windowManager.paneStates[$0.paneId] }
+            .effectiveProgress
 
         return Button {
-            selectLocalSession(session)
+            if NSApp.currentEvent?.clickCount == 2 {
+                localSessionRenameRequest = session.sessionName
+            } else {
+                selectLocalSession(session)
+            }
         } label: {
             SessionSidebarRow(session: session)
         }
         .id(session.sessionName)
         .buttonStyle(.plain)
         .help(help ?? "")
-        .listRowBackground(isSelected && selectedRemoteSession == nil ? Color.accentColor.opacity(0.2) : nil)
+        .listRowBackground(
+            settings.highlightSelectedSidebarSession && isSelected && selectedRemoteSession == nil
+                ? settings.theme.selectedSidebarRowBackgroundColor
+                : nil
+        )
         .accessibilityChildren {
             // When the row contains a "Working" ProgressView, SwiftUI merges
             // the Button's children into one `AXBusyIndicator` element and
@@ -703,6 +799,17 @@ public struct MainView: View {
             sessionName: session.sessionName,
             currentDescription: description,
             currentEmoji: emoji,
+            renameRequest: Binding(
+                get: { localSessionRenameRequest == session.sessionName },
+                set: { requested in
+                    if !requested, localSessionRenameRequest == session.sessionName {
+                        localSessionRenameRequest = nil
+                    }
+                }
+            ),
+            onRename: { sessionName, newName in
+                renameLocalSession(from: sessionName, to: newName)
+            },
             onSetDescription: { sessionName, description in
                 windowManager.setSessionDescription(description, for: sessionName)
             },
@@ -820,11 +927,11 @@ public struct MainView: View {
             .sorted { $0.windowIndex < $1.windowIndex }
         let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
         let rightWindowIds = remoteSessionTabsStates[key]?.rightSideWindowIds ?? []
-        let leftWindows = windows.filter { !rightWindowIds.contains($0.id) }
+        let leftWindows = windows.filter { !rightWindowIds.contains($0.stableId) }
         if
             let windowId = selectedRemoteWindowId,
-            !rightWindowIds.contains(windowId),
-            let window = windows.first(where: { $0.id == windowId }) {
+            let window = windows.first(where: { $0.id == windowId }),
+            !rightWindowIds.contains(window.stableId) {
             // Follow the tmux-active window if it changed (e.g., host
             // switched tabs on its end) — but only among left-side
             // windows, so the left pane never accidentally jumps to a
@@ -878,7 +985,7 @@ public struct MainView: View {
                     sessionTabs: remoteTabs,
                     onSelectWindow: { newWindow in
                         let tabs = remoteSessionTabsStates[tabsKey]
-                        let payload = TabDragPayload.window(newWindow.id)
+                        let payload = TabDragPayload.window(newWindow.stableId)
                         if tabs?.rightSide.contains(payload) == true {
                             // Right-side window: route the click to the
                             // right pane's selection so the left pane
@@ -886,17 +993,7 @@ public struct MainView: View {
                             tabs?.selectedRight = payload
                             return
                         }
-                        selectedRemoteWindowId = newWindow.id
-                        // Switching back to a tmux window deselects any active
-                        // browser tab so the terminal pane is rendered again
-                        // even when a browser tab was previously focused.
-                        tabs?.selectedBrowserTabId = nil
-                        Task {
-                            _ = await connection.relayClient.sendCommand(
-                                SelectTmuxWindow(),
-                                paneId: newWindow.id
-                            )
-                        }
+                        selectTerminalWindow(stableId: newWindow.stableId)
                     },
                     onCloseWindow: { windowToClose in
                         requestCloseRemoteWindow(windowToClose, hostId: remote.hostId)
@@ -953,11 +1050,12 @@ public struct MainView: View {
                     onToggleSplit: { payload in
                         toggleRemoteSplit(payload, hostId: remote.hostId, sessionName: remote.sessionName)
                     },
-                    onReorderWindows: { newOrder in
+                    onReorderWindows: { newOrder, rollbackOrder in
                         reorderRemoteWindows(
                             hostId: remote.hostId,
                             sessionName: remote.sessionName,
                             to: newOrder,
+                            rollbackOrder: rollbackOrder,
                             connection: connection
                         )
                     },
@@ -1006,7 +1104,7 @@ public struct MainView: View {
             let isAnyFileViewActive = isFileBrowserActive || isGitActive
                 || selectedFileTab != nil || selectedBrowserTab != nil
             VStack(spacing: 0) {
-                if let session {
+                if let session, let sessionTabs {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
@@ -1023,7 +1121,7 @@ public struct MainView: View {
                         sessionTabs: sessionTabs,
                         onSelectWindow: { newWindow in
                             let tabs = sessionFileTabsStates[session.sessionName]
-                            let payload = TabDragPayload.window(newWindow.id)
+                            let payload = TabDragPayload.window(newWindow.stableId)
                             if tabs?.rightSide.contains(payload) == true {
                                 // Right-side window: route the click to the
                                 // right pane's selection so the left pane
@@ -1031,14 +1129,7 @@ public struct MainView: View {
                                 tabs?.selectedRight = payload
                                 return
                             }
-                            fileBrowserActiveWindowIds.remove(window.id)
-                            gitActiveWindowIds.remove(window.id)
-                            tabs?.selectedFileTabId = nil
-                            tabs?.selectedBrowserTabId = nil
-                            selectedWindow = newWindow
-                            Task {
-                                try? await tmuxService.selectWindow(newWindow.id)
-                            }
+                            selectTerminalWindow(stableId: newWindow.stableId)
                         },
                         onCloseWindow: { windowToClose in
                             requestCloseWindow(windowToClose)
@@ -1050,8 +1141,15 @@ public struct MainView: View {
                                         sessionName: session.sessionName,
                                         workingDirectory: window.activePane?.currentPath
                                     )
-                                    if let newWindow = tmuxService.windows.first(where: { $0.panes.contains(where: { $0.paneId == paneId }) }) {
+                                    let newWindow = await PaneSurfaceRetry.localWindow(
+                                        containing: paneId,
+                                        windows: { tmuxService.windows },
+                                        refresh: { _ = await tmuxService.refreshPanes() }
+                                    )
+                                    if let newWindow {
                                         selectedWindow = newWindow
+                                    } else if !Task.isCancelled {
+                                        attachError = "Window created but didn't appear in time. Try selecting it from the tab bar."
                                     }
                                 } catch {
                                     attachError = "Failed to create window: \(error.localizedDescription)"
@@ -1147,8 +1245,12 @@ public struct MainView: View {
                             )
                             markdownOpenSuggestionStore.dismiss(sessionName: session.sessionName)
                         },
-                        onReorderWindows: { newOrder in
-                            reorderWindows(in: session.sessionName, to: newOrder)
+                        onReorderWindows: { newOrder, rollbackOrder in
+                            reorderWindows(
+                                in: session.sessionName,
+                                to: newOrder,
+                                rollbackOrder: rollbackOrder
+                            )
                         },
                         onReorderFileTabs: { newOrder in
                             reorderFileTabs(in: session.sessionName, to: newOrder)
@@ -1338,7 +1440,7 @@ public struct MainView: View {
     ) -> some View {
         switch sessionTabs.selectedRight {
         case let .window(id):
-            if let rightWindow = selectedRemoteSessionWindows.first(where: { $0.id == id }) {
+            if let rightWindow = selectedRemoteSessionWindows.first(where: { $0.stableId == id }) {
                 RemoteWindowPaneLayoutView(
                     window: rightWindow,
                     connection: connection,
@@ -1672,7 +1774,9 @@ public struct MainView: View {
     ) -> some View {
         switch sessionTabs.selectedRight {
         case let .window(id):
-            if let window = tmuxService.windows.first(where: { $0.id == id }) {
+            if let window = tmuxService.windows.first(where: {
+                $0.sessionName == sessionName && $0.stableId == id
+            }) {
                 WindowPaneLayoutView(
                     window: window,
                     onOpenURL: { url in
@@ -2206,7 +2310,9 @@ public struct MainView: View {
         else {
             return nil
         }
-        return tmuxService.windows.first { $0.id == rightWindowId }
+        return tmuxService.windows.first {
+            $0.sessionName == sessionName && $0.stableId == rightWindowId
+        }
     }
 
     private func performResize(
@@ -2364,6 +2470,73 @@ public struct MainView: View {
         await tmuxService.refreshPanes()
     }
 
+    private func renameLocalSession(from sessionName: String, to newName: String) {
+        let oldPanes = tmuxService.panes
+        Task {
+            do {
+                try await tmuxService.renameSession(from: sessionName, to: newName)
+                let newPanes = await tmuxService.refreshPanes()
+                windowManager.updatePaneStates(from: newPanes)
+                for rename in SessionRenameMapping.detect(from: oldPanes, to: newPanes) {
+                    migrateLocalSessionState(rename)
+                }
+                await coordinator.paneStreamManager.updateMonitoring(panes: newPanes)
+                await coordinator.connectedViewerManager?.pushSessionStateToAll()
+            } catch {
+                attachError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Moves every MainView-owned cache that uses the mutable tmux session or
+    /// window ID as a key. This is idempotent because the old keys disappear on
+    /// the first pass; both the explicit rename action and pane-snapshot change
+    /// detection may call it during the same render cycle.
+    private func migrateLocalSessionState(_ rename: SessionRenameMapping) {
+        let oldName = rename.oldName
+        let newName = rename.newName
+
+        if let state = fileBrowserStates.removeValue(forKey: oldName) {
+            fileBrowserStates[newName] = state
+        }
+        if let tabs = sessionFileTabsStates.removeValue(forKey: oldName) {
+            tabs.remapWindowIDs(rename.windowIDs)
+            sessionFileTabsStates[newName] = tabs
+        }
+        if let store = gitWorkbenchStores.removeValue(forKey: oldName) {
+            gitWorkbenchStores[newName] = store
+        }
+        if seededSessions.remove(oldName) != nil {
+            seededSessions.insert(newName)
+        }
+        if let layout = lastPersistedLayouts.removeValue(forKey: oldName) {
+            lastPersistedLayouts[newName] = layout
+        }
+        if let save = pendingLayoutSaves.removeValue(forKey: oldName) {
+            pendingLayoutSaves[newName] = save
+        }
+
+        fileBrowserActiveWindowIds = Set(fileBrowserActiveWindowIds.map { rename.windowIDs[$0] ?? $0 })
+        gitActiveWindowIds = Set(gitActiveWindowIds.map { rename.windowIDs[$0] ?? $0 })
+        if scrollToWindowId == oldName {
+            scrollToWindowId = newName
+        }
+        markdownOpenSuggestionStore.sessionRenamed(from: oldName, to: newName)
+
+        guard let selected = selectedWindow, selected.sessionName == oldName else { return }
+        if
+            let newWindowID = rename.windowIDs[selected.id],
+            let replacement = tmuxService.windows.first(where: { $0.id == newWindowID }) {
+            selectedWindow = replacement
+        } else if
+            let paneID = selected.activePane?.paneId ?? selected.panes.first?.paneId,
+            let replacement = tmuxService.windows.first(where: { window in
+                window.panes.contains(where: { $0.paneId == paneID })
+            }) {
+            selectedWindow = replacement
+        }
+    }
+
     private func attachToTerminal(_ pane: PaneInfo) {
         let launcher = TerminalLauncher(settings: settings)
         Task {
@@ -2404,6 +2577,99 @@ public struct MainView: View {
     }
 
     // MARK: - Menu Commands
+
+    /// Window ids eligible for the window-only menu shortcuts, in the same
+    /// visual order as the tab strip. A split's right side is intentionally
+    /// excluded: keyboard navigation controls the primary terminal surface
+    /// and never replaces content the user pinned on the right.
+    private var navigableTerminalWindowIDs: [String] {
+        if let remote = selectedRemoteSession {
+            let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            let tabs = remoteSessionTabsStates[key]
+            return TerminalWindowNavigation.orderedWindowIDs(
+                liveWindowIDs: selectedRemoteSessionWindows.map(\.stableId),
+                storedTabOrder: tabs?.tabOrder ?? [],
+                excludedWindowIDs: tabs?.rightSideWindowIds ?? []
+            )
+        }
+
+        guard let session = currentLocalSession() else { return [] }
+        let tabs = sessionFileTabsStates[session.sessionName]
+        return TerminalWindowNavigation.orderedWindowIDs(
+            liveWindowIDs: session.windows.map(\.stableId),
+            storedTabOrder: tabs?.tabOrder ?? [],
+            excludedWindowIDs: tabs?.rightSideWindowIds ?? []
+        )
+    }
+
+    /// Scene-scoped value consumed by the macOS Window menu. The closures
+    /// deliberately call the same local/remote selectors as tab clicks.
+    private var terminalWindowNavigationActions: TerminalWindowNavigationActions {
+        TerminalWindowNavigationActions(
+            windowCount: navigableTerminalWindowIDs.count,
+            selectPrevious: { selectAdjacentTerminalWindow(direction: -1) },
+            selectNext: { selectAdjacentTerminalWindow(direction: 1) },
+            selectAtIndex: { selectTerminalWindow(at: $0) }
+        )
+    }
+
+    private func selectAdjacentTerminalWindow(direction: Int) {
+        let orderedIDs = navigableTerminalWindowIDs
+        let currentID = selectedRemoteSession == nil ? selectedWindow?.stableId : selectedRemoteWindow?.stableId
+        guard let targetID = TerminalWindowNavigation.adjacentWindowID(
+            currentID: currentID,
+            orderedWindowIDs: orderedIDs,
+            direction: direction
+        ) else { return }
+        selectTerminalWindow(stableId: targetID)
+    }
+
+    private func selectTerminalWindow(at index: Int) {
+        guard let targetID = TerminalWindowNavigation.windowID(
+            at: index,
+            orderedWindowIDs: navigableTerminalWindowIDs
+        ) else { return }
+        selectTerminalWindow(stableId: targetID)
+    }
+
+    private func selectTerminalWindow(stableId: String) {
+        if let remote = selectedRemoteSession {
+            guard
+                let target = selectedRemoteSessionWindows.first(where: { $0.stableId == stableId }),
+                let connection = coordinator.viewerConnectionManager?.connection(for: remote.hostId)
+            else { return }
+            let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
+            let tabs = remoteSessionTabsStates[key]
+            guard tabs?.rightSide.contains(.window(target.stableId)) != true else { return }
+
+            tabs?.selectedBrowserTabId = nil
+            selectedRemoteWindowId = target.id
+            Task {
+                _ = await connection.relayClient.sendCommand(
+                    SelectTmuxWindow(),
+                    paneId: target.id
+                )
+            }
+            return
+        }
+
+        guard
+            let current = selectedWindow,
+            let session = currentLocalSession(),
+            let target = session.windows.first(where: { $0.stableId == stableId })
+        else { return }
+        let tabs = sessionFileTabsStates[session.sessionName]
+        guard tabs?.rightSide.contains(.window(target.stableId)) != true else { return }
+
+        fileBrowserActiveWindowIds.remove(current.id)
+        gitActiveWindowIds.remove(current.id)
+        tabs?.selectedFileTabId = nil
+        tabs?.selectedBrowserTabId = nil
+        selectedWindow = target
+        Task {
+            try? await tmuxService.selectWindow(target.id)
+        }
+    }
 
     /// Cmd-W handler exposed to the menu via `.focusedSceneValue` so other
     /// scenes (Settings, About, CLI API Reference) get the default
@@ -2512,14 +2778,14 @@ public struct MainView: View {
         // Local sessions include the Git tab (issue #258), so `reconciledOrder`
         // emits `.git` and the switch below maps it to `.gitBrowser`.
         let order = TabDragPayload.reconciledOrder(
-            windowIds: session.windows.map(\.id),
+            windowIds: session.windows.map(\.stableId),
             fileTabIds: sessionTabs?.openFileTabs.map(\.id) ?? [],
             browserTabIds: sessionTabs?.openBrowserTabs.map(\.id) ?? [],
             storedOrder: sessionTabs?.tabOrder ?? []
         )
         // Window ids are unique within a session, so assert that invariant
         // rather than silently tolerating a duplicate.
-        let windowsById = Dictionary(uniqueKeysWithValues: session.windows.map { ($0.id, $0) })
+        let windowsById = Dictionary(uniqueKeysWithValues: session.windows.map { ($0.stableId, $0) })
         return order.compactMap { payload in
             switch payload {
             case let .window(id):
@@ -2632,7 +2898,7 @@ public struct MainView: View {
         // no file explorer / file tabs / Git tab, hence `includeFileExplorer:
         // false` and `includeGit: false`.
         let entries = TabDragPayload.reconciledOrder(
-            windowIds: windows.map(\.id),
+            windowIds: windows.map(\.stableId),
             fileTabIds: [],
             browserTabIds: tabs?.openBrowserTabs.map(\.id) ?? [],
             storedOrder: tabs?.tabOrder ?? [],
@@ -2646,7 +2912,7 @@ public struct MainView: View {
         let currentIndex: Int?
         if let selectedBrowserId = tabs?.selectedBrowserTabId {
             currentIndex = entries.firstIndex(of: .browser(selectedBrowserId))
-        } else if let currentId = selectedRemoteWindowId ?? selectedRemoteWindow?.id {
+        } else if let currentId = selectedRemoteWindow?.stableId {
             currentIndex = entries.firstIndex(of: .window(currentId))
         } else {
             currentIndex = nil
@@ -2655,13 +2921,14 @@ public struct MainView: View {
         let nextIndex = (currentIndex + direction + entries.count) % entries.count
         switch entries[nextIndex] {
         case let .window(id):
+            guard let window = windows.first(where: { $0.stableId == id }) else { return }
             tabs?.selectedBrowserTabId = nil
-            selectedRemoteWindowId = id
+            selectedRemoteWindowId = window.id
             Task {
                 guard let manager = coordinator.viewerConnectionManager else { return }
                 _ = await manager.sendCommand(
                     SelectTmuxWindow(),
-                    paneId: id,
+                    paneId: window.id,
                     hostId: remote.hostId
                 )
             }
@@ -2720,7 +2987,8 @@ public struct MainView: View {
                     mode: settings.sidebarSortMode,
                     sidebarFields: settings.sidebarFields,
                     sidebarTerminalFields: settings.sidebarTerminalFields,
-                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                    homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+                    preferredSessionNames: settings.remoteSessionOrder(for: host.id)
                 )
                 entries.append(contentsOf: sorted.map { session in
                     SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
@@ -2963,7 +3231,9 @@ public struct MainView: View {
             if tabs.selectedRight == payload { tabs.selectedRight = nil }
             switch payload {
             case let .window(id):
-                if let restored = tmuxService.windows.first(where: { $0.id == id }) {
+                if let restored = tmuxService.windows.first(where: {
+                    $0.sessionName == sessionName && $0.stableId == id
+                }) {
                     selectedWindow = restored
                 }
             case .fileExplorer:
@@ -2991,9 +3261,9 @@ public struct MainView: View {
             tabs.selectedRight = payload
             switch payload {
             case let .window(id):
-                if selectedWindow?.id == id {
+                if selectedWindow?.stableId == id {
                     let leftSessionWindows = tmuxService.windows
-                        .filter { $0.sessionName == sessionName && !tabs.rightSide.contains(.window($0.id)) }
+                        .filter { $0.sessionName == sessionName && !tabs.rightSide.contains(.window($0.stableId)) }
                     selectedWindow = leftSessionWindows.first(where: \.isWindowActive) ?? leftSessionWindows.first
                 }
             case .fileExplorer:
@@ -3030,7 +3300,7 @@ public struct MainView: View {
         // a navigation affordance, not content.
         let sessionWindows = tmuxService.windows.filter { $0.sessionName == sessionName }
         let leftEmpty = !sessionWindows.isEmpty
-            && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.id)) }
+            && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.stableId)) }
             && tabs.openFileTabs.allSatisfy { tabs.rightSide.contains(.file($0.id)) }
             && tabs.openBrowserTabs.allSatisfy { tabs.rightSide.contains(.browser($0.id)) }
         if leftEmpty {
@@ -3040,7 +3310,7 @@ public struct MainView: View {
             // (no left-side fallback was available at the time).
             if
                 selectedWindow == nil
-                || sessionWindows.first(where: { $0.id == selectedWindow?.id }) == nil {
+                || sessionWindows.first(where: { $0.stableId == selectedWindow?.stableId }) == nil {
                 selectedWindow = sessionWindows.first(where: \.isWindowActive) ?? sessionWindows.first
             }
             return
@@ -3126,17 +3396,19 @@ public struct MainView: View {
     /// inside a remote terminal follow the same `browserLinkBehavior` rules as
     /// local clicks — including the per-domain overrides — so the
     /// in-app/system-browser preference is honoured uniformly across
-    /// host types. `file://` URLs are not routed in-app for remote sessions
-    /// because the remote filesystem isn't browsable here yet; they fall
-    /// through to `URLOpener` which the host treats as a no-op for unknown
-    /// schemes.
+    /// host types. URLs that require Host-local handling (including
+    /// `file://` and scheme-less absolute paths) are consumed here: the
+    /// remote filesystem isn't browsable yet, and passing them to this Mac's
+    /// `NSWorkspace` would target the wrong machine.
     private func handleRemoteTerminalURLClick(
         _ url: URL,
         hostId: String,
         sessionName: String,
         windowId: String
     ) -> Bool {
-        guard BrowserURLDispatcher.canHandle(url) else { return false }
+        if RemoteTerminalURLPolicy.shouldConsumeWithoutOpening(url) {
+            return true
+        }
 
         let effective = settings.browserBehavior(for: url) ?? settings.browserLinkBehavior
 
@@ -3258,36 +3530,45 @@ public struct MainView: View {
         state.urlFieldFocusRequest += 1
     }
 
-    /// Rewrites tmux's window order for `sessionName` to match `newOrder`.
-    /// `newOrder` lists every window id (e.g. `"sessionName:N"`) in the
-    /// desired visual order. The tmux service moves each window into its new
-    /// index and triggers a refresh so the in-memory window list mirrors the
-    /// new layout. Since window ids embed the tmux index ("session:N"), every
-    /// id changes after the move — the previously-selected window is
-    /// re-located by its post-move position in `newOrder` so the selection
-    /// follows the same logical window across the renumbering.
-    private func reorderWindows(in sessionName: String, to newOrder: [String]) {
-        let previouslySelectedId = selectedWindow?.id
-        let newSelectedIndex = previouslySelectedId.flatMap { newOrder.firstIndex(of: $0) }
-        // Clear the selection optimistically so the `onChange(of: tmuxService.panes)`
-        // handler that fires from inside `moveWindows`'s refreshPanes() bails
-        // out via its `guard let selected` early-return instead of resetting
-        // selectedWindow to an arbitrary fallback (the old id no longer exists
-        // post-renumber). We restore the correct, index-matched window below
-        // before pushing state to viewers.
-        selectedWindow = nil
+    /// Commits one optimistic tab reorder to tmux. Stable window ids keep the
+    /// selected logical window and split state intact across index changes;
+    /// target-based file/browser state is remapped before publishing refresh.
+    private func reorderWindows(
+        in sessionName: String,
+        to newOrder: [String],
+        rollbackOrder: [TabDragPayload]
+    ) {
+        guard let tabs = sessionFileTabsStates[sessionName] else { return }
+        let selectedStableId = selectedWindow?.stableId
         Task {
+            defer { tabs.isWindowReorderPending = false }
             do {
-                try await tmuxService.moveWindows(in: sessionName, to: newOrder)
-                if
-                    let newSelectedIndex,
-                    let refreshed = tmuxService.windows.first(where: {
-                        $0.sessionName == sessionName && $0.windowIndex == newSelectedIndex
-                    }) {
+                let targetMapping = try await tmuxService.moveWindows(in: sessionName, to: newOrder)
+                tabs.remapWindowIDs(targetMapping)
+                fileBrowserActiveWindowIds = Set(fileBrowserActiveWindowIds.map { targetMapping[$0] ?? $0 })
+                gitActiveWindowIds = Set(gitActiveWindowIds.map { targetMapping[$0] ?? $0 })
+
+                let newPanes = await tmuxService.refreshPanes()
+                windowManager.updatePaneStates(from: newPanes)
+                if let selectedStableId,
+                   let refreshed = tmuxService.windows.first(where: {
+                       $0.sessionName == sessionName && $0.stableId == selectedStableId
+                   }) {
                     selectedWindow = refreshed
                 }
                 await coordinator.connectedViewerManager?.pushSessionStateToAll()
             } catch {
+                tabs.tabOrder = TabDragPayload.restoringWindowOrder(
+                    from: rollbackOrder,
+                    in: tabs.tabOrder
+                )
+                _ = await tmuxService.refreshPanes()
+                if let selectedStableId,
+                   let restored = tmuxService.windows.first(where: {
+                       $0.sessionName == sessionName && $0.stableId == selectedStableId
+                   }) {
+                    selectedWindow = restored
+                }
                 attachError = "Failed to reorder windows: \(error.localizedDescription)"
             }
         }
@@ -3616,7 +3897,7 @@ public struct MainView: View {
         // "No Tab Selected" until the next prune fires.
         switch payload {
         case let .browser(id) where !tabs.openBrowserTabs.contains(where: { $0.id == id }): return
-        case let .window(id) where !selectedRemoteSessionWindows.contains(where: { $0.id == id }): return
+        case let .window(id) where !selectedRemoteSessionWindows.contains(where: { $0.stableId == id }): return
         case .fileExplorer,
              .git,
              .file: return
@@ -3629,8 +3910,8 @@ public struct MainView: View {
             if tabs.selectedRight == payload { tabs.selectedRight = nil }
             switch payload {
             case let .window(id):
-                if selectedRemoteSessionWindows.contains(where: { $0.id == id }) {
-                    selectedRemoteWindowId = id
+                if let window = selectedRemoteSessionWindows.first(where: { $0.stableId == id }) {
+                    selectedRemoteWindowId = window.id
                 }
             case let .browser(id):
                 tabs.selectedBrowserTabId = id
@@ -3648,9 +3929,9 @@ public struct MainView: View {
                 // If the moved window was the left-pane selection, pick a
                 // different left-side window so both panes show distinct
                 // content.
-                if selectedRemoteWindowId == id || selectedRemoteWindow?.id == id {
+                if selectedRemoteWindow?.stableId == id {
                     let leftSessionWindows = selectedRemoteSessionWindows
-                        .filter { !tabs.rightSide.contains(.window($0.id)) }
+                        .filter { !tabs.rightSide.contains(.window($0.stableId)) }
                     selectedRemoteWindowId = (leftSessionWindows.first(where: \.isWindowActive) ?? leftSessionWindows.first)?.id
                 }
             case let .browser(id):
@@ -3738,7 +4019,7 @@ public struct MainView: View {
         var prunedSelectedSession = false
         for (key, tabs) in remoteSessionTabsStates {
             let liveWindows = remoteSessionWindows(hostId: key.hostId, sessionName: key.sessionName)
-            let liveIds = Set(liveWindows.map(\.id))
+            let liveIds = Set(liveWindows.map(\.stableId))
             let stale = tabs.rightSide.filter {
                 if case let .window(id) = $0 { !liveIds.contains(id) } else { false }
             }
@@ -3800,7 +4081,7 @@ public struct MainView: View {
         guard tabs.isSplit else { return }
 
         let leftEmpty = !sessionWindows.isEmpty
-            && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.id)) }
+            && sessionWindows.allSatisfy { tabs.rightSide.contains(.window($0.stableId)) }
             && tabs.openBrowserTabs.allSatisfy { tabs.rightSide.contains(.browser($0.id)) }
         if leftEmpty {
             tabs.rightSide.removeAll()
@@ -3829,38 +4110,53 @@ public struct MainView: View {
     }
 
     /// Pushes the new window order to the remote host via `MoveTmuxWindows`.
-    /// The host rewrites tmux's window indices via the same two-phase
-    /// park-then-place path used locally and pushes a refreshed session
-    /// state on success.
+    /// The host swaps stable window identities into the requested order and
+    /// pushes a refreshed session state on success.
     private func reorderRemoteWindows(
         hostId: String,
         sessionName: String,
         to newOrder: [String],
+        rollbackOrder: [TabDragPayload],
         connection: ViewerConnection
     ) {
-        let previouslySelectedId = selectedRemoteWindowId ?? selectedRemoteWindow?.id
-        let newSelectedIndex = previouslySelectedId.flatMap { newOrder.firstIndex(of: $0) }
-        // Clear the selection optimistically so the `onChange` reconciliation
-        // doesn't latch onto a now-removed id while the host renumbers
-        // indices. We restore the index-matched window below after the host
-        // confirms the move.
-        selectedRemoteWindowId = nil
+        let key = remoteTabsKey(hostId: hostId, sessionName: sessionName)
+        guard let tabs = remoteSessionTabsStates[key] else { return }
+        let currentWindows = remoteSessionWindows(hostId: hostId, sessionName: sessionName)
+        guard
+            newOrder.count == currentWindows.count,
+            Set(newOrder).count == newOrder.count,
+            Set(newOrder) == Set(currentWindows.map(\.stableId))
+        else {
+            tabs.tabOrder = rollbackOrder
+            tabs.isWindowReorderPending = false
+            attachError = "Failed to reorder remote windows: the host window set changed during the drag."
+            return
+        }
+        let selectedStableId = selectedRemoteWindow?.stableId
+        let oldSelectedId = selectedRemoteWindowId
+        let targetIndices = currentWindows.map(\.windowIndex).sorted()
+        let newIndexByStableId = Dictionary(uniqueKeysWithValues: zip(newOrder, targetIndices))
+        let targetMapping: [String: String] = Dictionary(uniqueKeysWithValues: currentWindows.compactMap { window -> (String, String)? in
+            guard let newIndex = newIndexByStableId[window.stableId] else { return nil }
+            return (window.id, "\(sessionName):\(newIndex)")
+        })
+
         Task {
+            defer { tabs.isWindowReorderPending = false }
             let result = await connection.relayClient.sendCommand(
                 MoveTmuxWindows(sessionName: sessionName, windowIds: newOrder),
                 paneId: ""
             )
             if case .success = result {
-                guard let newSelectedIndex else { return }
+                tabs.remapWindowIDs(targetMapping)
+                guard let selectedStableId else { return }
                 // The refreshed session state arrives asynchronously via the
                 // WebSocket push, so `selectedRemoteSessionWindows` may still
                 // be the pre-move list right after `sendCommand` returns.
-                // Poll the session store until the window at the target
-                // index appears, mirroring the `onNewWindow` pattern.
                 for _ in 0..<20 {
                     if
                         let refreshed = selectedRemoteSessionWindows.first(where: {
-                            $0.sessionName == sessionName && $0.windowIndex == newSelectedIndex
+                            $0.sessionName == sessionName && $0.stableId == selectedStableId
                         }) {
                         selectedRemoteWindowId = refreshed.id
                         return
@@ -3871,16 +4167,16 @@ public struct MainView: View {
                         return
                     }
                 }
-                // The refreshed state never arrived in time. Falling back
-                // to the previous id keeps the user on a real window
-                // instead of an empty selection.
-                if let previouslySelectedId {
-                    selectedRemoteWindowId = previouslySelectedId
+                attachError = "Window reordered, but the refreshed host state did not arrive in time."
+            } else {
+                tabs.tabOrder = TabDragPayload.restoringWindowOrder(
+                    from: rollbackOrder,
+                    in: tabs.tabOrder
+                )
+                selectedRemoteWindowId = oldSelectedId
+                if case let .failure(error) = result {
+                    attachError = "Failed to reorder remote windows: \(error.localizedDescription)"
                 }
-            } else if let previouslySelectedId {
-                // Move failed — restore the previous selection so the user
-                // isn't left in a "no window selected" state.
-                selectedRemoteWindowId = previouslySelectedId
             }
         }
     }
@@ -4200,7 +4496,7 @@ public struct MainView: View {
     private func effectiveTerminalWidth(for window: LocalTmuxWindow) -> CGFloat? {
         effectiveTerminalWidth(
             tabs: sessionFileTabsStates[window.sessionName],
-            windowId: window.id
+            windowId: window.stableId
         )
     }
 
@@ -4214,7 +4510,7 @@ public struct MainView: View {
         let key = remoteTabsKey(hostId: remote.hostId, sessionName: remote.sessionName)
         return effectiveTerminalWidth(
             tabs: remoteSessionTabsStates[key],
-            windowId: window.id
+            windowId: window.stableId
         )
     }
 
@@ -4244,7 +4540,7 @@ public struct MainView: View {
             return nil
         }
         return sessionStore.windows(for: remote.hostId)
-            .first { $0.sessionName == remote.sessionName && $0.id == rightWindowId }
+            .first { $0.sessionName == remote.sessionName && $0.stableId == rightWindowId }
     }
 
     /// Equatable snapshot of the currently selected session's split layout,
@@ -4358,18 +4654,12 @@ public struct MainView: View {
                 // check in sessionButton) whenever a remote session was the
                 // last thing the user interacted with, even after that remote
                 // session was closed.
-                var newWindow: LocalTmuxWindow?
-                for attempt in 0..<PaneSurfaceRetry.attempts {
-                    if let found = tmuxService.windows.first(where: { $0.panes.contains { $0.paneId == paneId } }) {
-                        newWindow = found
-                        break
-                    }
-                    if attempt < PaneSurfaceRetry.attempts - 1 {
-                        try? await Task.sleep(for: PaneSurfaceRetry.delay)
-                        guard !Task.isCancelled else { return }
-                        _ = await tmuxService.refreshPanes()
-                    }
-                }
+                let newWindow = await PaneSurfaceRetry.localWindow(
+                    containing: paneId,
+                    windows: { tmuxService.windows },
+                    refresh: { _ = await tmuxService.refreshPanes() }
+                )
+                guard !Task.isCancelled else { return }
                 if let newWindow {
                     selectedRemoteSession = nil
                     selectedRemoteWindowId = nil
@@ -4385,7 +4675,80 @@ public struct MainView: View {
         }
     }
 
-    // MARK: - Remote Session Creation
+    // MARK: - Remote Session Rename / Creation
+
+    private func renameRemoteSession(on host: PairedHost, from sessionName: String, to newName: String) {
+        let oldSession = coordinator.remoteSessionStore?.sessions(for: host.id)
+            .first(where: { $0.sessionName == sessionName })
+        let windowIDs = Dictionary(uniqueKeysWithValues: (oldSession?.windows ?? []).map {
+            ($0.id, "\(newName):\($0.windowIndex)")
+        })
+
+        Task {
+            guard let manager = coordinator.viewerConnectionManager else {
+                attachError = "Viewer connection not available"
+                return
+            }
+
+            let result = await manager.sendCommand(
+                RenameTmuxSession(sessionName: sessionName, newName: newName),
+                paneId: "",
+                hostId: host.id
+            )
+            switch result {
+            case .success:
+                settings.replaceRemoteSessionName(sessionName, with: newName, for: host.id)
+                migrateRemoteSessionState(
+                    hostId: host.id,
+                    from: sessionName,
+                    to: newName,
+                    windowIDs: windowIDs
+                )
+                await manager.requestSessionState(for: host.id)
+            case let .failure(error):
+                attachError = "Failed to rename session on \(host.displayName): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func migrateRemoteSessionState(
+        hostId: String,
+        from oldName: String,
+        to newName: String,
+        windowIDs: [String: String]
+    ) {
+        let oldKey = remoteTabsKey(hostId: hostId, sessionName: oldName)
+        let newKey = remoteTabsKey(hostId: hostId, sessionName: newName)
+
+        if let tabs = remoteSessionTabsStates.removeValue(forKey: oldKey) {
+            tabs.remapWindowIDs(windowIDs)
+            remoteSessionTabsStates[newKey] = tabs
+        }
+        if seededRemoteSessions.remove(oldKey) != nil {
+            seededRemoteSessions.insert(newKey)
+        }
+        if let layout = lastPersistedRemoteLayouts.removeValue(forKey: oldKey) {
+            lastPersistedRemoteLayouts[newKey] = layout
+        }
+        if let save = pendingRemoteLayoutSaves.removeValue(forKey: oldKey) {
+            pendingRemoteLayoutSaves[newKey] = save
+        }
+
+        guard
+            let selected = selectedRemoteSession,
+            selected.hostId == hostId,
+            selected.sessionName == oldName
+        else { return }
+
+        selectedRemoteSession = RemoteSessionSelection(
+            hostId: hostId,
+            hostName: selected.hostName,
+            sessionName: newName
+        )
+        if let selectedRemoteWindowId {
+            self.selectedRemoteWindowId = windowIDs[selectedRemoteWindowId] ?? selectedRemoteWindowId
+        }
+    }
 
     private func createRemoteSession(on host: PairedHost, inProject project: AgentProject?) async {
         guard creatingSelection == nil else { return }
@@ -4505,10 +4868,23 @@ private extension MainView {
     /// stale per-session record (plan §4.3).
     func seedLayoutIfNeeded() {
         guard let sessionName = selectedWindow?.sessionName else { return }
+
+        // A selected session always owns tab-strip state, even when it only
+        // contains terminals. Window drag/reorder mutates this model; treating
+        // it as optional made a pure-terminal drop look successful while the
+        // tmux reorder callback silently returned.
+        let tabs: SessionFileTabsState
+        if let existing = sessionFileTabsStates[sessionName] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            sessionFileTabsStates[sessionName] = tabs
+        }
+
         guard !seededSessions.contains(sessionName) else { return }
 
         // Don't seed a session the user has already populated.
-        if let existing = sessionFileTabsStates[sessionName], !isWorkbenchEmpty(existing) {
+        if !isWorkbenchEmpty(tabs) {
             seededSessions.insert(sessionName)
             return
         }
@@ -4526,12 +4902,10 @@ private extension MainView {
             // this session down. Don't resurrect a dead session's tabs state.
             guard tmuxService.sessions.contains(where: { $0.sessionName == sessionName }) else { return }
 
-            // Re-check freshness now that we've awaited the store.
-            let tabs = sessionFileTabsStates[sessionName] ?? {
-                let new = SessionFileTabsState()
-                sessionFileTabsStates[sessionName] = new
-                return new
-            }()
+            // Re-check freshness now that we've awaited the store. Cleanup may
+            // have removed the state while the read was suspended; never
+            // resurrect a dead session from this task.
+            guard let tabs = sessionFileTabsStates[sessionName] else { return }
             guard isWorkbenchEmpty(tabs) else { return }
 
             let sessionWindows = windows(forSession: sessionName)
@@ -4539,7 +4913,7 @@ private extension MainView {
                 chosen,
                 to: tabs,
                 fileBrowser: fileBrowserStates[sessionName],
-                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
+                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.stableId },
                 makeBrowserState: { BrowserTabState(initialURL: $0.url) }
             )
             // Baseline the change-gate from the *applied* state, not `chosen`:
@@ -4548,7 +4922,7 @@ private extension MainView {
             lastPersistedLayouts[sessionName] = LayoutSnapshotMapper.snapshot(
                 from: tabs,
                 fileBrowser: fileBrowserStates[sessionName],
-                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+                windowIndexForId: { id in sessionWindows.first { $0.stableId == id }?.windowIndex }
             )
         }
     }
@@ -4565,7 +4939,7 @@ private extension MainView {
             let snapshot = LayoutSnapshotMapper.snapshot(
                 from: tabs,
                 fileBrowser: fileBrowserStates[sessionName],
-                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+                windowIndexForId: { id in sessionWindows.first { $0.stableId == id }?.windowIndex }
             )
             guard !snapshot.isEmpty else { continue }
             guard lastPersistedLayouts[sessionName] != snapshot else { continue }
@@ -4660,7 +5034,7 @@ private extension MainView {
                 chosen,
                 to: tabs,
                 fileBrowser: nil,
-                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.id },
+                windowIdForIndex: { index in sessionWindows.first { $0.windowIndex == index }?.stableId },
                 makeBrowserState: { BrowserTabState(initialURL: $0.url) }
             )
             // Baseline the change-gate from the *applied* state (apply clamps the
@@ -4669,7 +5043,7 @@ private extension MainView {
             lastPersistedRemoteLayouts[key] = LayoutSnapshotMapper.snapshot(
                 from: tabs,
                 fileBrowser: nil,
-                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+                windowIndexForId: { id in sessionWindows.first { $0.stableId == id }?.windowIndex }
             )
         }
     }
@@ -4695,7 +5069,7 @@ private extension MainView {
             let snapshot = LayoutSnapshotMapper.snapshot(
                 from: tabs,
                 fileBrowser: nil,
-                windowIndexForId: { id in sessionWindows.first { $0.id == id }?.windowIndex }
+                windowIndexForId: { id in sessionWindows.first { $0.stableId == id }?.windowIndex }
             )
             guard !snapshot.isEmpty else { continue }
             guard lastPersistedRemoteLayouts[key] != snapshot else { continue }

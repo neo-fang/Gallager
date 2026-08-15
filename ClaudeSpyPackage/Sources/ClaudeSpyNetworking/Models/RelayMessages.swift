@@ -97,6 +97,11 @@ public struct PaneState: Codable, Sendable, Identifiable {
     /// The window index within the session
     public var windowIndex: Int
 
+    /// tmux's process-lifetime-stable window id (for example `@3`). Unlike
+    /// `windowIndex`, this does not change when windows are reordered.
+    /// Optional for wire compatibility with older hosts.
+    public var tmuxWindowId: String?
+
     /// The pane index within the window
     public var paneIndex: Int
 
@@ -132,14 +137,14 @@ public struct PaneState: Codable, Sendable, Identifiable {
     // MARK: - Custom Color
 
     /// User-assigned color for this session, shown as a dot in the sidebar.
-    /// Persisted via the tmux `@gallager-color` user option.
+    /// Persisted via the tmux `@ctrlx-color` user option.
     public var customColor: SessionColor?
 
     // MARK: - Custom Emoji
 
     /// User-assigned emoji for this session, shown as a small icon in the
     /// sidebar. Free-form text so any platform-supported emoji works.
-    /// Persisted via the tmux `@gallager-emoji` user option.
+    /// Persisted via the tmux `@ctrlx-emoji` user option.
     public var customEmoji: String?
 
     // MARK: - Terminal State
@@ -164,7 +169,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - CLI Session State Override
 
-    /// Manual session-state override, set via the gallager CLI's `session
+    /// Manual session-state override, set via the ctrlx CLI's `session
     /// set-state` command or the sidebar's "Set State" context menu (issue #695).
     /// Overrides the indicator shown in the sidebar until cleared, either
     /// explicitly or by a hook event that updates the underlying session.
@@ -177,9 +182,10 @@ public struct PaneState: Codable, Sendable, Identifiable {
 
     // MARK: - Progress
 
-    /// Latest `OSC 9;4` progress emitted by this pane, if any. Drives the
-    /// session-row progress bar on the host's local sidebar and on remote
-    /// viewers (iOS, Mac-as-viewer). `nil` means no active progress.
+    /// Latest `OSC 9;4` or CLI progress for this pane, if any. This real value
+    /// takes priority over the working-agent fallback derived by
+    /// `Collection<PaneState>.effectiveProgress`. `nil` means this pane has no
+    /// active terminal progress.
     public var progress: TerminalProgressState?
 
     // MARK: - OTEL Telemetry (issue #597)
@@ -224,6 +230,12 @@ public struct PaneState: Codable, Sendable, Identifiable {
         "\(sessionName):\(windowIndex)"
     }
 
+    /// Stable identity for UI state that must survive tmux renumbering.
+    public var stableWindowId: String {
+        guard let tmuxWindowId, !tmuxWindowId.isEmpty else { return windowId }
+        return tmuxWindowId
+    }
+
     /// The state bucket currently shown for this pane: the manual "Set State"
     /// override wins, else the agent-derived state — matching `SessionStatusBadge`
     /// and `TmuxSession.displayedState`. `nil` when the pane shows the plain
@@ -239,6 +251,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         target: String = "",
         sessionName: String = "",
         windowIndex: Int = 0,
+        tmuxWindowId: String? = nil,
         paneIndex: Int = 0,
         command: String? = nil,
         currentPath: String? = nil,
@@ -268,6 +281,7 @@ public struct PaneState: Codable, Sendable, Identifiable {
         self.target = target
         self.sessionName = sessionName
         self.windowIndex = windowIndex
+        self.tmuxWindowId = tmuxWindowId
         self.paneIndex = paneIndex
         self.command = command
         self.currentPath = currentPath

@@ -1,3 +1,5 @@
+import ClaudeSpyCommon
+import ClaudeSpyNetworking
 import Foundation
 
 /// Groups local tmux windows (LocalTmuxWindow) that belong to the same session.
@@ -29,7 +31,7 @@ public struct LocalTmuxSession: Identifiable, Sendable, Hashable {
     /// window, then the session's active window when every window is parked on
     /// the right.
     public func leftPaneWindow(excludingRightSide rightSideIds: Set<String>) -> LocalTmuxWindow? {
-        let leftCandidates = windows.filter { !rightSideIds.contains($0.id) }
+        let leftCandidates = windows.filter { !rightSideIds.contains($0.stableId) }
         return leftCandidates.first(where: \.isWindowActive)
             ?? leftCandidates.first
             ?? activeWindow
@@ -46,5 +48,23 @@ public struct LocalTmuxSession: Identifiable, Sendable, Hashable {
             )
         }
         .sorted { $0.sessionName < $1.sessionName }
+    }
+}
+
+extension LocalTmuxSession {
+    /// Window- and pane-scoped values for the active local terminal. Structural
+    /// tmux values live on `PaneInfo`; Gallager's live title and git state live
+    /// on the matching `PaneState`.
+    func activeWindowMetadata(paneStates: [String: PaneState]) -> ActiveWindowMetadata {
+        let window = activeWindow
+        let pane = window?.activePane
+        let paneState = pane.flatMap { paneStates[$0.paneId] }
+        return ActiveWindowMetadata(
+            windowName: window?.windowName,
+            terminalTitle: paneState?.terminalTitle,
+            command: pane?.command,
+            currentPath: pane?.currentPath,
+            gitBranch: paneState?.gitBranch
+        )
     }
 }
