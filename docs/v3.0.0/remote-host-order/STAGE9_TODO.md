@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 3/5 tasks
+- **Progress**: 4/5 tasks
 - **Dependencies**: Stage 8 远程 Host 顺序 ✅
 
 ## Tasks
@@ -11,7 +11,7 @@
 - [x] 复核真机失败路径并确定拖放容器根因
 - [x] 将 Host 标题迁移为普通 List 行并接入高优先级拖拽
 - [x] 覆盖拖放状态清理、顺序与持久化测试
-- [ ] 完成 macOS 构建并覆盖本机 App 验证
+- [x] 完成 macOS 构建并覆盖本机 App 验证
 - [ ] 完成 code review、合入与发布收尾
 
 ## Blockers
@@ -29,4 +29,4 @@
 - 普通 List 行版本 `e40815d` 已完成 arm64 Release 构建、签名校验和本机覆盖安装。
 - 普通 List 行版本真实验收为偶发成功：手柄和精确目标区域仍过小，交互尚不合格。
 - 宽容命中版本 `6b7e129` 已通过专项测试、Release 构建、签名和本机覆盖安装。
-- 待完成扩大命中、源/目标反馈版本的真实侧边栏拖拽交互验收。
+- 宽容命中版本已通过用户真实侧边栏连续拖拽验收。

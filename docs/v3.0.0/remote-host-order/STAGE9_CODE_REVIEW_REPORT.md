@@ -16,9 +16,8 @@
 
 **Resolution**：远程 Host 标题已成为 Section 的第一个普通 List 行，手柄改为高优先级
 `DragGesture`；Section header 不再承载任何 Host 排序交互。代码、专项测试、Release 构建、
-签名和本机安装均已通过，但真实复验仅偶发成功。残余问题是手柄命中区域偏小，且目标解析
-要求落点严格位于另一个标题矩形内；需要扩大源命中并使用有限容差的最近目标，同时显示源
-拖动反馈后再次验收。
+签名和本机安装均已通过。最终版本扩大手柄命中区域，以有限容差解析最近目标，并分别显示
+拖动源与目标反馈；用户已完成真实侧边栏连续拖拽验收。
 
 The failed `draggable/dropDestination` path has been removed. Host ordering now uses one in-process gesture
 and the existing `moveHostPairing` mutation; no secondary order store, Relay message, or iOS behavior was added.
@@ -36,8 +35,8 @@ later hit test.
 - CtrlX CLI: `pong`
 - tmux server and pane snapshot: unchanged across installation
 - `git diff --check`: passed
+- Physical macOS sidebar drag acceptance: passed
 
 ## Assessment
 
-Reopened after physical interaction failure. Merge and publication remain blocked until the normal-row
-implementation passes physical acceptance.
+Approved for merge and publication. No P1, P2, or P3 findings remain.
