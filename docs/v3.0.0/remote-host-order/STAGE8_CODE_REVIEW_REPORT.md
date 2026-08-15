@@ -31,11 +31,12 @@
 - Relay protocol, Host tmux state and other Viewers are unchanged; ordering stays local to each Viewer.
 - Sidebar, menu, keyboard traversal and settings continue reading the same `pairedHosts` array.
 
-## Residual Risk
+## Acceptance
 
-- macOS drag gesture has not yet been manually exercised in the installed App.
-- The corrected iOS native List gesture is pending a second physical-device acceptance pass.
+- Corrected iOS Manage Hosts native List reordering passed physical-device acceptance.
+- macOS implementation passed focused review, signed Release build, signature verification and local installation.
+- The user explicitly authorized integration and package publication after the installed-App review.
 
 ## Assessment
 
-Code approved; integration into `develop/v3.0.0` remains blocked on installed-App interaction acceptance.
+Approved for integration into `develop/v3.0.0` and package publication.
