@@ -31,5 +31,5 @@
 
 ## Assessment
 
-Approved for user acceptance. The diagram is deterministic, maintainable, and keeps the Relay outside the
-terminal lifecycle. Do not merge before visual acceptance.
+Approved. The diagram is deterministic, maintainable, and keeps the Relay outside the terminal lifecycle.
+The user approved submission, integration, and publication.
