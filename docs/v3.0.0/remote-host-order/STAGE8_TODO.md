@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: ✅ Completed
-- **Progress**: 6/6 tasks
+- **Status**: 🟡 In Progress
+- **Progress**: 5/6 tasks
 - **Dependencies**: Stage 7 远程 session 顺序 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 实现 macOS 持久化与 sidebar Host 拖拽
 - [x] 实现 iOS 持久化与 Edit 模式 Host 拖拽
 - [x] 验证配对更新、删除、重启和双端构建
-- [x] 完成 Stage 8 code review 与验收记录
+- [ ] 完成 Stage 8 真机交互复验与验收记录
 
 ## Blockers
 
@@ -25,5 +25,5 @@
 - macOS `ClaudeSpyServer` App target 构建通过。
 - iOS `ClaudeSpy` generic-device App target 构建通过。
 - `git diff --check` 通过。
-- Stage 8 review 未发现 P1/P2/P3 问题。
-- 真实 macOS/iOS 拖拽交互保留为安装后的人工验收项，不阻塞源码集成。
+- 首版 iOS Section header 自定义拖放真机验收失败，已改为 Manage Hosts 原生 List 重排。
+- 修复版等待 iOS 真机复验；通过前不合入主仓。

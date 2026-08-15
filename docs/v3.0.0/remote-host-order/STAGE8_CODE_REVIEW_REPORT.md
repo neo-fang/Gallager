@@ -10,12 +10,14 @@
 
 ## Findings
 
-- Critical / High / Medium / Low: none.
-- No P1, P2 or P3 defect survived verification.
+- **P2 / Resolved**：首版把拖放源和目标放在 iOS `List` 的 Section header。
+  真机 Edit 模式下系统不把 Section header 作为可重排行，手柄可见但拖放不生效。
+- 修复移除该假入口，改在 Manage Hosts 的平面 `ForEach` 上使用系统 `onMove`；
+  Sessions 页的 Edit 继续只管理 session，两个排序层级不再争用手势。
 
 ## Verification
 
-- `RemoteHostOrder` and settings tests: 4/4 passed.
+- `RemoteHostOrder` and settings tests: 5/5 passed.
 - macOS `ClaudeSpyServer` App target build: passed.
 - iOS `ClaudeSpy` generic-device App target build: passed.
 - `git diff --check`: passed.
@@ -31,9 +33,9 @@
 
 ## Residual Risk
 
-- Native macOS and iOS drag gestures have not yet been manually exercised in installed Apps.
-  Move coordinates, persistence and both platform compilation paths are covered.
+- macOS drag gesture has not yet been manually exercised in the installed App.
+- The corrected iOS native List gesture is pending a second physical-device acceptance pass.
 
 ## Assessment
 
-Approved for integration into `develop/v3.0.0` after installed-App interaction acceptance.
+Code approved; integration into `develop/v3.0.0` remains blocked on installed-App interaction acceptance.
