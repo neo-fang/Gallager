@@ -84,6 +84,7 @@ public enum Symbols: String {
     case pauseCircleFill = "pause.circle.fill"
     case pencil
     case pencilLine = "pencil.line"
+    case photoBadgePlus = "photo.badge.plus"
     case play
     case playFill = "play.fill"
     case plus
