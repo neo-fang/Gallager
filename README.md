@@ -1,148 +1,169 @@
 # CtrlX
 
+[简体中文](README_ZH.md)
+
 > **Your tmux, Your Agent, everywhere.**
 
-**多主机，全端访问。** CtrlX 是一个以 tmux 为核心的跨设备终端，让你在任意一台 Mac
-或 iPhone 上，查看并控制任意一台已配对 Mac 的 tmux 工作区。
+**Multiple hosts. Any supported device.** CtrlX is a tmux-native, cross-device
+terminal for viewing and controlling the tmux workspaces on any paired Mac from
+another Mac or an iPhone.
 
-CtrlX 不接管终端生命周期，也不把 Coding Agent 包装进自己的会话模型。你仍然使用原生
-`tmux` 创建、挂载和管理 session；CtrlX 只是让这些已经存在的终端安全地出现在其他设备上。
+CtrlX does not own the terminal lifecycle or wrap coding agents in a proprietary
+session model. You keep using native `tmux` to create, attach to, and manage
+sessions. CtrlX makes those existing terminals securely available on your other
+devices.
 
-## 为什么选择 CtrlX
+## Why CtrlX
 
-### tmux 原生复用
+### Native tmux reuse
 
-- 直接发现命令行创建的 tmux session、window 和 pane。
-- CtrlX、系统终端和其他 tmux client 可以连接同一个会话。
-- 关闭 App、切换设备或网络断开不会结束 tmux 中的任务。
-- Claude Code、Codex 或其他 TUI 保留完整原生命令和更新能力，不依赖 CtrlX 适配 provider
-  的每一个内置命令。
+- Discover tmux sessions, windows, and panes created from the command line.
+- Attach CtrlX, a system terminal, and other tmux clients to the same session.
+- Keep tasks running when the app closes, the network drops, or you switch devices.
+- Preserve the native commands and update paths of Claude Code, Codex, and other
+  TUIs instead of waiting for CtrlX to mirror every provider command.
 
-### 多主机，全端访问
+### Multiple hosts, any supported device
 
-- 家里、办公室和异地的多台 Mac 可以同时作为 Host 上线。
-- Mac 既能共享本机 tmux，也能作为 Viewer 控制其他 Mac。
-- iPhone 可以查看和控制任意已配对 Mac 上的 tmux 工作区。
-- 每台设备只需主动连接 Relay；远端 Mac 不需要公网 IP，也不需要开放入站端口。
-- Host 和 session 顺序可分别调整，让多机器工作区保持稳定、可辨认。
+- Keep Macs at home, at the office, and on remote networks online as Hosts.
+- Use each Mac both as a Host for its local tmux server and as a Viewer for other Macs.
+- View and control any paired Mac workspace from an iPhone.
+- Connect every device outbound through the Relay. Remote Macs need neither a
+  public IP nor an open inbound port.
+- Reorder Hosts and sessions independently so a multi-machine workspace stays
+  stable and recognizable.
 
-### Agent 感知，而不是 Agent 绑定
+### Agent-aware, not Agent-bound
 
-CtrlX 在普通终端复用之上识别 Coding Agent 的运行、完成、权限请求、提问和计划审批状态，
-并提供通知、快捷输入、文件浏览、Git workbench、Prompt 编辑和 token/cost 信息。Agent 支持
-由开放的 sidecar plugin 扩展；没有插件时，CtrlX 仍然是完整的 tmux 远程终端。
+On top of its general-purpose terminal support, CtrlX detects coding-agent states
+such as working, completed, permission requested, question asked, and plan awaiting
+approval. It adds notifications, quick input, a file browser, a Git workbench, a
+prompt editor, and token/cost information.
 
-## 这是什么连接模式？
+Open sidecar plugins extend agent support. Without a plugin, CtrlX remains a full
+tmux remote terminal rather than becoming unusable when an agent provider changes.
 
-面向使用者，我们称它为 **全端访问（Any-device access）**，也可以理解为 **tmux 工作区漫游**：
-终端留在原来的 Mac 上，但你可以换一台设备继续查看和操作。
+## What kind of connection is this?
 
-它不是纯 P2P。技术上，CtrlX 使用 **端到端加密 Relay**：所有设备主动建立出站 WebSocket，
-Relay 负责配对和转发密文，但不能读取终端内容。这种架构保留了 P2P 般的直接控制体验，
-同时适用于 NAT、公司网络和没有公网入口的远端 Mac。
+The user-facing model is **any-device access**, or **tmux workspace roaming**: the
+terminal stays on its original Mac while you move between supported devices and
+continue viewing or controlling it.
+
+This is not pure P2P. CtrlX uses an **end-to-end encrypted Relay**. Every device
+opens an outbound WebSocket connection; the Relay pairs devices and routes encrypted
+frames but cannot read terminal contents. This preserves direct-control ergonomics
+while working across NAT, corporate networks, and remote Macs without public ingress.
 
 ```text
 Mac A  [tmux · Host · Viewer] ─┐
-Mac B  [tmux · Host · Viewer] ─┼── E2EE Relay（只路由密文）
+Mac B  [tmux · Host · Viewer] ─┼── E2EE Relay (ciphertext routing only)
 iPhone [Viewer]               ─┘
 ```
 
-| 设备 | 共享本机 tmux | 控制远端 Mac |
+| Device | Share local tmux | Control remote Macs |
 | --- | --- | --- |
-| CtrlX for Mac | ✅ | ✅ |
-| CtrlX for iPhone | — | ✅ |
+| CtrlX for Mac | Yes | Yes |
+| CtrlX for iPhone | No | Yes |
 
-完成配对后，Viewer 会在一个界面中看到所有在线 Host 及其 session。多台 Viewer 也可以访问
-同一个 Host；tmux 始终是终端状态的唯一事实来源。
+After pairing, a Viewer shows all paired online Hosts and their sessions in one
+interface. Multiple Viewers can access the same Host. tmux remains the single
+source of truth for terminal state.
 
-## 快速开始
+## Quick start
 
-### 安装 macOS 版
+### Install CtrlX for macOS
 
-要求 Apple Silicon、macOS 15 或更新版本，并已安装 tmux：
+The current build requires Apple Silicon, macOS 15 or later, and tmux:
 
 ```bash
 brew install tmux
 curl -fsSL https://ctrlx.zengjice.com:7001/install/mac.sh | bash
 ```
 
-安装器会校验固定 SHA-256、App 签名和 bundle metadata，只替换
-`/Applications/CtrlX.app`，不会结束已有 tmux session、window、pane 或 pane 内进程。
+The installer verifies a pinned SHA-256, the app signature, and bundle metadata.
+It replaces only `/Applications/CtrlX.app` and does not terminate existing tmux
+sessions, windows, panes, or processes running inside panes.
 
-当前下载包使用 Apple Development 签名，尚未 notarize，不是面向公众的 App Store 发行包。
+The current download uses an Apple Development signature and is not notarized. It
+is not a public App Store distribution.
 
-### 复用现有 tmux 会话
+### Reuse existing tmux sessions
 
-继续使用熟悉的 tmux 命令：
+Continue using standard tmux commands:
 
 ```bash
 tmux new -s coding
 tmux attach -t coding
 ```
 
-启动 CtrlX 后，这些 session 会直接出现在 Local 列表中。远端 Mac 安装并完成配对后，会作为
-独立 Host 出现在 Mac 和 iPhone Viewer 中，无需为它重新创建 CtrlX 专用会话。
+After CtrlX starts, these sessions appear directly under Local. Install and pair
+CtrlX on another Mac, and that Mac appears as a separate Host on both Mac and
+iPhone Viewers. No CtrlX-specific session needs to be created.
 
-### iPhone 与其他 Mac
+### Pair an iPhone or another Mac
 
-1. 在 Host Mac 上保持 CtrlX 运行并生成配对码。
-2. 让 Viewer 连接同一个 Relay，并用配对码完成一次配对。
-3. 从 Host 列表进入对应机器，选择任意 tmux session、window 和 pane。
+1. Keep CtrlX running on the Host Mac and generate a pairing code.
+2. Connect the Viewer to the same Relay and complete pairing with that code.
+3. Open the Host and choose any tmux session, window, and pane.
 
-iOS 目前需要使用 Xcode 签名安装；后台推送还要求 Relay 配置匹配该 iOS 构建的 APNs 凭据。
-没有 APNs 时，前台远程终端和实时状态同步仍可正常工作。
+The iOS app currently requires a locally signed Xcode build. Background push also
+requires APNs credentials matching that iOS build on the Relay. Foreground terminal
+access and live state synchronization work without APNs.
 
-## 安全与自托管
+## Security and self-hosting
 
-- 终端帧在 Host 与 Viewer 之间端到端加密。
-- Relay 只处理配对元数据和密文路由，不能解密终端内容。
-- 自托管版本不要求 CtrlX 账号、订阅或外部组网服务。
-- 每台 Host 只建立出站连接，不必暴露本机 tmux、SSH 或 App 端口。
-- 可选 APNs 只用于后台通知，不影响实时终端链路。
+- Terminal frames are end-to-end encrypted between Host and Viewer.
+- The Relay handles pairing metadata and ciphertext routing but cannot decrypt
+  terminal contents.
+- Self-hosting requires no CtrlX account, subscription, or third-party overlay network.
+- Each Host makes outbound connections only; tmux, SSH, and app ports remain private.
+- Optional APNs support is used for background notifications, not the live terminal path.
 
-部署自己的 Relay 请阅读 [Self-hosting CtrlX Relay](docs/self-hosting.md)，运行监控说明见
-[Relay monitoring runbook](docs/monitoring.md)。
+See [Self-hosting CtrlX Relay](docs/self-hosting.md) to deploy a Relay and the
+[Relay monitoring runbook](docs/monitoring.md) for operational guidance.
 
-## 架构
+## Architecture
 
-| 组件 | 职责 | 源码 |
+| Component | Responsibility | Source |
 | --- | --- | --- |
-| CtrlX for Mac | 本机 tmux Host、桌面 Viewer、Agent 集成和 workbench | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
-| CtrlX Relay | 配对、加密 WebSocket 路由和可选 APNs 分发 | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
-| CtrlX for iOS | 移动 Viewer、终端输入和 Agent 操作 | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
+| CtrlX for Mac | Local tmux Host, desktop Viewer, agent integration, and workbench | `ClaudeSpyPackage/Sources/ClaudeSpyServerFeature` |
+| CtrlX Relay | Pairing, encrypted WebSocket routing, and optional APNs delivery | `ClaudeSpyPackage/Sources/ClaudeSpyExternalServer` |
+| CtrlX for iOS | Mobile Viewer, terminal input, and agent actions | `ClaudeSpyPackage/Sources/ClaudeSpyFeature` |
 
-内部 Swift target 和 module 仍保留历史 `ClaudeSpy*` 名称。它们只是实现细节，用于降低与上游
-同步时的无意义改名风险。
+Internal Swift targets and modules retain their historical `ClaudeSpy*` names.
+They are implementation details left stable to reduce meaningless upstream merge
+conflicts.
 
-## 从源码构建
+## Build from source
 
-要求近期 Xcode、Swift 6.3 或更新版本，以及 macOS 15 或更新版本。
+Building requires a recent Xcode, Swift 6.3 or later, and macOS 15 or later.
 
-打开 `ClaudeSpy.xcworkspace`：
+Open `ClaudeSpy.xcworkspace` and build:
 
-- 构建 `ClaudeSpyServer` 获得 macOS App。
-- 构建 `ClaudeSpy` 获得 iOS App。
+- `ClaudeSpyServer` for the macOS app.
+- `ClaudeSpy` for the iOS app.
 
-本地启动 Relay：
+Start a local Relay:
 
 ```bash
 ./sbin/auto-env.sh
 ./sbin/start_server.sh
 ```
 
-运行 Swift package 测试：
+Run Swift package tests:
 
 ```bash
 swift test --package-path ClaudeSpyPackage
 ```
 
-正式产物必须从干净的 primary worktree 使用仓库内打包脚本构建。签名覆盖项和凭据只允许放在
-Git 忽略的本地配置文件中。
+Release artifacts must be built from a clean primary worktree with the checked-in
+packaging scripts. Signing overrides and credentials belong only in ignored local
+configuration files.
 
-## 二进制对应源码
+## Corresponding source for binaries
 
-每个发布的 CtrlX 二进制和托管 Relay 都必须指向包含完整对应源码与构建脚本的不可变 Git tag
-和 commit：
+Every published CtrlX binary and hosted Relay version must identify an immutable
+Git tag and commit containing its complete corresponding source and build scripts:
 
 ```text
 Release: v3.0.0
@@ -152,18 +173,21 @@ Commit: <full Git commit>
 License: GNU AGPL-3.0
 ```
 
-托管 Relay 通过 `/version` 和 `/source` 暴露相同信息；只链接到会移动的开发分支不构成完整
-的对应源码说明。
+The hosted Relay exposes the same information through `/version` and `/source`.
+A link to a moving development branch alone is not sufficient corresponding source.
 
-## 来源与许可证
+## Origin and license
 
-CtrlX 是基于 [Gallager](https://github.com/gpambrozio/Gallager) 的独立发行版，基线为
-2026-08-14 的 commit `919c7772928531d4d0bb266bdf275691d361901e`。CtrlX 由
-JarvisZeng 维护，与 Gallager 项目不存在隶属或官方背书关系。
+CtrlX is an independent distribution based on
+[Gallager](https://github.com/gpambrozio/Gallager), with baseline commit
+`919c7772928531d4d0bb266bdf275691d361901e` dated 2026-08-14. CtrlX is maintained
+by JarvisZeng and is not affiliated with or endorsed by the Gallager project.
 
-仓库保留完整 Git 历史和原始版权声明，并以 [GNU AGPL-3.0](LICENSE) 发布。如果通过网络
-提供修改后的 Relay，必须向用户提供该运行版本的完整对应源码。另见 [NOTICE.md](NOTICE.md)、
-[MODIFICATIONS.md](MODIFICATIONS.md) 和 [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md)。
+The repository retains the complete Git history and original copyright notices.
+CtrlX is distributed under [GNU AGPL-3.0](LICENSE). If you provide a modified Relay
+over a network, you must offer users the complete corresponding source for that
+running version. See [NOTICE.md](NOTICE.md), [MODIFICATIONS.md](MODIFICATIONS.md),
+and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
 
-CtrlX 3.0.0 独立发行工作记录在
-[实施计划](docs/v3.0.0/IMPLEMENTATION_PLAN.md) 中。
+The CtrlX 3.0.0 independent-distribution work is recorded in the
+[implementation plan](docs/v3.0.0/IMPLEMENTATION_PLAN.md).
