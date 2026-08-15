@@ -33,6 +33,7 @@
 - macOS arm64 Debug 构建：通过。
 - 真机签名与深度校验：通过。
 - iPhone 覆盖安装：成功，build stamp `20260815-134019`，revision `82c5d16b4c46`。
+- iPhone 真机端到端：照片选择、上传、Host 落盘和 Agent 读图全链路通过。
 - `git diff --check`：通过。
 - SwiftLint 未安装；Xcode 只报告既有安装提示。
 
@@ -46,6 +47,5 @@
 
 ## Assessment
 
-代码审查通过，无剩余 P1、P2 或 P3。Stage 集成仍以 iPhone 真机完成一次照片选择并确认远端
-pane 收到图片路径为最终验收条件。
-
+代码审查通过，无剩余 P1、P2 或 P3。iPhone 真机最终验收已完成，Stage 1
+可集成。

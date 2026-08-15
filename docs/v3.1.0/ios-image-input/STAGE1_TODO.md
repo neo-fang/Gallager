@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: macOS `SendDroppedFiles` 图片投递链路 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 实现 iOS 照片选择、目标 pane 固定与发送生命周期
 - [x] 增加上传进度、取消和错误反馈
 - [x] 完成聚焦测试及 macOS/iPhoneOS 构建
-- [ ] 完成真机验收与 code review
+- [x] 完成真机验收与 code review
 
 ## Blockers
 
@@ -26,4 +26,5 @@
 - macOS arm64 Debug 构建通过，现有 Mac 图片粘贴继续使用同一规范化器。
 - `git diff --check` 通过。
 - SwiftLint 未安装；两端 Xcode 构建仅报告既有安装提示。
-- 待 iPhone 真机验证照片选择、上传进度和远端 pane 路径插入。
+- iPhone 真机从系统照片选择座位表 JPEG 并发送成功；Host 生成
+  `ctrlx-drop-*` 临时路径，远端 Agent 可读取并正确识别图片内容。
