@@ -57,6 +57,9 @@
         /// The parent uses this only to detect user-submitted Agent turns.
         let onTerminalInput: @MainActor ([TmuxKey]) -> Void
 
+        /// Reports real incremental terminal output for background progress.
+        let onTerminalActivity: @MainActor () -> Void
+
         /// Live OTEL telemetry for this pane's session (issue #597), shown as a
         /// thin meter strip above the terminal (surface C).
         var telemetry: SessionTelemetry?
@@ -101,7 +104,8 @@
             settings: IOSSettings,
             telemetry: SessionTelemetry? = nil,
             submitResponse: @escaping ResponseSender,
-            onTerminalInput: @escaping @MainActor ([TmuxKey]) -> Void = { _ in }
+            onTerminalInput: @escaping @MainActor ([TmuxKey]) -> Void = { _ in },
+            onTerminalActivity: @escaping @MainActor () -> Void = { }
         ) {
             self.paneId = paneId
             self._responseState = responseState
@@ -117,6 +121,7 @@
             self.telemetry = telemetry
             self.submitResponse = submitResponse
             self.onTerminalInput = onTerminalInput
+            self.onTerminalActivity = onTerminalActivity
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
                 fontName: settings.terminalFontName,
@@ -438,6 +443,11 @@
                     for: currentPaneId
                 ) { message in
                     guard currentCoordinator.streamSessionId == streamSessionId else { return }
+                    if case let .dataChunk(chunk) = message.updateType,
+                       chunk.data?.isEmpty == false
+                    {
+                        onTerminalActivity()
+                    }
                     currentCoordinator.handleStreamMessage(message)
                 }
                 coordinator.setHandlerRegistrationId(handlerRegistrationId)

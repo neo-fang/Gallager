@@ -115,7 +115,7 @@
                 title: request.title,
                 subtitle: request.subtitle,
                 completedUnitCount: 0,
-                totalUnitCount: 2
+                totalUnitCount: -1
             )
             entries[request.identifier] = Entry(
                 request: request,
@@ -199,10 +199,9 @@
             guard let task else { return }
             task.updateTitle(update.title, subtitle: update.subtitle)
             task.progress.totalUnitCount = update.totalUnitCount
-            task.progress.completedUnitCount = min(
-                update.completedUnitCount,
-                update.totalUnitCount
-            )
+            task.progress.completedUnitCount = update.totalUnitCount < 0
+                ? update.completedUnitCount
+                : min(update.completedUnitCount, update.totalUnitCount)
         }
 
         private func expire(identifier: String) async {

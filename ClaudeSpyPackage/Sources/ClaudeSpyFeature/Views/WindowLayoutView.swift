@@ -607,6 +607,12 @@
                 submitResponse: { _ in },
                 onTerminalInput: { keys in
                     observeTerminalInput(keys, paneId: pane.paneId)
+                },
+                onTerminalActivity: {
+                    backgroundMonitoring.noteTerminalActivity(
+                        hostId: hostId,
+                        paneId: pane.paneId
+                    )
                 }
             )
             .environment(relayClient)

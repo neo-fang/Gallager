@@ -17,6 +17,8 @@
             let identifier: String
             let sessionName: String
             var phase: AgentBackgroundMonitoringPolicy.Phase
+            var completedActivityUnits: Int64
+            var lastActivityUpdate: ContinuousClock.Instant
         }
 
         @ObservationIgnored
@@ -27,6 +29,7 @@
             category: "AgentBackgroundMonitoring"
         )
         private var runs: [PaneKey: MonitoredRun] = [:]
+        private let clock = ContinuousClock()
 
         public init() { }
 
@@ -56,7 +59,9 @@
             let run = MonitoredRun(
                 identifier: identifier,
                 sessionName: sessionName,
-                phase: .waitingForAgent
+                phase: .waitingForAgent,
+                completedActivityUnits: 0,
+                lastActivityUpdate: clock.now
             )
             runs[key] = run
 
@@ -90,14 +95,16 @@
             case let .keep(phase):
                 guard phase != run.phase else { return }
                 run.phase = phase
+                run.completedActivityUnits += 1
+                run.lastActivityUpdate = clock.now
                 runs[key] = run
                 await continuedProcessing.update(
                     run.identifier,
                     ContinuedProcessingUpdate(
                         title: "CtrlX Agent",
                         subtitle: "\(run.sessionName) is working",
-                        completedUnitCount: 1,
-                        totalUnitCount: 2
+                        completedUnitCount: run.completedActivityUnits,
+                        totalUnitCount: -1
                     )
                 )
 
@@ -112,11 +119,36 @@
                     ContinuedProcessingUpdate(
                         title: "CtrlX Agent",
                         subtitle: subtitle,
-                        completedUnitCount: 2,
-                        totalUnitCount: 2
+                        completedUnitCount: 1,
+                        totalUnitCount: 1
                     )
                 )
                 await continuedProcessing.finish(run.identifier, true)
+            }
+        }
+
+        /// Advances indeterminate progress only when the selected terminal has
+        /// produced real output. BGContinuedProcessingTask expires stalled
+        /// tasks, while an Agent turn has no honest percentage to report.
+        public func noteTerminalActivity(hostId: String, paneId: String) {
+            let key = PaneKey(pairId: hostId, paneId: paneId)
+            guard var run = runs[key], run.phase == .working else { return }
+
+            let now = clock.now
+            guard now - run.lastActivityUpdate >= .seconds(10) else { return }
+
+            run.completedActivityUnits += 1
+            run.lastActivityUpdate = now
+            runs[key] = run
+
+            let update = ContinuedProcessingUpdate(
+                title: "CtrlX Agent",
+                subtitle: "\(run.sessionName) is working",
+                completedUnitCount: run.completedActivityUnits,
+                totalUnitCount: -1
+            )
+            Task {
+                await continuedProcessing.update(run.identifier, update)
             }
         }
 
