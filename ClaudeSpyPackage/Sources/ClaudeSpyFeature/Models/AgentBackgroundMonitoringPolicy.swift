@@ -7,6 +7,10 @@ import Foundation
 /// submitted, so it cannot finish a newly-created monitor. Once `.working` has
 /// arrived, a later idle state is a valid completion fallback.
 public enum AgentBackgroundMonitoringPolicy {
+    /// Ten-second monitoring units provide a finite two-hour background budget.
+    /// The final unit remains reserved for actual Agent completion.
+    public static let maximumActivityUnits: Int64 = 720
+
     public enum Phase: Sendable, Equatable {
         case waitingForAgent
         case working
@@ -67,6 +71,11 @@ public enum AgentBackgroundMonitoringPolicy {
              .awaitingReplies:
             return false
         }
+    }
+
+    public static func nextActivityUnit(after current: Int64) -> Int64? {
+        let next = current + 1
+        return next < maximumActivityUnits ? next : nil
     }
 }
 

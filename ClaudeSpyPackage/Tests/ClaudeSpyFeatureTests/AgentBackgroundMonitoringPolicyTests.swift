@@ -85,4 +85,12 @@ struct AgentBackgroundMonitoringPolicyTests {
         #expect(AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: .doneWorking(summary: nil)))
         #expect(!AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: .working))
     }
+
+    @Test("Monitoring activity has a finite two-hour budget")
+    func finiteActivityBudget() {
+        #expect(AgentBackgroundMonitoringPolicy.maximumActivityUnits == 720)
+        #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 0) == 1)
+        #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 718) == 719)
+        #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 719) == nil)
+    }
 }

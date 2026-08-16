@@ -16,10 +16,10 @@ CtrlX 当前依赖前台 Relay 连接接收 Agent 状态并触发本地通知。
    - Agent idle/done 状态下通过终端键盘提交的非空输入行
 4. 使用 `.fail` 提交策略。系统无法立即启动时直接降级，不留下失去上下文的排队任务。
 5. 每个 Host + pane 同时只保留一个监控任务；再次提交会替换旧任务。
-6. 用真实 Agent 状态驱动不确定总量的有限进度：
+6. 用真实 Agent 状态驱动两小时上限的有限监控进度：
    - prompt 已提交：等待 Agent 启动；
    - `.working`：Agent 正在工作；
-   - 活跃监控期间：每 10 秒增加一个 monitoring activity unit；
+   - 活跃监控期间：每 10 秒完成一个 monitoring activity unit，总计 720 units；
    - 完成、等待用户输入、失败、Host 断开、用户关闭开关或系统取消：结束任务。
 7. 继续复用现有 `onAgentNotification` 本地通知链路，不额外发送重复通知。
 8. `BGTaskScheduler` 封装为依赖，状态转换保持为平台无关纯逻辑，以便单元测试。
@@ -35,9 +35,9 @@ iOS 提交 prompt 成功
         └──── host disconnect / setting off / system cancel ────┘
 ```
 
-任务具有明确起点和终点。Agent 没有可预知的百分比，因此使用 indeterminate
-progress；活动单位表示 CtrlX 已继续监控一个尚未结束的用户任务，不表示伪造的
-Agent 完成百分比。CtrlX 不循环续期，也不试图在没有活动 Agent 任务时维持 Relay 常驻。
+任务具有明确起点和终点。Agent 没有可预知的完成百分比，因此圆环表示两小时
+后台监控预算的消耗；活动单位不表示 Agent 工作完成度。CtrlX 不循环续期，也不试图
+在没有活动 Agent 任务时维持 Relay 常驻。
 
 ## 系统行为与限制
 

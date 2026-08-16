@@ -99,7 +99,9 @@
             case let .keep(phase):
                 guard phase != run.phase else { return }
                 run.phase = phase
-                run.completedActivityUnits += 1
+                run.completedActivityUnits = AgentBackgroundMonitoringPolicy.nextActivityUnit(
+                    after: run.completedActivityUnits
+                ) ?? run.completedActivityUnits
                 runs[key] = run
                 await continuedProcessing.update(
                     run.identifier,
@@ -107,7 +109,7 @@
                         title: "CtrlX Agent",
                         subtitle: "\(run.sessionName) is working",
                         completedUnitCount: run.completedActivityUnits,
-                        totalUnitCount: -1
+                        totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
                     )
                 )
 
@@ -184,7 +186,16 @@
         private func reportActivity(for key: PaneKey, identifier: String) async -> Bool {
             guard var run = runs[key], run.identifier == identifier else { return false }
 
-            run.completedActivityUnits += 1
+            guard let nextUnit = AgentBackgroundMonitoringPolicy.nextActivityUnit(
+                after: run.completedActivityUnits
+            ) else {
+                runs.removeValue(forKey: key)
+                activityReporters.removeValue(forKey: key)
+                await continuedProcessing.finish(identifier, false)
+                return false
+            }
+
+            run.completedActivityUnits = nextUnit
             runs[key] = run
             let subtitle = switch run.phase {
             case .waitingForAgent: "Waiting for \(run.sessionName)"
@@ -196,7 +207,7 @@
                     title: "CtrlX Agent",
                     subtitle: subtitle,
                     completedUnitCount: run.completedActivityUnits,
-                    totalUnitCount: -1
+                    totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
                 )
             )
             return true
