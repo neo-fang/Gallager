@@ -40,6 +40,87 @@
             return prepare(source, maxBytes: maxBytes)
         }
 
+        /// Prepares multiple images within one shared relay payload budget.
+        ///
+        /// Images first keep as much quality as the complete budget permits. If
+        /// their combined size is too large, images that already fit their fair
+        /// share are fixed in place. The remaining images divide the bytes those
+        /// small images did not use, avoiding unnecessary quality loss while
+        /// still guaranteeing the final batch fits without a second protocol.
+        public static func prepareBatch(
+            _ images: [Data],
+            maxTotalBytes: Int
+        ) -> [ClipboardImage]? {
+            guard !images.isEmpty, maxTotalBytes > 0 else { return nil }
+
+            guard let individuallyPrepared = prepare(
+                images,
+                maxBytesPerImage: maxTotalBytes
+            ) else { return nil }
+            if totalBytes(of: individuallyPrepared) <= maxTotalBytes {
+                return individuallyPrepared
+            }
+
+            var result = [ClipboardImage?](repeating: nil, count: images.count)
+            var remainingIndices = Array(images.indices)
+            var remainingBudget = maxTotalBytes
+
+            while !remainingIndices.isEmpty {
+                let fairShare = remainingBudget / remainingIndices.count
+                guard fairShare > 0 else { return nil }
+
+                let fittingIndices = remainingIndices.filter {
+                    individuallyPrepared[$0].data.count <= fairShare
+                }
+                guard !fittingIndices.isEmpty else {
+                    for index in remainingIndices {
+                        guard let image = prepare(images[index], maxBytes: fairShare) else {
+                            return nil
+                        }
+                        result[index] = image
+                    }
+                    break
+                }
+
+                for index in fittingIndices {
+                    let image = individuallyPrepared[index]
+                    result[index] = image
+                    remainingBudget -= image.data.count
+                }
+                let fixed = Set(fittingIndices)
+                remainingIndices.removeAll { fixed.contains($0) }
+            }
+
+            let prepared = result.compactMap { $0 }
+            guard
+                prepared.count == images.count,
+                totalBytes(of: prepared) <= maxTotalBytes
+            else { return nil }
+            return prepared
+        }
+
+        private static func prepare(
+            _ images: [Data],
+            maxBytesPerImage: Int
+        ) -> [ClipboardImage]? {
+            var result: [ClipboardImage] = []
+            result.reserveCapacity(images.count)
+
+            for data in images {
+                guard let image = prepare(data, maxBytes: maxBytesPerImage) else {
+                    return nil
+                }
+                result.append(image)
+            }
+            return result
+        }
+
+        private static func totalBytes(of images: [ClipboardImage]) -> Int {
+            images.reduce(into: 0) { total, image in
+                total += image.data.count
+            }
+        }
+
         private static func prepareDecoded(_ data: Data, maxBytes: Int) -> ClipboardImage? {
             guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
                 return nil
