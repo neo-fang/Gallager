@@ -67,6 +67,7 @@
             case terminalFontName
             case terminalFontSize
             case terminalKeyboardControlPosition
+            case showTerminalKeyboardOnEntry
             case agentQuickInputEnabled
             case newSessionName
             case newSessionWidth
@@ -136,6 +137,11 @@
                     Keys.terminalKeyboardControlPosition
                 )
             }
+        }
+
+        /// Whether a newly opened terminal session starts with keyboard input active.
+        public var showTerminalKeyboardOnEntry = false {
+            didSet { preferences.setBool(showTerminalKeyboardOnEntry, Keys.showTerminalKeyboardOnEntry) }
         }
 
         /// Whether agent panes use the optional response field above the terminal.
@@ -212,6 +218,7 @@
             self.terminalKeyboardControlPosition = TerminalKeyboardControlPosition(
                 storedValue: preferences.string(Keys.terminalKeyboardControlPosition)
             )
+            self.showTerminalKeyboardOnEntry = preferences.optionalBool(Keys.showTerminalKeyboardOnEntry) ?? false
             self.agentQuickInputEnabled = preferences.optionalBool(Keys.agentQuickInputEnabled) ?? false
 
             // New session settings

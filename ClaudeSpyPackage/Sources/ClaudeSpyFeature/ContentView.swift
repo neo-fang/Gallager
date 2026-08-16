@@ -531,6 +531,9 @@
                     }
                     .pickerStyle(.segmented)
 
+                    Toggle("Show Keyboard on Entry", isOn: $settings.showTerminalKeyboardOnEntry)
+                        .accessibilityIdentifier("terminal-keyboard-on-entry-toggle")
+
                     Picker("Font", selection: $settings.terminalFontName) {
                         ForEach(Self.availableFonts, id: \.self) { font in
                             Text(font).tag(font)
@@ -552,7 +555,7 @@
                 } header: {
                     Text("Terminal")
                 } footer: {
-                    Text("Choose where the keyboard control appears and customize the terminal font.")
+                    Text("Choose the keyboard's initial state and control position, and customize the terminal font.")
                 }
 
                 Section {
