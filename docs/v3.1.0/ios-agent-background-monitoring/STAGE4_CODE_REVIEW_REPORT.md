@@ -17,7 +17,7 @@
 
 - 真机崩溃报告显示 launch handler 在 BGTaskScheduler 私有队列触发了 Swift 6 actor 隔离检查。显式指定 main queue，使 handler 与 `@MainActor` runtime 的执行器一致。
 - 每轮用户提交使用唯一动态任务标识，避免系统拒绝重复提交已经完成的 continued-processing request。
-- 将未知总工作量声明为 indeterminate progress，并用限频后的真实 terminal data chunk 增加活动单位，避免 Agent 持续工作但固定停在 1/2 时被系统判定为 stalled。
+- 将未知总工作量声明为 indeterminate progress，并在用户任务仍处于受监控状态时每 10 秒增加一个 monitoring activity unit。该单位不声称 Agent 完成百分比，并覆盖远端 Agent 长时间静默思考的场景。
 - 系统到期时明确调用 `setTaskCompleted(success: false)`，避免留下未完成的后台任务。
 - 修正文档和代码注释，使终端键盘提交路径与结构化 Agent response 的边界一致。
 

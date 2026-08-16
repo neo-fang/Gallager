@@ -18,7 +18,6 @@
             let sessionName: String
             var phase: AgentBackgroundMonitoringPolicy.Phase
             var completedActivityUnits: Int64
-            var lastActivityUpdate: ContinuousClock.Instant
         }
 
         @ObservationIgnored
@@ -29,7 +28,9 @@
             category: "AgentBackgroundMonitoring"
         )
         private var runs: [PaneKey: MonitoredRun] = [:]
-        private let clock = ContinuousClock()
+
+        @ObservationIgnored
+        private var activityReporters: [PaneKey: Task<Void, Never>] = [:]
 
         public init() { }
 
@@ -51,6 +52,7 @@
             guard #available(iOS 26.0, *) else { return }
 
             let key = PaneKey(pairId: hostId, paneId: paneId)
+            cancelActivityReporter(for: key)
             if let previous = runs.removeValue(forKey: key) {
                 await continuedProcessing.finish(previous.identifier, true)
             }
@@ -60,8 +62,7 @@
                 identifier: identifier,
                 sessionName: sessionName,
                 phase: .waitingForAgent,
-                completedActivityUnits: 0,
-                lastActivityUpdate: clock.now
+                completedActivityUnits: 0
             )
             runs[key] = run
 
@@ -74,10 +75,13 @@
                         await self?.handleExpiration(identifier: identifier)
                     }
                 ))
+                guard runs[key]?.identifier == identifier else { return }
+                startActivityReporter(for: key, identifier: identifier)
             } catch {
                 if runs[key]?.identifier == identifier {
                     runs.removeValue(forKey: key)
                 }
+                cancelActivityReporter(for: key)
                 logger.info(
                     "Continued processing unavailable; using normal lifecycle: \(error.localizedDescription, privacy: .public)"
                 )
@@ -96,7 +100,6 @@
                 guard phase != run.phase else { return }
                 run.phase = phase
                 run.completedActivityUnits += 1
-                run.lastActivityUpdate = clock.now
                 runs[key] = run
                 await continuedProcessing.update(
                     run.identifier,
@@ -110,6 +113,7 @@
 
             case let .finish(reason):
                 runs.removeValue(forKey: key)
+                cancelActivityReporter(for: key)
                 let subtitle = switch reason {
                 case .completed: "\(run.sessionName) finished"
                 case .waitingForInput: "\(run.sessionName) needs input"
@@ -127,35 +131,11 @@
             }
         }
 
-        /// Advances indeterminate progress only when the selected terminal has
-        /// produced real output. BGContinuedProcessingTask expires stalled
-        /// tasks, while an Agent turn has no honest percentage to report.
-        public func noteTerminalActivity(hostId: String, paneId: String) {
-            let key = PaneKey(pairId: hostId, paneId: paneId)
-            guard var run = runs[key], run.phase == .working else { return }
-
-            let now = clock.now
-            guard now - run.lastActivityUpdate >= .seconds(10) else { return }
-
-            run.completedActivityUnits += 1
-            run.lastActivityUpdate = now
-            runs[key] = run
-
-            let update = ContinuedProcessingUpdate(
-                title: "CtrlX Agent",
-                subtitle: "\(run.sessionName) is working",
-                completedUnitCount: run.completedActivityUnits,
-                totalUnitCount: -1
-            )
-            Task {
-                await continuedProcessing.update(run.identifier, update)
-            }
-        }
-
         public func stop(hostId: String) async {
             let keys = runs.keys.filter { $0.pairId == hostId }
             for key in keys {
                 guard let run = runs.removeValue(forKey: key) else { continue }
+                cancelActivityReporter(for: key)
                 await continuedProcessing.finish(run.identifier, false)
             }
         }
@@ -163,6 +143,10 @@
         public func stopAll() async {
             let identifiers = runs.values.map(\.identifier)
             runs.removeAll()
+            for reporter in activityReporters.values {
+                reporter.cancel()
+            }
+            activityReporters.removeAll()
             for identifier in identifiers {
                 await continuedProcessing.finish(identifier, false)
             }
@@ -173,6 +157,49 @@
                 return
             }
             runs.removeValue(forKey: key)
+            cancelActivityReporter(for: key)
+        }
+
+        private func startActivityReporter(for key: PaneKey, identifier: String) {
+            activityReporters[key] = Task { [weak self] in
+                while !Task.isCancelled {
+                    do {
+                        try await Task.sleep(for: .seconds(10))
+                    } catch {
+                        return
+                    }
+
+                    guard let self else { return }
+                    guard await self.reportActivity(for: key, identifier: identifier) else {
+                        return
+                    }
+                }
+            }
+        }
+
+        private func cancelActivityReporter(for key: PaneKey) {
+            activityReporters.removeValue(forKey: key)?.cancel()
+        }
+
+        private func reportActivity(for key: PaneKey, identifier: String) async -> Bool {
+            guard var run = runs[key], run.identifier == identifier else { return false }
+
+            run.completedActivityUnits += 1
+            runs[key] = run
+            let subtitle = switch run.phase {
+            case .waitingForAgent: "Waiting for \(run.sessionName)"
+            case .working: "\(run.sessionName) is working"
+            }
+            await continuedProcessing.update(
+                identifier,
+                ContinuedProcessingUpdate(
+                    title: "CtrlX Agent",
+                    subtitle: subtitle,
+                    completedUnitCount: run.completedActivityUnits,
+                    totalUnitCount: -1
+                )
+            )
+            return true
         }
 
         private static func makeIdentifier() -> String {
