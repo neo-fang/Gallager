@@ -85,8 +85,8 @@
             do {
                 try continuedProcessing.start(ContinuedProcessingRequest(
                     identifier: identifier,
-                    title: "CtrlX Agent",
-                    subtitle: Self.subtitle(for: run, status: "Waiting"),
+                    title: Self.title(for: run),
+                    subtitle: "Waiting",
                     expirationHandler: { [weak self] in
                         self?.handleExpiration(identifier: identifier)
                     }
@@ -122,8 +122,8 @@
                 continuedProcessing.update(
                     run.identifier,
                     ContinuedProcessingUpdate(
-                        title: "CtrlX Agent",
-                        subtitle: Self.subtitle(for: run, status: "Working"),
+                        title: Self.title(for: run),
+                        subtitle: "Working",
                         completedUnitCount: run.completedActivityUnits,
                         totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
                     )
@@ -133,13 +133,13 @@
                 runs.removeValue(forKey: key)
                 cancelActivityReporter(for: key)
                 let subtitle = switch reason {
-                case .completed: Self.subtitle(for: run, status: "Finished")
-                case .waitingForInput: Self.subtitle(for: run, status: "Needs input")
+                case .completed: "Finished"
+                case .waitingForInput: "Needs input"
                 }
                 continuedProcessing.update(
                     run.identifier,
                     ContinuedProcessingUpdate(
-                        title: "CtrlX Agent",
+                        title: Self.title(for: run),
                         subtitle: subtitle,
                         completedUnitCount: 1,
                         totalUnitCount: 1
@@ -221,13 +221,13 @@
             run.completedActivityUnits = nextUnit
             runs[key] = run
             let subtitle = switch run.phase {
-            case .waitingForAgent: Self.subtitle(for: run, status: "Waiting")
-            case .working: Self.subtitle(for: run, status: "Working")
+            case .waitingForAgent: "Waiting"
+            case .working: "Working"
             }
             continuedProcessing.update(
                 identifier,
                 ContinuedProcessingUpdate(
-                    title: "CtrlX Agent",
+                    title: Self.title(for: run),
                     subtitle: subtitle,
                     completedUnitCount: run.completedActivityUnits,
                     totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
@@ -236,11 +236,10 @@
             return true
         }
 
-        private static func subtitle(for run: MonitoredRun, status: String) -> String {
-            let context = run.windowName.isEmpty
+        private static func title(for run: MonitoredRun) -> String {
+            run.windowName.isEmpty
                 ? run.sessionName
                 : "\(run.sessionName) · \(run.windowName)"
-            return "\(context) · \(status)"
         }
 
         private static func makeIdentifier() -> String {

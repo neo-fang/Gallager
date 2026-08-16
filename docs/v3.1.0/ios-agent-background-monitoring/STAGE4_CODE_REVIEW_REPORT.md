@@ -20,7 +20,7 @@
 - 真机 120 秒静默测试证明 indeterminate progress 即使改变 `completedUnitCount` 仍会被系统判定为 stalled。改为两小时有限监控预算，每 10 秒完成一个 activity unit；圆环表示监控预算而非 Agent 完成百分比。
 - 连续真机测试证明 `.fail` 在系统没有即时执行槽时会静默降级，表现为 Live Activity 完全不创建。改用 `.queue`；若 Agent 在系统接管前已经结束，既有完成路径会取消 pending request。
 - 连续两轮真机提交一轮有卡片、一轮无卡片，定位到前台提交竞态：终端 Enter 路径把系统请求推迟到 unstructured Task，结构化回复路径更是在等待 Relay 回执后才提交。两条路径均改为在用户输入事件内同步提交；发送失败再显式结束任务。
-- 卡片上下文由仅显示 session 扩展为 `session · window · status`，window name 直接取当前 `TmuxWindow` 快照，不增加查询或轮询；空名称自动退化为原 session 文案。
+- 卡片标题由固定产品名改为 `session · window`，副标题仅显示 status。window name 直接取当前 `TmuxWindow` 快照，不增加查询或轮询；空名称时标题自动退化为 session。
 - 系统到期时明确调用 `setTaskCompleted(success: false)`，避免留下未完成的后台任务。
 - 修正文档和代码注释，使终端键盘提交路径与结构化 Agent response 的边界一致。
 
