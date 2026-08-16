@@ -26,4 +26,6 @@
 - iPhoneOS arm64 Debug 无签名构建通过。
 - macOS arm64 Debug 无签名构建通过。
 - 构建设置已包含 `NSCameraUsageDescription`。
+- 真机发现并修复预览 sheet 误清空草稿导致的 `0 images` 回归。
+- 多图改为逐张单路径 paste，待真机确认 TUI 恢复 `Image #N` 附件显示。
 - `git diff --check` 通过；SwiftLint 未安装，Xcode 仅报告既有构建脚本提示。

@@ -290,29 +290,46 @@
             }
             guard let currentOperationID = beginOperation() else { return }
 
-            let files = draftImages.map { item in
-                DroppedFile(
-                    name: "pasted-image-\(item.id.uuidString).\(item.image.format.fileExtension)",
-                    data: item.image.data
-                )
-            }
+            let pendingImages = draftImages
 
             operationTask = Task { @MainActor in
-                let result = await relayClient.sendCommand(
-                    SendDroppedFiles(files: files),
-                    paneId: targetPaneId,
-                    timeout: 30
-                )
+                for (index, item) in pendingImages.enumerated() {
+                    if index > 0 {
+                        let separatorResult = await relayClient.sendCommand(
+                            SendRawInput(data: Data(" ".utf8)),
+                            paneId: targetPaneId,
+                            timeout: 30
+                        )
+                        guard self.operationID == currentOperationID else { return }
+                        if case let .failure(error) = separatorResult {
+                            draftImages = Array(pendingImages.dropFirst(index))
+                            uploadErrorMessage = error.localizedDescription
+                            finishOperation(currentOperationID)
+                            return
+                        }
+                    }
 
-                guard self.operationID == currentOperationID else { return }
-                switch result {
-                case .success:
-                    finishOperation(currentOperationID)
-                    isPreviewPresented = false
-                case let .failure(error):
-                    uploadErrorMessage = error.localizedDescription
-                    finishOperation(currentOperationID)
+                    let file = DroppedFile(
+                        name: "image-\(index + 1).\(item.image.format.fileExtension)",
+                        data: item.image.data
+                    )
+                    let result = await relayClient.sendCommand(
+                        SendDroppedFiles(files: [file]),
+                        paneId: targetPaneId,
+                        timeout: 30
+                    )
+
+                    guard self.operationID == currentOperationID else { return }
+                    if case let .failure(error) = result {
+                        draftImages = Array(pendingImages.dropFirst(index))
+                        uploadErrorMessage = error.localizedDescription
+                        finishOperation(currentOperationID)
+                        return
+                    }
                 }
+
+                finishOperation(currentOperationID)
+                isPreviewPresented = false
             }
         }
 

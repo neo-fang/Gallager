@@ -53,7 +53,8 @@ Agent；macOS Viewer 已有图片粘贴能力，但这条能力尚未暴露给 i
 3. 图片在后台统一规范化；多图共享现有 512 KiB Relay 原始数据预算。
 4. 发送前展示缩略图、大小和删除操作；用户明确点击发送后才上传。
 5. 打开图片入口时固定目标 pane，选择、预览或压缩期间的焦点变化不能改变投递目标。
-6. 继续使用 `SendDroppedFiles`，不修改 E2EE wire model、Relay 部署或 Host 落盘协议。
+6. 继续使用 `SendDroppedFiles`，每张图片作为一次独立 paste 按顺序投递，
+   使 Codex 等 TUI 能识别为 `Image #N` 附件；不修改 E2EE wire model、Relay 或 Host。
 
 ### 非目标
 
@@ -66,7 +67,7 @@ Agent；macOS Viewer 已有图片粘贴能力，但这条能力尚未暴露给 i
 
 - 四种入口都能将有效图片加入预览，无效输入显示可理解错误。
 - 多图可在预览中删除，总大小不超过 `SendDroppedFiles.maxRawBytes`。
-- 点击发送会在 Host 生成同一 `ctrlx-drop-*` 目录下的多个图片，并以一次
-  bracketed paste 写入所有路径。
+- 点击发送会按顺序将每张图片以一次独立 bracketed paste 写入；
+  支持图片附件的 TUI 显示 `Image #N`，普通终端中的多个路径保持空格分隔。
 - 取消选择、关闭预览或离开 window 均不留下持续 loading 或误发任务。
 - 无相机设备时禁用拍摄入口；相机权限由系统仅在用户选择拍摄时请求。
