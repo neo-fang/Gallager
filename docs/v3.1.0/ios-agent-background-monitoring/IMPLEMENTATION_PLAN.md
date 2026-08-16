@@ -22,6 +22,7 @@ CtrlX 当前依赖前台 Relay 连接接收 Agent 状态并触发本地通知。
    - `.working`：Agent 正在工作；
    - 活跃监控期间：每 10 秒完成一个 monitoring activity unit，总计 720 units；
    - 完成、等待用户输入、失败、Host 断开、用户关闭开关或系统取消：结束任务。
+   - 系统卡片副标题显示 `session name · window name · status`；旧 Host 缺少 window name 时退化为 `session name · status`。
 7. 继续复用现有 `onAgentNotification` 本地通知链路，不额外发送重复通知。
 8. `BGTaskScheduler` 封装为依赖，状态转换保持为平台无关纯逻辑，以便单元测试。
 

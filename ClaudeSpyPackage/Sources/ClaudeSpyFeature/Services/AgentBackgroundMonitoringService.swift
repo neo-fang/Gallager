@@ -16,6 +16,7 @@
         private struct MonitoredRun {
             let identifier: String
             let sessionName: String
+            let windowName: String
             var phase: AgentBackgroundMonitoringPolicy.Phase
             var completedActivityUnits: Int64
         }
@@ -38,20 +39,31 @@
             for response: AgentResponse,
             hostId: String,
             paneId: String,
-            sessionName: String
+            sessionName: String,
+            windowName: String
         ) {
             guard
                 #available(iOS 26.0, *),
                 AgentBackgroundMonitoringPolicy.shouldStart(for: response)
             else { return }
 
-            start(hostId: hostId, paneId: paneId, sessionName: sessionName)
+            start(
+                hostId: hostId,
+                paneId: paneId,
+                sessionName: sessionName,
+                windowName: windowName
+            )
         }
 
         /// Submit while handling the foreground input event. Deferring this call
         /// races the user's Home gesture; iOS only accepts continued-processing
         /// work submitted from the foreground.
-        public func start(hostId: String, paneId: String, sessionName: String) {
+        public func start(
+            hostId: String,
+            paneId: String,
+            sessionName: String,
+            windowName: String
+        ) {
             guard #available(iOS 26.0, *) else { return }
 
             let key = PaneKey(pairId: hostId, paneId: paneId)
@@ -64,6 +76,7 @@
             let run = MonitoredRun(
                 identifier: identifier,
                 sessionName: sessionName,
+                windowName: windowName,
                 phase: .waitingForAgent,
                 completedActivityUnits: 0
             )
@@ -73,7 +86,7 @@
                 try continuedProcessing.start(ContinuedProcessingRequest(
                     identifier: identifier,
                     title: "CtrlX Agent",
-                    subtitle: "Waiting for \(sessionName)",
+                    subtitle: Self.subtitle(for: run, status: "Waiting"),
                     expirationHandler: { [weak self] in
                         self?.handleExpiration(identifier: identifier)
                     }
@@ -110,7 +123,7 @@
                     run.identifier,
                     ContinuedProcessingUpdate(
                         title: "CtrlX Agent",
-                        subtitle: "\(run.sessionName) is working",
+                        subtitle: Self.subtitle(for: run, status: "Working"),
                         completedUnitCount: run.completedActivityUnits,
                         totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
                     )
@@ -120,8 +133,8 @@
                 runs.removeValue(forKey: key)
                 cancelActivityReporter(for: key)
                 let subtitle = switch reason {
-                case .completed: "\(run.sessionName) finished"
-                case .waitingForInput: "\(run.sessionName) needs input"
+                case .completed: Self.subtitle(for: run, status: "Finished")
+                case .waitingForInput: Self.subtitle(for: run, status: "Needs input")
                 }
                 continuedProcessing.update(
                     run.identifier,
@@ -208,8 +221,8 @@
             run.completedActivityUnits = nextUnit
             runs[key] = run
             let subtitle = switch run.phase {
-            case .waitingForAgent: "Waiting for \(run.sessionName)"
-            case .working: "\(run.sessionName) is working"
+            case .waitingForAgent: Self.subtitle(for: run, status: "Waiting")
+            case .working: Self.subtitle(for: run, status: "Working")
             }
             continuedProcessing.update(
                 identifier,
@@ -221,6 +234,13 @@
                 )
             )
             return true
+        }
+
+        private static func subtitle(for run: MonitoredRun, status: String) -> String {
+            let context = run.windowName.isEmpty
+                ? run.sessionName
+                : "\(run.sessionName) · \(run.windowName)"
+            return "\(context) · \(status)"
         }
 
         private static func makeIdentifier() -> String {

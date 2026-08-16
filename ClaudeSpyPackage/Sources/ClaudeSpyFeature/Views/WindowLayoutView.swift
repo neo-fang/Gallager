@@ -458,7 +458,8 @@
                                     for: response,
                                     hostId: hostId,
                                     paneId: activeService.paneId,
-                                    sessionName: sessionName
+                                    sessionName: sessionName,
+                                    windowName: window.windowName
                                 )
                             }
                             let succeeded = await activeService.submitResponse(
@@ -493,7 +494,7 @@
                     // Fallback: list panes vertically if layout parsing fails
                     VStack(spacing: 1) {
                         ForEach(window.panes) { pane in
-                            paneTerminal(pane: pane)
+                            paneTerminal(pane: pane, windowName: window.windowName)
                         }
                     }
                 }
@@ -516,7 +517,7 @@
             return ProportionalTileLayout(rects: positioned.map(\.rect)) {
                 ForEach(positioned) { pane in
                     let isSelected = pane.id == activePaneId
-                    paneTerminal(pane: pane.paneState)
+                    paneTerminal(pane: pane.paneState, windowName: window.windowName)
                         .overlay {
                             if isMultiPane {
                                 // Border: accent for selected, subtle for others
@@ -590,7 +591,7 @@
 
         // MARK: - Pane Terminal
 
-        private func paneTerminal(pane: PaneState) -> some View {
+        private func paneTerminal(pane: PaneState, windowName: String) -> some View {
             LiveTerminalView(
                 paneId: pane.paneId,
                 responseState: .constant(nil),
@@ -613,13 +614,21 @@
                 // form is shown here and the submit closure is never invoked.
                 submitResponse: { _ in },
                 onTerminalInput: { keys in
-                    observeTerminalInput(keys, paneId: pane.paneId)
+                    observeTerminalInput(
+                        keys,
+                        paneId: pane.paneId,
+                        windowName: windowName
+                    )
                 }
             )
             .environment(relayClient)
         }
 
-        private func observeTerminalInput(_ keys: [TmuxKey], paneId: String) {
+        private func observeTerminalInput(
+            _ keys: [TmuxKey],
+            paneId: String,
+            windowName: String
+        ) {
             guard
                 settings.agentBackgroundMonitoringEnabled,
                 relayClient.isHostConnected,
@@ -638,7 +647,8 @@
             backgroundMonitoring.start(
                 hostId: hostId,
                 paneId: paneId,
-                sessionName: sessionName
+                sessionName: sessionName,
+                windowName: windowName
             )
         }
 
