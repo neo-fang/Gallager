@@ -43,6 +43,8 @@ Codex TUI 仅在一次 paste 的完整内容是单个有效图片路径时创建
 - iPhoneOS arm64 Debug 无签名构建：通过。
 - macOS arm64 Debug 无签名构建：通过。
 - `NSCameraUsageDescription` 已进入 iOS 目标构建设置。
+- iPhone 真机已验收单图及 3/5 张多图；预览数量正确，Codex TUI 生成
+  独立 `Image #N` 附件，Agent 可分别读取图片。
 - `git diff --check`：通过。
 - SwiftLint 未安装；Xcode 仅报告既有构建脚本提示。
 
@@ -57,5 +59,5 @@ Codex TUI 仅在一次 paste 的完整内容是单个有效图片路径时创建
 
 ## Assessment
 
-代码审查通过，无剩余 P1、P2 或 P3。Stage 2 的编译与自动化验证已完成；
-尚需 iPhone 真机分别验收相册多选、文件、相机和剪贴板入口。
+代码审查通过，无剩余 P1、P2 或 P3。Stage 2 的编译、自动化验证与
+iPhone 真机验收均已完成，可合入 `develop/v3.1.0`。
