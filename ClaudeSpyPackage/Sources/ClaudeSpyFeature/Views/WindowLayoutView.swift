@@ -16,6 +16,7 @@
         let settings: IOSSettings
 
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(AgentBackgroundMonitoringService.self) private var backgroundMonitoring
         @Environment(\.dismiss) private var dismiss
 
         /// The currently selected window within the session
@@ -52,6 +53,10 @@
 
         /// Latest clipboard content from each pane, keyed by pane ID
         @State private var clipboardContents: [String: String] = [:]
+
+        /// Minimal per-pane input state used to reject empty Enter presses when
+        /// deciding whether a terminal submission starts Agent monitoring.
+        @State private var agentPromptInputs: [String: AgentPromptInputAccumulator] = [:]
 
         /// The last value this view wrote to the system pasteboard.
         ///
@@ -446,10 +451,19 @@
                     responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
                         submit: { response in
-                            await activeService.submitResponse(
+                            let succeeded = await activeService.submitResponse(
                                 response,
                                 pluginID: responseState.pluginID,
                                 requestID: responseState.requestID
+                            )
+                            guard succeeded, settings.agentBackgroundMonitoringEnabled else {
+                                return
+                            }
+                            await backgroundMonitoring.startIfNeeded(
+                                for: response,
+                                hostId: hostId,
+                                paneId: activeService.paneId,
+                                sessionName: sessionName
                             )
                         },
                         state: responseState
@@ -590,9 +604,37 @@
                 telemetry: pane.telemetry,
                 // Tiled panes pass `responseState: .constant(nil)`, so no response
                 // form is shown here and the submit closure is never invoked.
-                submitResponse: { _ in }
+                submitResponse: { _ in },
+                onTerminalInput: { keys in
+                    observeTerminalInput(keys, paneId: pane.paneId)
+                }
             )
             .environment(relayClient)
+        }
+
+        private func observeTerminalInput(_ keys: [TmuxKey], paneId: String) {
+            guard
+                settings.agentBackgroundMonitoringEnabled,
+                relayClient.isHostConnected,
+                let state = sessionStore.session(for: paneId, hostId: hostId)?.state,
+                AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: state)
+            else {
+                agentPromptInputs.removeValue(forKey: paneId)
+                return
+            }
+
+            var input = agentPromptInputs[paneId] ?? AgentPromptInputAccumulator()
+            let submittedPrompt = input.consume(keys)
+            agentPromptInputs[paneId] = input
+            guard submittedPrompt else { return }
+
+            Task {
+                await backgroundMonitoring.start(
+                    hostId: hostId,
+                    paneId: paneId,
+                    sessionName: sessionName
+                )
+            }
         }
 
         // MARK: - Status Bar

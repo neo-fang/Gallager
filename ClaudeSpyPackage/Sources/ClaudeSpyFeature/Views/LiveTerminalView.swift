@@ -53,6 +53,10 @@
         /// Submits a structured `AgentResponse` for the open response form.
         let submitResponse: ResponseSender
 
+        /// Observes keyboard input after it has entered the terminal send queue.
+        /// The parent uses this only to detect user-submitted Agent turns.
+        let onTerminalInput: @MainActor ([TmuxKey]) -> Void
+
         /// Live OTEL telemetry for this pane's session (issue #597), shown as a
         /// thin meter strip above the terminal (surface C).
         var telemetry: SessionTelemetry?
@@ -96,7 +100,8 @@
             isActive: Bool = true,
             settings: IOSSettings,
             telemetry: SessionTelemetry? = nil,
-            submitResponse: @escaping ResponseSender
+            submitResponse: @escaping ResponseSender,
+            onTerminalInput: @escaping @MainActor ([TmuxKey]) -> Void = { _ in }
         ) {
             self.paneId = paneId
             self._responseState = responseState
@@ -111,6 +116,7 @@
             self.isActive = isActive
             self.telemetry = telemetry
             self.submitResponse = submitResponse
+            self.onTerminalInput = onTerminalInput
             self.coordinator = StreamCoordinator(
                 paneId: paneId,
                 fontName: settings.terminalFontName,
@@ -353,6 +359,7 @@
                         isInteractive: effectiveInteractive,
                         onInput: { keys in
                             coordinator.enqueueKeySend(keys: keys, relayClient: relayClient)
+                            onTerminalInput(keys)
                         },
                         onRawInput: { data in
                             coordinator.enqueueRawInput(data: data, relayClient: relayClient)

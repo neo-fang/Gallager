@@ -20,6 +20,7 @@
         @Environment(\.scenePhase) private var scenePhase
         @State private var pushService = PushNotificationService.shared
         @State private var backgroundTaskService = BackgroundTaskService.shared
+        @State private var agentBackgroundMonitoring = AgentBackgroundMonitoringService.shared
 
         public init() { }
 
@@ -56,6 +57,7 @@
             }
             .environment(settings)
             .environment(sessionStore)
+            .environment(agentBackgroundMonitoring)
             .preferredColorScheme(settings.appearanceMode.colorScheme)
             .task {
                 await initializeConnectionManager()
@@ -64,6 +66,10 @@
             }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
+            }
+            .onChange(of: settings.agentBackgroundMonitoringEnabled) { _, enabled in
+                guard !enabled else { return }
+                Task { await agentBackgroundMonitoring.stopAll() }
             }
         }
 
@@ -113,9 +119,10 @@
 
             // High-frequency per-session state updates drive the sidebar badges.
             // The `AgentState` carries the open response form (no separate channel).
-            connectionManager.onAgentSessionStatus = { [sessionStore] status in
+            connectionManager.onAgentSessionStatus = { [sessionStore, agentBackgroundMonitoring] status in
                 Task { @MainActor in
                     sessionStore.handleAgentStatus(status)
+                    await agentBackgroundMonitoring.handle(status)
                 }
             }
 
@@ -186,7 +193,8 @@
                 }
             }
 
-            connectionManager.onHostDisconnected = { [sessionStore] hostId in
+            connectionManager.onHostDisconnected = { [sessionStore, agentBackgroundMonitoring] hostId in
+                await agentBackgroundMonitoring.stop(hostId: hostId)
                 sessionStore.clearSessions(for: hostId)
             }
 
@@ -562,10 +570,27 @@
                     @Bindable var settings = settings
 
                     Toggle("Agent Quick Input", isOn: $settings.agentQuickInputEnabled)
+
+                    if #available(iOS 26.0, *) {
+                        Toggle(
+                            "Background Agent Monitoring",
+                            isOn: $settings.agentBackgroundMonitoringEnabled
+                        )
+                        .accessibilityIdentifier("agent-background-monitoring-toggle")
+                    } else {
+                        LabeledContent("Background Agent Monitoring") {
+                            Text("Requires iOS 26")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 } header: {
                     Text("Agent Input")
                 } footer: {
-                    Text("Shows a reply field above agent terminals. When off, use the keyboard button when you want to type.")
+                    Text(
+                        "Quick Input shows a reply field above agent terminals. "
+                            + "Background monitoring keeps a user-submitted Agent turn active "
+                            + "after you leave CtrlX and ends when the Agent stops or needs input."
+                    )
                 }
 
                 // New Session Section

@@ -69,6 +69,7 @@
             case terminalKeyboardControlPosition
             case showTerminalKeyboardOnEntry
             case agentQuickInputEnabled
+            case agentBackgroundMonitoringEnabled
             case newSessionName
             case newSessionWidth
             case newSessionHeight
@@ -150,6 +151,17 @@
             didSet { preferences.setBool(agentQuickInputEnabled, Keys.agentQuickInputEnabled) }
         }
 
+        /// Whether user-submitted Agent turns may use iOS 26 continued processing.
+        /// Disabled by default because the system activity is visible outside the app.
+        public var agentBackgroundMonitoringEnabled = false {
+            didSet {
+                preferences.setBool(
+                    agentBackgroundMonitoringEnabled,
+                    Keys.agentBackgroundMonitoringEnabled
+                )
+            }
+        }
+
         /// Base name for new tmux sessions created from iOS
         public var newSessionName = "claude" {
             didSet { preferences.setString(newSessionName, Keys.newSessionName) }
@@ -220,6 +232,9 @@
             )
             self.showTerminalKeyboardOnEntry = preferences.optionalBool(Keys.showTerminalKeyboardOnEntry) ?? false
             self.agentQuickInputEnabled = preferences.optionalBool(Keys.agentQuickInputEnabled) ?? false
+            self.agentBackgroundMonitoringEnabled = preferences.optionalBool(
+                Keys.agentBackgroundMonitoringEnabled
+            ) ?? false
 
             // New session settings
             self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"

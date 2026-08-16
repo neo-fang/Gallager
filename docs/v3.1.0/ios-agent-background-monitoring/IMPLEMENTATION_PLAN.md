@@ -10,9 +10,10 @@ CtrlX 当前依赖前台 Relay 连接接收 Agent 状态并触发本地通知。
 
 1. Settings 的 Agent Input 区域增加 `Background Agent Monitoring` 开关，默认关闭。
 2. 仅在 iOS 26 及以上启用 `BGContinuedProcessingTask`；旧系统保留现状。
-3. 仅当用户从 iOS 成功提交非空 Agent prompt 时创建后台监控任务：
+3. 仅当用户从 iOS 提交非空 Agent prompt 时创建后台监控任务：
    - `.prompt`
    - `.replyAfterStop`
+   - Agent idle/done 状态下通过终端键盘提交的非空输入行
 4. 使用 `.fail` 提交策略。系统无法立即启动时直接降级，不留下失去上下文的排队任务。
 5. 每个 Host + pane 同时只保留一个监控任务；再次提交会替换旧任务。
 6. 用真实 Agent 状态驱动有限进度：
