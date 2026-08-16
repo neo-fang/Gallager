@@ -27,4 +27,4 @@
 
 ## Decision
 
-Approved for iPhone device acceptance. The stage remains open until both default-off and enabled-on-entry behavior are verified on a real device.
+Approved and accepted on a physical iPhone. Both the default-off behavior and the configurable keyboard-on-entry behavior passed user acceptance.
