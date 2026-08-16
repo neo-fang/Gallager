@@ -27,7 +27,6 @@
             category: "AgentBackgroundMonitoring"
         )
         private var runs: [PaneKey: MonitoredRun] = [:]
-        private var identifiers: [PaneKey: String] = [:]
 
         public init() { }
 
@@ -53,8 +52,7 @@
                 await continuedProcessing.finish(previous.identifier, true)
             }
 
-            let identifier = identifiers[key] ?? Self.makeIdentifier()
-            identifiers[key] = identifier
+            let identifier = Self.makeIdentifier()
             let run = MonitoredRun(
                 identifier: identifier,
                 sessionName: sessionName,

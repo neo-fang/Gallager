@@ -15,7 +15,8 @@
 
 ## Resolved during review
 
-- 将任务标识改为每个 Host + pane 在单次 App 生命周期内复用，避免每轮 prompt 都永久增加一个系统 handler。
+- 真机崩溃报告显示 launch handler 在 BGTaskScheduler 私有队列触发了 Swift 6 actor 隔离检查。显式指定 main queue，使 handler 与 `@MainActor` runtime 的执行器一致。
+- 每轮用户提交使用唯一动态任务标识，避免系统拒绝重复提交已经完成的 continued-processing request。
 - 系统到期时明确调用 `setTaskCompleted(success: false)`，避免留下未完成的后台任务。
 - 修正文档和代码注释，使终端键盘提交路径与结构化 Agent response 的边界一致。
 

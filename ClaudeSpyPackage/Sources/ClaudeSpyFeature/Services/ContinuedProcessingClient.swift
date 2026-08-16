@@ -89,13 +89,6 @@
         case duplicateIdentifier
     }
 
-    /// BackgroundTasks invokes launch and expiration callbacks off the main
-    /// actor. The system task is only unboxed after hopping to the main actor,
-    /// where all runtime state is serialized.
-    private struct UncheckedSendable<Value>: @unchecked Sendable {
-        let value: Value
-    }
-
     @available(iOS 26.0, *)
     @MainActor
     private final class ContinuedProcessingRuntime {
@@ -112,7 +105,6 @@
             category: "ContinuedProcessing"
         )
         private var entries: [String: Entry] = [:]
-        private var registeredIdentifiers: Set<String> = []
 
         func start(_ request: ContinuedProcessingRequest) throws {
             guard entries[request.identifier] == nil else {
@@ -132,24 +124,22 @@
             )
 
             let identifier = request.identifier
-            if !registeredIdentifiers.contains(identifier) {
-                let registered = BGTaskScheduler.shared.register(
-                    forTaskWithIdentifier: identifier,
-                    using: nil
-                ) { task in
-                    let boxedTask = UncheckedSendable(value: task)
-                    Task { @MainActor in
-                        ContinuedProcessingRuntime.shared.didLaunch(
-                            boxedTask.value,
-                            identifier: identifier
-                        )
-                    }
-                }
-                guard registered else {
-                    entries.removeValue(forKey: identifier)
-                    throw ContinuedProcessingError.registrationFailed
-                }
-                registeredIdentifiers.insert(identifier)
+            // This closure inherits MainActor isolation from the runtime. The
+            // scheduler must therefore invoke it on the main queue; `nil`
+            // selects a private BGTaskScheduler queue and trips Swift 6's
+            // executor precondition before the closure body can hop actors.
+            let registered = BGTaskScheduler.shared.register(
+                forTaskWithIdentifier: identifier,
+                using: .main
+            ) { task in
+                ContinuedProcessingRuntime.shared.didLaunch(
+                    task,
+                    identifier: identifier
+                )
+            }
+            guard registered else {
+                entries.removeValue(forKey: identifier)
+                throw ContinuedProcessingError.registrationFailed
             }
 
             let taskRequest = BGContinuedProcessingTaskRequest(

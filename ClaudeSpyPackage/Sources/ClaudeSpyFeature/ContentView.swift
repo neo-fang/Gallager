@@ -589,7 +589,9 @@
                     Text(
                         "Quick Input shows a reply field above agent terminals. "
                             + "Background monitoring keeps a user-submitted Agent turn active "
-                            + "after you leave CtrlX and ends when the Agent stops or needs input."
+                            + "after you leave CtrlX and ends when the Agent stops or needs input. "
+                            + "iOS shows no permission prompt; the Live Activity appears only "
+                            + "after you submit a turn."
                     )
                 }
 
