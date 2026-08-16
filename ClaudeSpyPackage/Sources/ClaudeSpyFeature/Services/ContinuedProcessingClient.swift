@@ -147,7 +147,7 @@
                 title: request.title,
                 subtitle: request.subtitle
             )
-            taskRequest.strategy = .fail
+            taskRequest.strategy = .queue
 
             do {
                 try BGTaskScheduler.shared.submit(taskRequest)
