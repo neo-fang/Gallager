@@ -26,6 +26,7 @@
         /// Schedule a local notification immediately.
         public var scheduleLocalNotification: @Sendable (
             _ title: String,
+            _ subtitle: String?,
             _ body: String,
             _ userInfo: [String: String]
         ) -> Void
@@ -40,7 +41,7 @@
                 registerForRemoteNotifications: { },
                 getAuthorizationStatus: { .authorized },
                 setBadgeCount: { _ in },
-                scheduleLocalNotification: { _, _, _ in }
+                scheduleLocalNotification: { _, _, _, _ in }
             )
         }
 
@@ -59,9 +60,10 @@
                 setBadgeCount: { count in
                     UNUserNotificationCenter.current().setBadgeCount(count)
                 },
-                scheduleLocalNotification: { title, body, userInfo in
+                scheduleLocalNotification: { title, subtitle, body, userInfo in
                     let content = UNMutableNotificationContent()
                     content.title = title
+                    content.subtitle = subtitle ?? ""
                     content.body = body
                     content.sound = .default
                     content.badge = 1
@@ -218,7 +220,13 @@
         // MARK: - Local Notifications
 
         /// Schedule a local notification immediately.
-        public func scheduleLocalNotification(title: String, body: String, paneId: String? = nil, hostId: String? = nil) {
+        public func scheduleLocalNotification(
+            title: String,
+            subtitle: String? = nil,
+            body: String,
+            paneId: String? = nil,
+            hostId: String? = nil
+        ) {
             guard permissionStatus == .authorized else { return }
 
             var userInfo: [String: String] = [:]
@@ -229,7 +237,7 @@
                 userInfo["pairId"] = hostId
             }
 
-            client.scheduleLocalNotification(title, body, userInfo)
+            client.scheduleLocalNotification(title, subtitle, body, userInfo)
         }
 
         // MARK: - Deep Linking

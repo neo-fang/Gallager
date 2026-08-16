@@ -455,6 +455,7 @@ struct NotificationActionWireTests {
         )
         #expect(content.action == nil)
         #expect(content.title == "T")
+        #expect(content.subtitle == nil)
     }
 
     @Test("AgentNotificationMessage decodes legacy JSON and round-trips the action")
@@ -467,6 +468,7 @@ struct NotificationActionWireTests {
             from: Data(legacy.utf8)
         )
         #expect(decoded.action == nil)
+        #expect(decoded.subtitle == nil)
 
         let context = NotificationActionContext(
             sessionId: "%1",
@@ -478,6 +480,7 @@ struct NotificationActionWireTests {
             pairId: "pair1",
             sessionId: "%1",
             title: "T",
+            subtitle: "Needs input",
             body: "B",
             timestamp: Date(timeIntervalSince1970: 1),
             action: context
@@ -487,6 +490,7 @@ struct NotificationActionWireTests {
             from: JSONEncoder().encode(message)
         )
         #expect(roundTripped == message)
+        #expect(roundTripped.subtitle == "Needs input")
         #expect(roundTripped.withPairId("pair2").action == context)
     }
 
@@ -558,7 +562,14 @@ struct NotificationActionWireTests {
         // Worst-case surrounding content: long title/body (Stop summaries are
         // truncated at 256; question bodies carry the question text).
         let content = NotificationContent(
-            title: String(repeating: "t", count: 300),
+            title: String(
+                repeating: "t",
+                count: NotificationContent.maximumContextTitleBytes
+            ),
+            subtitle: String(
+                repeating: "s",
+                count: NotificationContent.maximumContextSubtitleBytes
+            ),
             body: String(repeating: "b", count: 300),
             eventType: "PermissionRequest",
             pairId: UUID().uuidString,

@@ -3,7 +3,7 @@
 ## Stage Status
 
 - **Status**: 🟡 In Progress
-- **Progress**: 6/7 tasks
+- **Progress**: 7/8 tasks
 - **Dependencies**: Stage 3 ✅
 
 ## Tasks
@@ -14,6 +14,7 @@
 - [x] 接入 Agent prompt 提交与状态生命周期
 - [x] 完成状态转换测试和 iPhoneOS 构建
 - [x] 完成 code review 并清零 P1/P2/P3
+- [x] 统一后台活动卡片和普通 Agent 通知的信息层级
 - [ ] 完成 iPhone 真机验收
 
 ## Blockers

@@ -360,6 +360,7 @@ final public class ConnectedViewer: Identifiable {
     /// open-form context that makes the iOS notification actionable (#710).
     public func sendCustomPushNotification(
         title: String,
+        subtitle: String? = nil,
         body: String,
         paneId: String?,
         action: NotificationActionContext? = nil
@@ -376,6 +377,7 @@ final public class ConnectedViewer: Identifiable {
 
         let content = NotificationContent(
             title: title,
+            subtitle: subtitle,
             body: body,
             eventType: "cli.notify",
             pairId: id,
@@ -401,7 +403,13 @@ final public class ConnectedViewer: Identifiable {
             // Also deliver over the live WebSocket so a backgrounded-but-connected
             // viewer — whose APNs push the relay just dropped — can still show a
             // local notification. iOS gates on app state to avoid double-alerting.
-            await sendAgentNotification(title: title, body: body, paneId: paneId, action: action)
+            await sendAgentNotification(
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                paneId: paneId,
+                action: action
+            )
         } catch {
             logger.error("Failed to encrypt custom push notification: \(error)")
         }
@@ -414,6 +422,7 @@ final public class ConnectedViewer: Identifiable {
     /// window; iOS materializes a local notification only when not active.
     private func sendAgentNotification(
         title: String,
+        subtitle: String?,
         body: String,
         paneId: String?,
         action: NotificationActionContext?
@@ -424,6 +433,7 @@ final public class ConnectedViewer: Identifiable {
                 pairId: id,
                 sessionId: paneId,
                 title: title,
+                subtitle: subtitle,
                 body: body,
                 timestamp: Date(),
                 action: action

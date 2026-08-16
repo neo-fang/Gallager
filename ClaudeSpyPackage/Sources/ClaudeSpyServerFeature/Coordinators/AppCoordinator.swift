@@ -1633,9 +1633,17 @@
             // originating session; fall back to "system" only when the event
             // carries no pane (e.g. a ctrlx-cli notify with no target).
             terminalNotificationService.showNotification(paneId ?? "system", macNotification, nil)
-            await connectedViewerManager?.sendCustomPushNotificationToAll(
+
+            let paneState = paneId.flatMap { windowManager.paneStates[$0] }
+            let pushPresentation = AgentNotificationPresentation(
                 title: notification.title,
                 body: notification.body,
+                paneState: paneState
+            )
+            await connectedViewerManager?.sendCustomPushNotificationToAll(
+                title: pushPresentation.title,
+                subtitle: pushPresentation.subtitle,
+                body: pushPresentation.body,
                 paneId: paneId,
                 action: action
             )

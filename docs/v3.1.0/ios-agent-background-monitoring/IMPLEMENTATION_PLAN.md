@@ -23,8 +23,9 @@ CtrlX 当前依赖前台 Relay 连接接收 Agent 状态并触发本地通知。
    - 活跃监控期间：每 10 秒完成一个 monitoring activity unit，总计 720 units；
    - 完成、等待用户输入、失败、Host 断开、用户关闭开关或系统取消：结束任务。
    - 系统卡片标题显示 `session name · window name`，副标题显示 status；旧 Host 缺少 window name 时标题退化为 session name。
-7. 继续复用现有 `onAgentNotification` 本地通知链路，不额外发送重复通知。
-8. `BGTaskScheduler` 封装为依赖，状态转换保持为平台无关纯逻辑，以便单元测试。
+7. 继续复用现有 `onAgentNotification` 本地通知链路，不额外发送重复通知。普通通知标题显示 `session name · window name`，副标题显示事件状态，正文移除重复的项目名前缀；无 pane 元数据时保持旧格式。
+8. Mac Host 在加密通知中附带可选 subtitle，iOS 实时链路也能使用本地 pane 快照补齐旧 Host 的通知上下文。该字段为可选字段，新旧版本混用时保持兼容。
+9. `BGTaskScheduler` 封装为依赖，状态转换保持为平台无关纯逻辑，以便单元测试。
 
 ## 生命周期
 
@@ -51,7 +52,7 @@ iOS 提交 prompt 成功
 ## 非目标
 
 - 不实现无限后台保活、定时重启任务或静默自唤醒。
-- 不改变 Relay 协议、Mac Host 或既有本地通知格式。
+- 不改变 Relay 服务或要求协议版本同步升级。
 - 不为普通 shell 输入、快捷键、审批按钮或空 prompt 创建后台任务。
 - 不为 iOS 26 以下系统模拟 continued processing。
 
@@ -60,6 +61,7 @@ iOS 提交 prompt 成功
 - 开关默认关闭，并能持久化。
 - iOS 26 开启后，成功发送 Agent prompt 会建立可见的 continued-processing 活动。
 - Agent 开始、完成或等待用户输入时，进度和结束状态正确。
+- 普通通知按 `session · window`、状态、Agent 正文分层显示，无 pane 元数据时保持旧格式。
 - 关闭开关、Host 断开、系统取消时不会留下后台任务。
 - 开关关闭及 iOS 26 以下行为与当前版本一致。
 - 状态转换单元测试、iPhoneOS 构建通过，并完成 iPhone 真机验收。

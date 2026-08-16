@@ -97,6 +97,7 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
     public let pairId: String
     public let sessionId: String?
     public let title: String
+    public let subtitle: String?
     public let body: String
     public let timestamp: Date
 
@@ -110,6 +111,7 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
         pairId: String,
         sessionId: String?,
         title: String,
+        subtitle: String? = nil,
         body: String,
         timestamp: Date,
         action: NotificationActionContext? = nil
@@ -117,6 +119,7 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
         self.pairId = pairId
         self.sessionId = sessionId
         self.title = title
+        self.subtitle = subtitle
         self.body = body
         self.timestamp = timestamp
         self.action = action
@@ -127,6 +130,7 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
             pairId: pairId,
             sessionId: sessionId,
             title: title,
+            subtitle: subtitle,
             body: body,
             timestamp: timestamp,
             action: action
@@ -134,7 +138,7 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case pairId, sessionId, title, body, timestamp, action
+        case pairId, sessionId, title, subtitle, body, timestamp, action
     }
 
     public init(from decoder: Decoder) throws {
@@ -142,6 +146,7 @@ public struct AgentNotificationMessage: Codable, Sendable, Equatable {
         self.pairId = try container.decode(String.self, forKey: .pairId)
         self.sessionId = try container.decodeIfPresent(String.self, forKey: .sessionId)
         self.title = try container.decode(String.self, forKey: .title)
+        self.subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
         self.body = try container.decode(String.self, forKey: .body)
         self.timestamp = try container.decode(Date.self, forKey: .timestamp)
         // Lenient like `NotificationContent.action`: an undecodable context

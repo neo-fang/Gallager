@@ -139,14 +139,24 @@
             // the in-app UI already reflects the event, so we suppress it.
             // Notifications carrying an open-form action context become
             // actionable local notifications, mirroring the NSE's push path.
-            connectionManager.onAgentNotification = { [pushService] notification in
+            connectionManager.onAgentNotification = { [pushService, sessionStore] notification in
                 Task { @MainActor in
+                    let paneState = notification.sessionId.flatMap {
+                        sessionStore.paneStates[PaneKey(pairId: notification.pairId, paneId: $0)]
+                    }
+                    let presentation = AgentNotificationPresentation(
+                        title: notification.title,
+                        subtitle: notification.subtitle,
+                        body: notification.body,
+                        paneState: paneState
+                    )
                     // Record actionable notifications even while active — the
                     // E2E harness simulates action-button taps off this record
                     // (the notification UI itself lives in SpringBoard).
                     if let action = notification.action {
                         NotificationActionService.shared.noteIncomingAgentNotification(
-                            title: notification.title,
+                            title: presentation.title,
+                            subtitle: presentation.subtitle,
                             pairId: notification.pairId,
                             paneId: notification.sessionId,
                             action: action
@@ -155,16 +165,18 @@
                     guard !pushService.isAppActive else { return }
                     if let action = notification.action {
                         await NotificationActionService.shared.scheduleActionableLocalNotification(
-                            title: notification.title,
-                            body: notification.body,
+                            title: presentation.title,
+                            subtitle: presentation.subtitle,
+                            body: presentation.body,
                             paneId: notification.sessionId,
                             hostId: notification.pairId,
                             action: action
                         )
                     } else {
                         pushService.scheduleLocalNotification(
-                            title: notification.title,
-                            body: notification.body,
+                            title: presentation.title,
+                            subtitle: presentation.subtitle,
+                            body: presentation.body,
                             paneId: notification.sessionId,
                             hostId: notification.pairId
                         )
