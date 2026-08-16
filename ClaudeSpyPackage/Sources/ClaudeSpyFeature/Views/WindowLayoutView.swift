@@ -25,7 +25,7 @@
         @State private var activePaneId: String?
 
         /// Whether keyboard input is active on the selected pane
-        @State private var isKeyboardActive = false
+        @State private var isKeyboardActive: Bool
 
         /// Tracks keyboard visibility for the bottom input control
         @State private var keyboardVisible = false
@@ -77,6 +77,19 @@
 
         /// Text bound to the rename-window alert field.
         @State private var renameWindowText = ""
+
+        init(
+            sessionName: String,
+            hostId: String,
+            relayClient: ViewerRelayClient,
+            settings: IOSSettings
+        ) {
+            self.sessionName = sessionName
+            self.hostId = hostId
+            self.relayClient = relayClient
+            self.settings = settings
+            self._isKeyboardActive = State(initialValue: settings.showTerminalKeyboardOnEntry)
+        }
 
         /// All windows in this session
         private var sessionWindows: [TmuxWindow] {
