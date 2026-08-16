@@ -9,13 +9,13 @@
         public let identifier: String
         public let title: String
         public let subtitle: String
-        public let expirationHandler: @Sendable () async -> Void
+        public let expirationHandler: @MainActor @Sendable () -> Void
 
         public init(
             identifier: String,
             title: String,
             subtitle: String,
-            expirationHandler: @escaping @Sendable () async -> Void
+            expirationHandler: @escaping @MainActor @Sendable () -> Void
         ) {
             self.identifier = identifier
             self.title = title
@@ -46,12 +46,12 @@
     /// Testable boundary around iOS 26 continued-processing APIs.
     @DependencyClient
     public struct ContinuedProcessingClient: Sendable {
-        public var start: @Sendable (_ request: ContinuedProcessingRequest) async throws -> Void
-        public var update: @Sendable (
+        public var start: @MainActor @Sendable (_ request: ContinuedProcessingRequest) throws -> Void
+        public var update: @MainActor @Sendable (
             _ identifier: String,
             _ update: ContinuedProcessingUpdate
-        ) async -> Void
-        public var finish: @Sendable (_ identifier: String, _ succeeded: Bool) async -> Void
+        ) -> Void
+        public var finish: @MainActor @Sendable (_ identifier: String, _ succeeded: Bool) -> Void
     }
 
     extension ContinuedProcessingClient: DependencyKey {
@@ -69,15 +69,15 @@
                     guard #available(iOS 26.0, *) else {
                         throw ContinuedProcessingError.unsupportedSystem
                     }
-                    try await ContinuedProcessingRuntime.shared.start(request)
+                    try ContinuedProcessingRuntime.shared.start(request)
                 },
                 update: { identifier, update in
                     guard #available(iOS 26.0, *) else { return }
-                    await ContinuedProcessingRuntime.shared.update(identifier: identifier, update: update)
+                    ContinuedProcessingRuntime.shared.update(identifier: identifier, update: update)
                 },
                 finish: { identifier, succeeded in
                     guard #available(iOS 26.0, *) else { return }
-                    await ContinuedProcessingRuntime.shared.finish(identifier: identifier, succeeded: succeeded)
+                    ContinuedProcessingRuntime.shared.finish(identifier: identifier, succeeded: succeeded)
                 }
             )
         }
@@ -183,9 +183,7 @@
             }
 
             continuedTask.expirationHandler = {
-                Task {
-                    await ContinuedProcessingRuntime.shared.expire(identifier: identifier)
-                }
+                ContinuedProcessingRuntime.shared.expire(identifier: identifier)
             }
             entry.task = continuedTask
             apply(entry.update, to: continuedTask)
@@ -205,11 +203,11 @@
             )
         }
 
-        private func expire(identifier: String) async {
+        private func expire(identifier: String) {
             guard let entry = entries.removeValue(forKey: identifier) else { return }
             logger.info("Continued-processing task expired: \(identifier, privacy: .public)")
             entry.task?.setTaskCompleted(success: false)
-            await entry.request.expirationHandler()
+            entry.request.expirationHandler()
         }
     }
 #endif

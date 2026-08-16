@@ -69,7 +69,7 @@
             }
             .onChange(of: settings.agentBackgroundMonitoringEnabled) { _, enabled in
                 guard !enabled else { return }
-                Task { await agentBackgroundMonitoring.stopAll() }
+                agentBackgroundMonitoring.stopAll()
             }
         }
 
@@ -122,7 +122,7 @@
             connectionManager.onAgentSessionStatus = { [sessionStore, agentBackgroundMonitoring] status in
                 Task { @MainActor in
                     sessionStore.handleAgentStatus(status)
-                    await agentBackgroundMonitoring.handle(status)
+                    agentBackgroundMonitoring.handle(status)
                 }
             }
 

@@ -451,20 +451,27 @@
                     responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
                         submit: { response in
+                            let shouldMonitor = settings.agentBackgroundMonitoringEnabled
+                                && AgentBackgroundMonitoringPolicy.shouldStart(for: response)
+                            if shouldMonitor {
+                                backgroundMonitoring.startIfNeeded(
+                                    for: response,
+                                    hostId: hostId,
+                                    paneId: activeService.paneId,
+                                    sessionName: sessionName
+                                )
+                            }
                             let succeeded = await activeService.submitResponse(
                                 response,
                                 pluginID: responseState.pluginID,
                                 requestID: responseState.requestID
                             )
-                            guard succeeded, settings.agentBackgroundMonitoringEnabled else {
-                                return
+                            if !succeeded, shouldMonitor {
+                                backgroundMonitoring.stop(
+                                    hostId: hostId,
+                                    paneId: activeService.paneId
+                                )
                             }
-                            await backgroundMonitoring.startIfNeeded(
-                                for: response,
-                                hostId: hostId,
-                                paneId: activeService.paneId,
-                                sessionName: sessionName
-                            )
                         },
                         state: responseState
                     )
@@ -628,13 +635,11 @@
             agentPromptInputs[paneId] = input
             guard submittedPrompt else { return }
 
-            Task {
-                await backgroundMonitoring.start(
-                    hostId: hostId,
-                    paneId: paneId,
-                    sessionName: sessionName
-                )
-            }
+            backgroundMonitoring.start(
+                hostId: hostId,
+                paneId: paneId,
+                sessionName: sessionName
+            )
         }
 
         // MARK: - Status Bar

@@ -14,6 +14,7 @@ CtrlX 当前依赖前台 Relay 连接接收 Agent 状态并触发本地通知。
    - `.prompt`
    - `.replyAfterStop`
    - Agent idle/done 状态下通过终端键盘提交的非空输入行
+   - 系统请求在 Enter/Send 的前台事件内同步提交，不等待 Relay 回执，也不推迟到异步任务
 4. 使用 `.queue` 提交策略。系统无法立即启动时允许稍后接管监控；Agent 提前结束时取消尚未启动的请求。
 5. 每个 Host + pane 同时只保留一个监控任务；再次提交会替换旧任务。
 6. 用真实 Agent 状态驱动两小时上限的有限监控进度：
