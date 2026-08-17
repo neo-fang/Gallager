@@ -54,10 +54,6 @@
         /// Latest clipboard content from each pane, keyed by pane ID
         @State private var clipboardContents: [String: String] = [:]
 
-        /// Minimal per-pane input state used to reject empty Enter presses when
-        /// deciding whether a terminal submission starts Agent monitoring.
-        @State private var agentPromptInputs: [String: AgentPromptInputAccumulator] = [:]
-
         /// The last value this view wrote to the system pasteboard.
         ///
         /// Used to dedupe redundant writes when `clipboardContents` republishes
@@ -468,7 +464,7 @@
                                 requestID: responseState.requestID
                             )
                             if !succeeded, shouldMonitor {
-                                backgroundMonitoring.stop(
+                                backgroundMonitoring.removePane(
                                     hostId: hostId,
                                     paneId: activeService.paneId
                                 )
@@ -631,24 +627,22 @@
         ) {
             guard
                 settings.agentBackgroundMonitoringEnabled,
-                relayClient.isHostConnected,
-                let state = sessionStore.session(for: paneId, hostId: hostId)?.state,
-                AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: state)
+                relayClient.isHostConnected
             else {
-                agentPromptInputs.removeValue(forKey: paneId)
+                backgroundMonitoring.resetTerminalInput(
+                    hostId: hostId,
+                    paneId: paneId
+                )
                 return
             }
 
-            var input = agentPromptInputs[paneId] ?? AgentPromptInputAccumulator()
-            let submittedPrompt = input.consume(keys)
-            agentPromptInputs[paneId] = input
-            guard submittedPrompt else { return }
-
-            backgroundMonitoring.start(
+            backgroundMonitoring.handleTerminalInput(
+                keys,
                 hostId: hostId,
                 paneId: paneId,
                 sessionName: sessionName,
-                windowName: windowName
+                windowName: windowName,
+                currentState: sessionStore.session(for: paneId, hostId: hostId)?.state
             )
         }
 

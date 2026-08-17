@@ -28,7 +28,9 @@
             _ title: String,
             _ subtitle: String?,
             _ body: String,
-            _ userInfo: [String: String]
+            _ userInfo: [String: String],
+            _ delay: TimeInterval?,
+            _ backgroundOnly: Bool
         ) -> Void
     }
 
@@ -41,7 +43,7 @@
                 registerForRemoteNotifications: { },
                 getAuthorizationStatus: { .authorized },
                 setBadgeCount: { _ in },
-                scheduleLocalNotification: { _, _, _, _ in }
+                scheduleLocalNotification: { _, _, _, _, _, _ in }
             )
         }
 
@@ -60,19 +62,30 @@
                 setBadgeCount: { count in
                     UNUserNotificationCenter.current().setBadgeCount(count)
                 },
-                scheduleLocalNotification: { title, subtitle, body, userInfo in
+                scheduleLocalNotification: { title, subtitle, body, userInfo, delay, backgroundOnly in
                     let content = UNMutableNotificationContent()
                     content.title = title
                     content.subtitle = subtitle ?? ""
                     content.body = body
                     content.sound = .default
                     content.badge = 1
-                    content.userInfo = userInfo
+                    var metadata = userInfo
+                    if backgroundOnly {
+                        metadata[PushNotificationService.backgroundOnlyUserInfoKey] = "true"
+                    }
+                    content.userInfo = metadata
+
+                    let trigger = delay.map {
+                        UNTimeIntervalNotificationTrigger(
+                            timeInterval: max(1, $0),
+                            repeats: false
+                        )
+                    }
 
                     let request = UNNotificationRequest(
                         identifier: UUID().uuidString,
                         content: content,
-                        trigger: nil
+                        trigger: trigger
                     )
 
                     UNUserNotificationCenter.current().add(request) { error in
@@ -92,6 +105,7 @@
         // MARK: - Singleton
 
         public static let shared = PushNotificationService()
+        public nonisolated static let backgroundOnlyUserInfoKey = "ctrlxBackgroundOnly"
 
         // MARK: - Properties
 
@@ -225,7 +239,9 @@
             subtitle: String? = nil,
             body: String,
             paneId: String? = nil,
-            hostId: String? = nil
+            hostId: String? = nil,
+            delay: TimeInterval? = nil,
+            backgroundOnly: Bool = false
         ) {
             guard permissionStatus == .authorized else { return }
 
@@ -237,7 +253,14 @@
                 userInfo["pairId"] = hostId
             }
 
-            client.scheduleLocalNotification(title, subtitle, body, userInfo)
+            client.scheduleLocalNotification(
+                title,
+                subtitle,
+                body,
+                userInfo,
+                delay,
+                backgroundOnly
+            )
         }
 
         // MARK: - Deep Linking

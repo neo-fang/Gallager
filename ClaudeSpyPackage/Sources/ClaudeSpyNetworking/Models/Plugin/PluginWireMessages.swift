@@ -93,6 +93,8 @@ public struct PluginPresentationsMessage: Codable, Sendable, Equatable {
 /// relay drops the parallel `.encryptedPush` (APNs) while the viewer is
 /// WS-connected, so this is the only alert path during the backgrounded window;
 /// once the socket drops, APNs takes over. `sessionId` carries the pane id.
+/// This message is presentation-only. Agent lifecycle remains owned by
+/// `AgentSessionStatusMessage` and the full session-state snapshot.
 public struct AgentNotificationMessage: Codable, Sendable, Equatable {
     public let pairId: String
     public let sessionId: String?

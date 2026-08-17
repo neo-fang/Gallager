@@ -1,11 +1,12 @@
 import ClaudeSpyNetworking
+import Foundation
 import Testing
 @testable import ClaudeSpyFeature
 
 @Suite("Agent background monitoring policy")
 struct AgentBackgroundMonitoringPolicyTests {
-    @Test("A stale idle state does not finish a newly submitted turn")
-    func staleIdleDoesNotFinish() {
+    @Test("A stale idle state does not complete a newly observed turn")
+    func staleIdleDoesNotComplete() {
         #expect(
             AgentBackgroundMonitoringPolicy.decision(
                 for: .idle,
@@ -14,7 +15,7 @@ struct AgentBackgroundMonitoringPolicyTests {
         )
     }
 
-    @Test("Working then idle completes the monitored turn")
+    @Test("Working then idle yields a terminal card update")
     func workingThenIdleCompletes() {
         let started = AgentBackgroundMonitoringPolicy.decision(
             for: .working,
@@ -25,11 +26,11 @@ struct AgentBackgroundMonitoringPolicyTests {
             AgentBackgroundMonitoringPolicy.decision(
                 for: .idle,
                 phase: .working
-            ) == .finish(.completed)
+            ) == .terminal(.completed)
         )
     }
 
-    @Test("Terminal states finish even when working update was missed", arguments: [
+    @Test("Live terminal states remain authoritative when working was missed", arguments: [
         AgentState.doneWorking(summary: "done"),
         AgentState.awaitingPermission(
             PermissionRequest(title: "Shell", description: "Run pwd"),
@@ -37,11 +38,11 @@ struct AgentBackgroundMonitoringPolicyTests {
         ),
     ])
     func terminalStateFinishes(_ state: AgentState) {
-        guard case .finish = AgentBackgroundMonitoringPolicy.decision(
+        guard case .terminal = AgentBackgroundMonitoringPolicy.decision(
             for: state,
             phase: .waitingForAgent
         ) else {
-            Issue.record("Expected terminal Agent state to finish monitoring")
+            Issue.record("Expected a terminal Agent presentation decision")
             return
         }
     }
@@ -69,6 +70,8 @@ struct AgentBackgroundMonitoringPolicyTests {
         let cleared = input.consume([.text("discard me"), .ctrl("u")])
         let clearedEnter = input.consume([.enter])
         let embeddedNewline = input.consume([.text("continue\n")])
+        let recalled = input.consume([.up, .enter])
+        let cancelledRecall = input.consume([.up, .ctrl("u"), .enter])
 
         #expect(!empty)
         #expect(!draft)
@@ -77,20 +80,107 @@ struct AgentBackgroundMonitoringPolicyTests {
         #expect(!cleared)
         #expect(!clearedEnter)
         #expect(embeddedNewline)
+        #expect(recalled)
+        #expect(!cancelledRecall)
     }
 
-    @Test("Only idle Agent turns accept terminal prompts")
+    @Test("Non-blocking Agent states accept terminal prompts")
     func terminalPromptStates() {
         #expect(AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: .idle))
         #expect(AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: .doneWorking(summary: nil)))
-        #expect(!AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: .working))
+        #expect(AgentBackgroundMonitoringPolicy.canSubmitPrompt(from: .working))
+        #expect(!AgentBackgroundMonitoringPolicy.canSubmitPrompt(
+            from: .awaitingPermission(
+                PermissionRequest(title: "Shell", description: "Run pwd"),
+                requestID: "permission"
+            )
+        ))
     }
 
     @Test("Monitoring activity has a finite two-hour budget")
     func finiteActivityBudget() {
+        #expect(AgentBackgroundMonitoringPolicy.initialActivityUnits == 1)
         #expect(AgentBackgroundMonitoringPolicy.maximumActivityUnits == 720)
         #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 0) == 1)
         #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 718) == 719)
         #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 719) == nil)
+    }
+
+    @Test("Snapshots avoid stale terminal state and remain host-throttled")
+    func snapshotCadence() {
+        let submittedAt = Date(timeIntervalSince1970: 1_000)
+
+        #expect(!AgentBackgroundMonitoringPolicy.shouldRequestSnapshot(
+            sessionStartedAt: submittedAt,
+            lastSnapshotAt: nil,
+            now: submittedAt.addingTimeInterval(4)
+        ))
+        #expect(AgentBackgroundMonitoringPolicy.shouldRequestSnapshot(
+            sessionStartedAt: submittedAt,
+            lastSnapshotAt: nil,
+            now: submittedAt.addingTimeInterval(5)
+        ))
+        #expect(!AgentBackgroundMonitoringPolicy.shouldRequestSnapshot(
+            sessionStartedAt: submittedAt,
+            lastSnapshotAt: submittedAt.addingTimeInterval(10),
+            now: submittedAt.addingTimeInterval(39)
+        ))
+        #expect(AgentBackgroundMonitoringPolicy.shouldRequestSnapshot(
+            sessionStartedAt: submittedAt,
+            lastSnapshotAt: submittedAt.addingTimeInterval(10),
+            now: submittedAt.addingTimeInterval(40)
+        ))
+    }
+
+    @Test("Delivery delay ignores negative wall-clock skew")
+    func deliveryDelay() {
+        let eventAt = Date(timeIntervalSince1970: 100)
+
+        #expect(AgentBackgroundMonitoringPolicy.deliveryDelay(
+            eventAt: eventAt,
+            receivedAt: eventAt.addingTimeInterval(4)
+        ) == 4)
+        #expect(AgentBackgroundMonitoringPolicy.deliveryDelay(
+            eventAt: eventAt,
+            receivedAt: eventAt.addingTimeInterval(-1)
+        ) == 0)
+    }
+
+    @Test("Terminal notification frames are deduplicated inside the race window")
+    func notificationDeduplication() {
+        let deliveredAt = Date(timeIntervalSince1970: 100)
+
+        #expect(!AgentBackgroundMonitoringPolicy.isDuplicateNotification(
+            lastDeliveredAt: nil,
+            now: deliveredAt
+        ))
+        #expect(AgentBackgroundMonitoringPolicy.isDuplicateNotification(
+            lastDeliveredAt: deliveredAt,
+            now: deliveredAt.addingTimeInterval(4.999)
+        ))
+        #expect(!AgentBackgroundMonitoringPolicy.isDuplicateNotification(
+            lastDeliveredAt: deliveredAt,
+            now: deliveredAt.addingTimeInterval(5)
+        ))
+        #expect(!AgentBackgroundMonitoringPolicy.isDuplicateNotification(
+            lastDeliveredAt: deliveredAt,
+            now: deliveredAt.addingTimeInterval(-1)
+        ))
+    }
+
+    @Test("Terminal updates emit notifications independently of task lifetime")
+    func terminalNotificationOwnership() {
+        #expect(AgentBackgroundMonitoringPolicy.shouldEmitTerminalNotification(
+            reason: .completed,
+            recoveredFromSnapshot: false
+        ))
+        #expect(!AgentBackgroundMonitoringPolicy.shouldEmitTerminalNotification(
+            reason: .waitingForInput,
+            recoveredFromSnapshot: false
+        ))
+        #expect(AgentBackgroundMonitoringPolicy.shouldEmitTerminalNotification(
+            reason: .waitingForInput,
+            recoveredFromSnapshot: true
+        ))
     }
 }

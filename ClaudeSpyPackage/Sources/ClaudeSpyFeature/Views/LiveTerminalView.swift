@@ -970,9 +970,16 @@
         }
 
         func updateUIView(_ scrollView: UIScrollView, context: Context) {
-            // Toggle keyboard visibility based on interactive state
             guard let terminalView = context.coordinator.terminalView else { return }
 
+            // A UIViewRepresentable may outlive many value-type SwiftUI views.
+            // Refresh callbacks on every update so the native terminal never
+            // sends through the host, pane, or monitoring state captured by its
+            // first render.
+            terminalView.onInput = onInput
+            terminalView.onRawInput = onRawInput
+
+            // Toggle keyboard visibility based on interactive state.
             if isInteractive {
                 terminalView.activateInput()
             } else {

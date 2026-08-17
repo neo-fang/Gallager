@@ -3988,6 +3988,13 @@
                     store?.clearSessions(for: hostId)
                 }
 
+                // A viewer-side transport interruption has the same UI effect
+                // on macOS, but remains a distinct lifecycle signal so iOS can
+                // keep a finite Agent monitor alive while it reconnects.
+                manager.onTransportInterrupted = { [weak store] hostId in
+                    store?.clearSessions(for: hostId)
+                }
+
                 // Handle unpair notifications from remote hosts
                 manager.onUnpaired = { [weak self] hostId in
                     guard let self else { return }

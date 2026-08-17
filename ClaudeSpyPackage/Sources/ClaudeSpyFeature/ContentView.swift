@@ -60,6 +60,8 @@
             .environment(agentBackgroundMonitoring)
             .preferredColorScheme(settings.appearanceMode.colorScheme)
             .task {
+                agentBackgroundMonitoring.noteSceneActive(scenePhase == .active)
+                agentBackgroundMonitoring.prepare()
                 await initializeConnectionManager()
                 setupConnectionManagerHandlers()
                 await autoConnectIfNeeded()
@@ -68,8 +70,19 @@
                 handleScenePhaseChange(newPhase)
             }
             .onChange(of: settings.agentBackgroundMonitoringEnabled) { _, enabled in
-                guard !enabled else { return }
-                agentBackgroundMonitoring.stopAll()
+                if enabled {
+                    agentBackgroundMonitoring.startFromUserAction()
+                    if agentBackgroundMonitoring.monitoringStatus == .inactive {
+                        settings.agentBackgroundMonitoringEnabled = false
+                    }
+                } else if agentBackgroundMonitoring.monitoringStatus != .inactive {
+                    agentBackgroundMonitoring.stopAll()
+                }
+            }
+            .onChange(of: agentBackgroundMonitoring.monitoringStatus) { _, status in
+                if status == .inactive, settings.agentBackgroundMonitoringEnabled {
+                    settings.agentBackgroundMonitoringEnabled = false
+                }
             }
         }
 
@@ -87,11 +100,15 @@
             pushService.setAppActive(phase == .active)
             switch phase {
             case .background:
-                // Only start background task if we have any active connections
+                agentBackgroundMonitoring.noteSceneActive(false)
+                // Bridge the foreground-to-background transition immediately.
+                // A continued-processing task may launch later and therefore
+                // cannot replace this short lease for fast Agent completions.
                 if connectionManager?.anyHostConnected == true {
                     backgroundTaskService.startBackgroundTask()
                 }
             case .active:
+                agentBackgroundMonitoring.noteSceneActive(true)
                 // End background task when returning to foreground
                 backgroundTaskService.endBackgroundTask()
 
@@ -116,13 +133,28 @@
             // answers — issue #710) reuse the app's live sockets instead of
             // spinning up their own connection.
             NotificationActionService.shared.connectionManager = connectionManager
+            agentBackgroundMonitoring.connectionManager = connectionManager
 
             // High-frequency per-session state updates drive the sidebar badges.
             // The `AgentState` carries the open response form (no separate channel).
-            connectionManager.onAgentSessionStatus = { [sessionStore, agentBackgroundMonitoring] status in
+            connectionManager.onAgentSessionStatus = {
+                [pushService, sessionStore, agentBackgroundMonitoring] status in
                 Task { @MainActor in
                     sessionStore.handleAgentStatus(status)
-                    agentBackgroundMonitoring.handle(status)
+                    agentBackgroundMonitoring.handle(status) { notification in
+                        guard agentBackgroundMonitoring.reserveNotificationDelivery(
+                            for: notification
+                        ) else { return }
+                        pushService.scheduleLocalNotification(
+                            title: notification.title,
+                            subtitle: notification.subtitle,
+                            body: notification.body,
+                            paneId: notification.paneId,
+                            hostId: notification.hostId,
+                            delay: 1,
+                            backgroundOnly: true
+                        )
+                    }
                 }
             }
 
@@ -139,8 +171,10 @@
             // the in-app UI already reflects the event, so we suppress it.
             // Notifications carrying an open-form action context become
             // actionable local notifications, mirroring the NSE's push path.
-            connectionManager.onAgentNotification = { [pushService, sessionStore] notification in
+            connectionManager.onAgentNotification = {
+                [pushService, sessionStore, agentBackgroundMonitoring] notification in
                 Task { @MainActor in
+                    agentBackgroundMonitoring.noteNotificationReceived(notification)
                     let paneState = notification.sessionId.flatMap {
                         sessionStore.paneStates[PaneKey(pairId: notification.pairId, paneId: $0)]
                     }
@@ -163,6 +197,9 @@
                         )
                     }
                     guard !pushService.isAppActive else { return }
+                    guard agentBackgroundMonitoring.reserveNotificationDelivery(
+                        for: notification
+                    ) else { return }
                     if let action = notification.action {
                         await NotificationActionService.shared.scheduleActionableLocalNotification(
                             title: presentation.title,
@@ -181,12 +218,28 @@
                             hostId: notification.pairId
                         )
                     }
+                    agentBackgroundMonitoring.noteLocalNotificationScheduled(notification)
                 }
             }
 
-            connectionManager.onSessionState = { [sessionStore] state in
+            connectionManager.onSessionState = {
+                [pushService, sessionStore, agentBackgroundMonitoring] state in
                 Task { @MainActor in
                     sessionStore.handleStateUpdate(state)
+                    agentBackgroundMonitoring.handle(state) { notification in
+                        guard agentBackgroundMonitoring.reserveNotificationDelivery(
+                            for: notification
+                        ) else { return }
+                        pushService.scheduleLocalNotification(
+                            title: notification.title,
+                            subtitle: notification.subtitle,
+                            body: notification.body,
+                            paneId: notification.paneId,
+                            hostId: notification.hostId,
+                            delay: 1,
+                            backgroundOnly: true
+                        )
+                    }
                 }
             }
 
@@ -206,11 +259,20 @@
             }
 
             connectionManager.onHostDisconnected = { [sessionStore, agentBackgroundMonitoring] hostId in
-                await agentBackgroundMonitoring.stop(hostId: hostId)
+                agentBackgroundMonitoring.removeHost(hostId)
                 sessionStore.clearSessions(for: hostId)
             }
 
-            connectionManager.onUnpaired = { [settings] hostId in
+            connectionManager.onTransportInterrupted = { [sessionStore] hostId in
+                // The Host may still be running. Clear stale UI state, but leave
+                // the finite Agent monitor alive so it can drive reconnection.
+                sessionStore.clearSessions(for: hostId)
+            }
+
+            connectionManager.onUnpaired = {
+                [settings, sessionStore, agentBackgroundMonitoring] hostId in
+                agentBackgroundMonitoring.removeHost(hostId)
+                sessionStore.clearSessions(for: hostId)
                 settings.removePairing(id: hostId)
             }
         }
@@ -433,6 +495,7 @@
     struct SettingsView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
+        @Environment(AgentBackgroundMonitoringService.self) private var backgroundMonitoring
 
         /// In-flight edit buffer for the device name field. Synced to/from
         /// `settings.deviceName` so the field shows the system name when no
@@ -589,6 +652,28 @@
                             isOn: $settings.agentBackgroundMonitoringEnabled
                         )
                         .accessibilityIdentifier("agent-background-monitoring-toggle")
+
+                        switch backgroundMonitoring.monitoringStatus {
+                        case .inactive:
+                            if let failure = backgroundMonitoring.lastStartFailure {
+                                Text("Could not start: \(failure)")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .textSelection(.enabled)
+                            }
+
+                        case .starting:
+                            LabeledContent("Monitoring Status") {
+                                Text("Starting")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                        case .active:
+                            LabeledContent("Monitoring Status") {
+                                Text("Active")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     } else {
                         LabeledContent("Background Agent Monitoring") {
                             Text("Requires iOS 26")
@@ -600,10 +685,10 @@
                 } footer: {
                     Text(
                         "Quick Input shows a reply field above agent terminals. "
-                            + "Background monitoring keeps a user-submitted Agent turn active "
-                            + "after you leave CtrlX and ends when the Agent stops or needs input. "
-                            + "iOS shows no permission prompt; the Live Activity appears only "
-                            + "after you submit a turn."
+                            + "Background monitoring keeps one finite notification session active "
+                            + "for up to two hours across Agent turns and connected Macs. "
+                            + "iOS shows no permission prompt. The switch starts and stops the "
+                            + "current session; it returns off after expiry or a new app launch."
                     )
                 }
 

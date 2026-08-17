@@ -494,6 +494,22 @@ struct NotificationActionWireTests {
         #expect(roundTripped.withPairId("pair2").action == context)
     }
 
+    @Test("Agent notifications ignore obsolete lifecycle metadata")
+    func agentNotificationIgnoresLifecycleMetadata() throws {
+        let legacy = """
+        {"pairId":"pair1","sessionId":"%1","title":"T","body":"B",
+         "timestamp":740000000,"turnOutcome":"completed"}
+        """
+        let decoded = try JSONDecoder().decode(
+            AgentNotificationMessage.self,
+            from: Data(legacy.utf8)
+        )
+
+        #expect(decoded.pairId == "pair1")
+        #expect(decoded.sessionId == "%1")
+        #expect(decoded.title == "T")
+    }
+
     @Test("a present-but-undecodable action degrades to nil, not a decode failure")
     func lenientActionDecoding() throws {
         // A future host may send a `Form` case this build doesn't know. The

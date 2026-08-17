@@ -108,6 +108,16 @@ final public class ViewerConnection: Identifiable {
         await relayClient.reconnectImmediately()
     }
 
+    public func probeConnection(
+        staleAfter: Duration = .seconds(30),
+        responseTimeout: Duration = .seconds(2)
+    ) async -> ViewerRelayProbeResult {
+        await relayClient.probeConnection(
+            staleAfter: staleAfter,
+            responseTimeout: responseTimeout
+        )
+    }
+
     /// Re-enable reconnection after a terminal failure (e.g. version mismatch)
     /// and immediately attempt to reconnect. Forwards to the relay client.
     public func enableReconnectAndRetry() async {
@@ -132,7 +142,8 @@ final public class ViewerConnection: Identifiable {
     }
 
     /// Request current session state from this host
-    public func requestSessionState() async {
+    @discardableResult
+    public func requestSessionState() async -> Bool {
         await relayClient.requestSessionState()
     }
 
@@ -170,6 +181,7 @@ final public class ViewerConnection: Identifiable {
     ///   - onAgentNotification: Called when a pre-baked notification arrives over the live socket
     ///   - onSessionState: Called when session state is received
     ///   - onPartnerKeyReceived: Called when partner's public key is updated
+    ///   - onTransportInterrupted: Called when the viewer's Relay transport is interrupted
     ///   - onHostDisconnected: Called when the host device disconnects (pairing still active)
     ///   - onUnpaired: Called when the pairing was removed by the other side
     public func setupCallbacks(
@@ -178,6 +190,7 @@ final public class ViewerConnection: Identifiable {
         onAgentNotification: (@Sendable (AgentNotificationMessage) -> Void)? = nil,
         onSessionState: (@Sendable (SessionStateMessage) -> Void)? = nil,
         onPartnerKeyReceived: (@MainActor @Sendable (String, String) async -> Void)? = nil,
+        onTransportInterrupted: (@MainActor @Sendable () async -> Void)? = nil,
         onHostDisconnected: (@MainActor @Sendable () async -> Void)? = nil,
         onUnpaired: (@MainActor @Sendable () async -> Void)? = nil
     ) {
@@ -186,6 +199,7 @@ final public class ViewerConnection: Identifiable {
         relayClient.onAgentNotification = onAgentNotification
         relayClient.onSessionState = onSessionState
         relayClient.onPartnerKeyReceived = onPartnerKeyReceived
+        relayClient.onTransportInterrupted = onTransportInterrupted
         relayClient.onHostDisconnected = onHostDisconnected
         relayClient.onUnpaired = onUnpaired
     }
