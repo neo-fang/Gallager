@@ -218,11 +218,11 @@
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keyboardVisible = true
-                // Scroll to bottom after keyboard animation completes
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(350))
-                    coordinator.terminalState?.scrollToBottom?()
-                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                // The viewport is final now. One deterministic scroll replaces
+                // the old uncancelled 350 ms tasks fired by keyboardWillShow.
+                coordinator.terminalState?.scrollToBottom?()
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardVisible = false
@@ -458,6 +458,7 @@
                     }
                 }
 
+                coordinator.willSendStartRequest()
                 let result = await relayClient.sendCommand(
                     StartTerminalStream(leaseId: leaseId),
                     paneId: paneId
@@ -467,14 +468,16 @@
 
                 switch result {
                 case .success:
-                    // The initialState message transitions the coordinator to
-                    // `.streaming`; the relay receive loop is ordered, so it must
-                    // already have arrived before this command response.
+                    // A Stage 16 host sends every bootstrap byte before this
+                    // response. Keep the terminal offscreen until both events
+                    // have arrived, matching the macOS viewer.
+                    coordinator.receiveStartAcknowledgement()
                     switch TerminalStreamRecoveryPolicy.resolveSuccessfulStart(
-                        hasInitialState: coordinator.streamState == .streaming,
+                        hasInitialState: coordinator.hasInitialState,
                         canRetry: attempt == 0
                     ) {
                     case .ready:
+                        coordinator.revealTerminalIfReady()
                         return
                     case .retryReplacement:
                         startMode = .replaceExisting
@@ -570,7 +573,11 @@
         @ObservationIgnored
         private var keystrokeDebouncer: KeystrokeDebouncer?
 
+        @ObservationIgnored private var bootstrapPolicy = TerminalStreamBootstrapPolicy()
+        @ObservationIgnored private var bootstrapBuffer = TerminalStreamBootstrapBuffer()
         @ObservationIgnored private var recoveryPolicy = TerminalStreamRecoveryPolicy()
+
+        private var bootstrapDimensions: (width: Int, height: Int)?
 
         init(paneId: String, fontName: String, fontSize: CGFloat) {
             self.paneId = paneId
@@ -591,12 +598,27 @@
             recoveryPolicy.shouldRetryUnexpectedEnd(isConnected: isConnected)
         }
 
+        var hasInitialState: Bool {
+            bootstrapPolicy.hasInitialState
+        }
+
+        func willSendStartRequest() {
+            bootstrapPolicy.willSendStartRequest()
+        }
+
+        func receiveStartAcknowledgement() {
+            bootstrapPolicy.receiveStartAcknowledgement()
+        }
+
         /// Starts a fresh attempt and invalidates callbacks from every earlier
         /// attempt. Old terminal contents are discarded because output emitted
         /// while disconnected cannot be safely replayed as incremental chunks.
         func beginAttempt(leaseId: UUID) -> UUID {
             cancelPendingKeys()
             stabilityTask?.cancel()
+            bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
+            bootstrapDimensions = nil
             let id = UUID()
             streamSessionId = id
             activeLeaseId = leaseId
@@ -609,6 +631,9 @@
         func prepareForReconnect() {
             cancelPendingKeys()
             stabilityTask?.cancel()
+            bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
+            bootstrapDimensions = nil
             streamSessionId = nil
             streamState = .connecting
             terminalState = nil
@@ -616,6 +641,9 @@
         }
 
         func fail(_ error: Error) {
+            bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
+            bootstrapDimensions = nil
             streamState = .error
             self.error = error.localizedDescription
         }
@@ -624,6 +652,9 @@
         func endStreaming() -> UUID? {
             cancelPendingKeys()
             stabilityTask?.cancel()
+            bootstrapPolicy.beginAttempt()
+            bootstrapBuffer.reset()
+            bootstrapDimensions = nil
             streamSessionId = nil
             defer { activeLeaseId = nil }
             return recoveryPolicy.hasRequestedStream ? activeLeaseId : nil
@@ -659,41 +690,47 @@
         func handleStreamMessage(_ message: TerminalStreamMessage) {
             switch message.updateType {
             case let .initialState(initial):
-                // If already streaming, ignore duplicate initialState.
-                // This happens when another iOS device subscribes to the same pane —
-                // the host broadcasts initialState to all devices. Replacing the
-                // TerminalState while streaming would break the UIKit onData wiring.
-                guard streamState != .streaming else { return }
+                guard
+                    let content = initial.content,
+                    bootstrapPolicy.receiveInitialState()
+                else { return }
 
-                // Create terminal state with initial content
-                guard let content = initial.content else { return }
-                let state = TerminalState(
-                    width: initial.width,
-                    height: initial.height,
-                    fontName: fontName,
-                    fontSize: fontSize
-                )
-                state.feed(content)
-                terminalState = state
-                streamState = .streaming
-                scheduleStableRecoveryReset()
+                bootstrapDimensions = (initial.width, initial.height)
+                bootstrapBuffer.appendDimensions(cols: initial.width, rows: initial.height)
+                bootstrapBuffer.appendData(content)
 
             case let .resetState(snapshot):
                 guard let content = snapshot.content else { return }
-                terminalState?.replace(
-                    width: snapshot.width,
-                    height: snapshot.height,
-                    content: content
-                )
+                if streamState == .streaming {
+                    terminalState?.replace(
+                        width: snapshot.width,
+                        height: snapshot.height,
+                        content: content
+                    )
+                } else if bootstrapPolicy.hasInitialState {
+                    // A high-water resync is authoritative. Drop bootstrap bytes
+                    // that precede it, then preserve later live bytes in order.
+                    bootstrapBuffer.reset()
+                    bootstrapDimensions = (snapshot.width, snapshot.height)
+                    bootstrapBuffer.appendDimensions(cols: snapshot.width, rows: snapshot.height)
+                    bootstrapBuffer.appendData(content)
+                }
 
             case let .dataChunk(chunk):
-                // Feed new data to terminal
-                guard let data = chunk.data else { return }
-                terminalState?.feed(data)
+                guard bootstrapPolicy.hasInitialState, let data = chunk.data else { return }
+                if streamState == .streaming {
+                    terminalState?.feed(data)
+                } else {
+                    bootstrapBuffer.appendData(data)
+                }
 
             case let .dimensionChange(dims):
-                // Resize terminal
-                terminalState?.resize(width: dims.width, height: dims.height)
+                guard bootstrapPolicy.hasInitialState else { return }
+                if streamState == .streaming {
+                    terminalState?.resize(width: dims.width, height: dims.height)
+                } else {
+                    bootstrapBuffer.appendDimensions(cols: dims.width, rows: dims.height)
+                }
 
             case let .titleChange(change):
                 terminalTitle = change.title
@@ -713,6 +750,25 @@
                 guard streamState == .streaming else { return }
                 streamState = .ended
             }
+        }
+
+        func revealTerminalIfReady() {
+            guard
+                bootstrapPolicy.isReady,
+                streamState != .streaming,
+                let bootstrapDimensions
+            else { return }
+
+            let state = TerminalState(
+                width: bootstrapDimensions.width,
+                height: bootstrapDimensions.height,
+                fontName: fontName,
+                fontSize: fontSize
+            )
+            state.stageInitialEvents(bootstrapBuffer.takeEvents())
+            terminalState = state
+            streamState = .streaming
+            scheduleStableRecoveryReset()
         }
 
         private func scheduleStableRecoveryReset() {
@@ -755,8 +811,11 @@
         let fontName: String
         let fontSize: CGFloat
 
-        /// Buffered content to feed when onData is connected
-        private var pendingInitialContent = Data()
+        /// Bootstrap events retained until the UIKit terminal is wired.
+        /// Keeping dimensions between data events preserves terminal parsing
+        /// order when the host pane changes size during startup.
+        private var pendingInitialEvents: [TerminalStreamBootstrapBuffer.Event] = []
+        private var pendingDimensions: (width: Int, height: Int)?
 
         /// Callback to feed data to the terminal view
         var onData: ((Data) -> Void)?
@@ -764,16 +823,24 @@
         /// Callback to atomically reset the existing UIKit terminal instance.
         var onReset: ((Int, Int, Data) -> Void)?
 
-        /// Callback called once after initial content is fed (for scroll-to-bottom and enabling preservation)
-        var onInitialContentLoaded: (() -> Void)?
-
-        /// Call after setting onData to flush any pending content
+        /// Call after wiring data and resize callbacks to replay the complete
+        /// bootstrap into the still-offscreen UIKit terminal.
         func flushPendingContent() {
-            guard !pendingInitialContent.isEmpty, let onData else { return }
-            let content = pendingInitialContent
-            pendingInitialContent = Data()
-            onData(content)
-            onInitialContentLoaded?()
+            guard !pendingInitialEvents.isEmpty, let onData else { return }
+            let events = pendingInitialEvents
+            pendingInitialEvents = []
+            pendingDimensions = nil
+
+            for event in events {
+                switch event {
+                case let .dimensions(cols, rows):
+                    width = cols
+                    height = rows
+                    onResize?(cols, rows)
+                case let .data(data):
+                    onData(data)
+                }
+            }
         }
 
         /// Callback when dimensions change
@@ -792,30 +859,51 @@
             self.fontSize = fontSize
         }
 
+        func stageInitialEvents(_ events: [TerminalStreamBootstrapBuffer.Event]) {
+            pendingInitialEvents = events
+            pendingDimensions = events.reversed().lazy.compactMap { event in
+                if case let .dimensions(cols, rows) = event {
+                    return (cols, rows)
+                }
+                return nil
+            }.first
+        }
+
         func feed(_ data: Data) {
             if let onData {
                 onData(data)
             } else {
-                pendingInitialContent.append(data)
+                pendingInitialEvents.append(.data(data))
             }
         }
 
         func replace(width: Int, height: Int, content: Data) {
             self.width = width
             self.height = height
-            pendingInitialContent = Data()
+            pendingInitialEvents = []
+            pendingDimensions = nil
             if let onReset {
                 onReset(width, height, content)
             } else {
-                pendingInitialContent = content
+                pendingInitialEvents = [
+                    .dimensions(cols: width, rows: height),
+                    .data(content),
+                ]
+                pendingDimensions = (width, height)
             }
         }
 
         func resize(width: Int, height: Int) {
-            guard self.width != width || self.height != height else { return }
-            self.width = width
-            self.height = height
-            onResize?(width, height)
+            let current = pendingDimensions ?? (self.width, self.height)
+            guard current.width != width || current.height != height else { return }
+            if let onResize {
+                self.width = width
+                self.height = height
+                onResize(width, height)
+            } else {
+                pendingInitialEvents.append(.dimensions(cols: width, rows: height))
+                pendingDimensions = (width, height)
+            }
         }
     }
 
@@ -915,6 +1003,7 @@
 
             // Store references
             context.coordinator.terminalView = terminalView
+            context.coordinator.terminalState = terminalState
             context.coordinator.cellSize = cellSize
             context.coordinator.widthConstraint = widthConstraint
             context.coordinator.heightConstraint = heightConstraint
@@ -925,6 +1014,9 @@
             }
             terminalState.onReset = { [weak coordinator = context.coordinator] width, height, data in
                 coordinator?.replace(width: width, height: height, content: data)
+            }
+            terminalState.onResize = { [weak coordinator = context.coordinator] newWidth, newHeight in
+                coordinator?.resizeAfterPendingFeed(width: newWidth, height: newHeight)
             }
 
             // Scroll both the inner terminal (scrollback) and outer scroll view
@@ -940,31 +1032,22 @@
                 }
             }
 
-            terminalState.onInitialContentLoaded = { [weak terminalState, weak terminalView] in
-                Task { @MainActor in
-                    guard let terminalView else { return }
-                    // Delay to let layout settle after initial content feed
-                    try? await Task.sleep(for: .milliseconds(100))
-                    terminalState?.scrollToBottom?()
-                    terminalView.preserveUserScroll = true
-                }
-            }
-
+            // Parse the complete bootstrap before returning the native view.
+            // UIKit cannot display intermediate terminal states while makeUIView
+            // is still executing, which removes the visible replay/flicker.
             terminalState.flushPendingContent()
-
-            let coordinator = context.coordinator
-            terminalState.onResize = { [weak coordinator] newWidth, newHeight in
-                coordinator?.handleResize(width: newWidth, height: newHeight)
-            }
+            context.coordinator.flushPendingFeedNow()
 
             terminalState.makeTextSnapshot = { [weak terminalView] in
                 terminalView?.makeTextSnapshot()
             }
 
-            // Set initial keyboard state
-            if isInteractive {
-                terminalView.activateInput()
-            }
+            // Focus only after one layout turn. The terminal bootstrap has
+            // already finished, so keyboard safe-area animation cannot race it.
+            context.coordinator.finishInitialPresentation(
+                scrollView: scrollView,
+                isInteractive: isInteractive
+            )
 
             return scrollView
         }
@@ -979,12 +1062,7 @@
             terminalView.onInput = onInput
             terminalView.onRawInput = onRawInput
 
-            // Toggle keyboard visibility based on interactive state.
-            if isInteractive {
-                terminalView.activateInput()
-            } else {
-                terminalView.deactivateInput()
-            }
+            context.coordinator.updateInteraction(isInteractive)
         }
 
         func makeCoordinator() -> Coordinator {
@@ -994,10 +1072,16 @@
         @MainActor
         final class Coordinator: NSObject, UIScrollViewDelegate {
             var terminalView: InteractiveTerminalView?
+            weak var terminalState: TerminalState?
             weak var outerScrollView: UIScrollView?
             var cellSize: CGSize = .zero
             var widthConstraint: NSLayoutConstraint?
             var heightConstraint: NSLayoutConstraint?
+
+            private var requestedInteractive = false
+            private var appliedInteractive: Bool?
+            private var didFinishInitialPresentation = false
+            private var initialPresentationTask: Task<Void, Never>?
 
             /// Y offset captured at the start of a user drag. Used to lock
             /// vertical scrolling while mouse mode is active — vertical pans
@@ -1019,6 +1103,10 @@
                 feedCoalescer.enqueue(data)
             }
 
+            func flushPendingFeedNow() {
+                feedCoalescer.flushPendingNow()
+            }
+
             func replace(width: Int, height: Int, content: Data) {
                 handleResize(width: width, height: height)
                 feedCoalescer.replace(with: content) { [weak self] in
@@ -1029,11 +1117,55 @@
             func handleResize(width: Int, height: Int) {
                 guard let terminalView else { return }
 
+                // Constraints update the outer geometry on the next layout
+                // pass. Resize SwiftTerm now so following bootstrap bytes are
+                // parsed with the dimensions that preceded them on the wire.
+                terminalView.getTerminal().resize(cols: width, rows: height)
+
                 let newWidth = CGFloat(width) * cellSize.width + FontMetrics.horizontalBuffer
                 widthConstraint?.constant = newWidth
 
                 let newHeight = CGFloat(height) * cellSize.height
                 heightConstraint?.constant = newHeight
+            }
+
+            /// A dimension message is ordered relative to terminal bytes. Drain
+            /// earlier bytes before applying the new geometry.
+            func resizeAfterPendingFeed(width: Int, height: Int) {
+                feedCoalescer.flushPendingNow()
+                handleResize(width: width, height: height)
+            }
+
+            func finishInitialPresentation(scrollView: UIScrollView, isInteractive: Bool) {
+                requestedInteractive = isInteractive
+                initialPresentationTask?.cancel()
+                initialPresentationTask = Task { @MainActor [weak self, weak scrollView] in
+                    await Task.yield()
+                    guard let self, let scrollView else { return }
+
+                    scrollView.layoutIfNeeded()
+                    terminalState?.scrollToBottom?()
+                    terminalView?.preserveUserScroll = true
+                    didFinishInitialPresentation = true
+                    applyRequestedInteraction()
+                    initialPresentationTask = nil
+                }
+            }
+
+            func updateInteraction(_ isInteractive: Bool) {
+                requestedInteractive = isInteractive
+                guard didFinishInitialPresentation else { return }
+                applyRequestedInteraction()
+            }
+
+            private func applyRequestedInteraction() {
+                guard appliedInteractive != requestedInteractive, let terminalView else { return }
+                appliedInteractive = requestedInteractive
+                if requestedInteractive {
+                    terminalView.activateInput()
+                } else {
+                    terminalView.deactivateInput()
+                }
             }
 
             func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
