@@ -103,9 +103,19 @@ public enum AgentBackgroundMonitoringPolicy {
         }
     }
 
-    public static func nextActivityUnit(after current: Int64) -> Int64? {
-        let next = current + 1
-        return next < maximumActivityUnits ? next : nil
+    public static func nextActivityUnit(
+        after current: Int64,
+        limit: Int64 = maximumActivityUnits
+    ) -> Int64? {
+        let (next, overflow) = current.addingReportingOverflow(1)
+        guard !overflow, next < limit else { return nil }
+        return next
+    }
+
+    /// Restore one full monitoring window without replacing the active system task.
+    public static func renewedActivityUnitLimit(after completed: Int64) -> Int64 {
+        let (limit, overflow) = completed.addingReportingOverflow(maximumActivityUnits)
+        return overflow ? Int64.max : limit
     }
 
     public static func shouldRequestSnapshot(
