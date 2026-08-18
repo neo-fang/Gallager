@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 5/6 tasks
+- **Status**: ✅ Completed
+- **Progress**: 6/6 tasks
 - **Dependencies**: Stage 6 ✅
 
 ## Tasks
@@ -13,7 +13,7 @@
 - [x] 实现真实后台到前台时的原任务续期
 - [x] 补充策略测试并完成完整测试
 - [x] 完成代码审查、iPhoneOS 构建和真机安装
-- [ ] 完成真机行为验收
+- [x] 完成真机行为验收
 
 ## Blockers
 
@@ -26,4 +26,4 @@
 - iPhoneOS Debug 无签名构建通过。
 - 已签名、深度校验并覆盖安装到 `ZengJice iPhone`，build
   `20260818-stage7`；App 启动成功。
-- 真机续期行为待用户验收。
+- 真机续期行为验收通过。
