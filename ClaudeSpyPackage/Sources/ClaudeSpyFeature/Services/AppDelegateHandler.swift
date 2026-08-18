@@ -88,9 +88,18 @@
         /// Called when notification arrives while app is in foreground
         public func userNotificationCenter(
             _: UNUserNotificationCenter,
-            willPresent _: UNNotification,
+            willPresent notification: UNNotification,
             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
         ) {
+            if
+                notification.request.content.userInfo[
+                    PushNotificationService.backgroundOnlyUserInfoKey
+                ] as? String == "true",
+                UIApplication.shared.applicationState == .active
+            {
+                completionHandler([])
+                return
+            }
             // Show the notification even when app is in foreground (banner + sound)
             completionHandler([.banner, .sound])
         }

@@ -277,6 +277,7 @@ final public class ConnectedViewerManager {
     /// actionable on iOS (open-form context, issue #710).
     public func sendCustomPushNotificationToAll(
         title: String,
+        subtitle: String? = nil,
         body: String,
         paneId: String?,
         action: NotificationActionContext? = nil
@@ -286,6 +287,7 @@ final public class ConnectedViewerManager {
                 group.addTask {
                     await connection.sendCustomPushNotification(
                         title: title,
+                        subtitle: subtitle,
                         body: body,
                         paneId: paneId,
                         action: action

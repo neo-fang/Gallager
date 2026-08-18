@@ -1633,9 +1633,17 @@
             // originating session; fall back to "system" only when the event
             // carries no pane (e.g. a ctrlx-cli notify with no target).
             terminalNotificationService.showNotification(paneId ?? "system", macNotification, nil)
-            await connectedViewerManager?.sendCustomPushNotificationToAll(
+
+            let paneState = paneId.flatMap { windowManager.paneStates[$0] }
+            let pushPresentation = AgentNotificationPresentation(
                 title: notification.title,
                 body: notification.body,
+                paneState: paneState
+            )
+            await connectedViewerManager?.sendCustomPushNotificationToAll(
+                title: pushPresentation.title,
+                subtitle: pushPresentation.subtitle,
+                body: pushPresentation.body,
                 paneId: paneId,
                 action: action
             )
@@ -3977,6 +3985,13 @@
 
                 // Clear sessions when a remote host disconnects
                 manager.onHostDisconnected = { [weak store] hostId in
+                    store?.clearSessions(for: hostId)
+                }
+
+                // A viewer-side transport interruption has the same UI effect
+                // on macOS, but remains a distinct lifecycle signal so iOS can
+                // keep a finite Agent monitor alive while it reconnects.
+                manager.onTransportInterrupted = { [weak store] hostId in
                     store?.clearSessions(for: hostId)
                 }
 

@@ -8,9 +8,12 @@
 	<string>$(CTRLX_SOURCE_REVISION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.jicezeng.ctrlx.refresh</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).agent-monitor.*</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

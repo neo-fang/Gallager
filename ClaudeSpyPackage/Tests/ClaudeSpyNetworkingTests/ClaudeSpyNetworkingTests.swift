@@ -12,6 +12,7 @@ struct PushModelsTests {
         let timestamp = Date(timeIntervalSince1970: 1_704_067_200) // 2024-01-01 00:00:00 UTC
         let content = NotificationContent(
             title: "Test Title",
+            subtitle: "Test Subtitle",
             body: "Test Body",
             eventType: "sessionStart",
             pairId: "test-pair-123",
@@ -24,6 +25,7 @@ struct PushModelsTests {
         let jsonString = try #require(String(data: jsonData, encoding: .utf8))
 
         #expect(jsonString.contains("Test Title"))
+        #expect(jsonString.contains("Test Subtitle"))
         #expect(jsonString.contains("Test Body"))
         #expect(jsonString.contains("sessionStart"))
         #expect(jsonString.contains("test-pair-123"))
@@ -46,6 +48,7 @@ struct PushModelsTests {
         let content = try decoder.decode(NotificationContent.self, from: Data(json.utf8))
 
         #expect(content.title == "Claude Code")
+        #expect(content.subtitle == nil)
         #expect(content.body == "Session started")
         #expect(content.eventType == "sessionStart")
         #expect(content.pairId == "pair-abc")
@@ -55,6 +58,7 @@ struct PushModelsTests {
     func notificationContentRoundTrip() throws {
         let original = NotificationContent(
             title: "Permission Required",
+            subtitle: "Needs input",
             body: "Claude Code needs permission",
             eventType: "permissionRequest",
             pairId: "uuid-123",
@@ -70,6 +74,7 @@ struct PushModelsTests {
         let decoded = try decoder.decode(NotificationContent.self, from: jsonData)
 
         #expect(decoded.title == original.title)
+        #expect(decoded.subtitle == original.subtitle)
         #expect(decoded.body == original.body)
         #expect(decoded.eventType == original.eventType)
         #expect(decoded.pairId == original.pairId)

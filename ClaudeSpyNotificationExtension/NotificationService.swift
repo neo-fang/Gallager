@@ -120,6 +120,7 @@ class NotificationService: UNNotificationServiceExtension {
 
             // Update the notification with decrypted content
             content.title = notificationContent.title
+            content.subtitle = notificationContent.subtitle ?? ""
             content.body = notificationContent.body
 
             // Add context to userInfo for deep linking and analytics

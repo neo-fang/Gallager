@@ -69,6 +69,7 @@
             case terminalKeyboardControlPosition
             case showTerminalKeyboardOnEntry
             case agentQuickInputEnabled
+            case agentBackgroundMonitoringEnabled
             case newSessionName
             case newSessionWidth
             case newSessionHeight
@@ -150,6 +151,18 @@
             didSet { preferences.setBool(agentQuickInputEnabled, Keys.agentQuickInputEnabled) }
         }
 
+        /// Whether the user wants Agent monitoring to resume on the next
+        /// eligible foreground input. Runtime lease state is owned separately by
+        /// `AgentBackgroundMonitoringService` and may be inactive while this is on.
+        public var agentBackgroundMonitoringEnabled = false {
+            didSet {
+                preferences.setBool(
+                    agentBackgroundMonitoringEnabled,
+                    Keys.agentBackgroundMonitoringEnabled
+                )
+            }
+        }
+
         /// Base name for new tmux sessions created from iOS
         public var newSessionName = "claude" {
             didSet { preferences.setString(newSessionName, Keys.newSessionName) }
@@ -220,6 +233,9 @@
             )
             self.showTerminalKeyboardOnEntry = preferences.optionalBool(Keys.showTerminalKeyboardOnEntry) ?? false
             self.agentQuickInputEnabled = preferences.optionalBool(Keys.agentQuickInputEnabled) ?? false
+            self.agentBackgroundMonitoringEnabled = preferences.optionalBool(
+                Keys.agentBackgroundMonitoringEnabled
+            ) ?? false
 
             // New session settings
             self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"
