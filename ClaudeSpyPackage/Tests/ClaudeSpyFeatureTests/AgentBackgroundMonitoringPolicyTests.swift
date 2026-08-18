@@ -106,6 +106,26 @@ struct AgentBackgroundMonitoringPolicyTests {
         #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(after: 719) == nil)
     }
 
+    @Test("Foreground renewal restores a full activity window")
+    func renewedActivityBudget() {
+        let renewedLimit = AgentBackgroundMonitoringPolicy.renewedActivityUnitLimit(after: 360)
+
+        #expect(renewedLimit == 1_080)
+        #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(
+            after: 719,
+            limit: renewedLimit
+        ) == 720)
+        #expect(AgentBackgroundMonitoringPolicy.nextActivityUnit(
+            after: 1_079,
+            limit: renewedLimit
+        ) == nil)
+        #expect(
+            AgentBackgroundMonitoringPolicy.renewedActivityUnitLimit(
+                after: Int64.max - 1
+            ) == Int64.max
+        )
+    }
+
     @Test("Snapshots avoid stale terminal state and remain host-throttled")
     func snapshotCadence() {
         let submittedAt = Date(timeIntervalSince1970: 1_000)

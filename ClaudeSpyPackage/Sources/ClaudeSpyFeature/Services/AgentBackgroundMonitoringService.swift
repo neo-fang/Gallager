@@ -47,6 +47,7 @@
             var title: String
             var subtitle: String
             var completedActivityUnits: Int64
+            var activityUnitLimit: Int64
         }
 
         @ObservationIgnored
@@ -109,7 +110,8 @@
                 isLaunched: false,
                 title: "CtrlX",
                 subtitle: "Agent notifications active",
-                completedActivityUnits: AgentBackgroundMonitoringPolicy.initialActivityUnits
+                completedActivityUnits: AgentBackgroundMonitoringPolicy.initialActivityUnits,
+                activityUnitLimit: AgentBackgroundMonitoringPolicy.maximumActivityUnits
             )
             monitoringSession = session
 
@@ -342,11 +344,18 @@
         }
 
         public func noteSceneActive(_ active: Bool) {
+            let wasActive = sceneIsActive
             sceneIsActive = active
             logger.info(
                 "Scene \(active ? "active" : "background", privacy: .public); globalMonitor=\(self.monitoringSession != nil, privacy: .public)"
             )
-            guard !active else { return }
+
+            if active {
+                guard !wasActive else { return }
+                renewMonitoringLease()
+                return
+            }
+
             guard let identifier = monitoringSession?.identifier else { return }
             kickConnectionMaintenance(identifier: identifier)
         }
@@ -470,8 +479,31 @@
                     title: session.title,
                     subtitle: session.subtitle,
                     completedUnitCount: session.completedActivityUnits,
-                    totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
+                    totalUnitCount: session.activityUnitLimit
                 )
+            )
+        }
+
+        private func renewMonitoringLease() {
+            guard var session = monitoringSession else { return }
+            let renewedLimit = AgentBackgroundMonitoringPolicy.renewedActivityUnitLimit(
+                after: session.completedActivityUnits
+            )
+            guard renewedLimit > session.activityUnitLimit else { return }
+
+            session.activityUnitLimit = renewedLimit
+            monitoringSession = session
+            continuedProcessing.update(
+                session.identifier,
+                ContinuedProcessingUpdate(
+                    title: session.title,
+                    subtitle: session.subtitle,
+                    completedUnitCount: session.completedActivityUnits,
+                    totalUnitCount: session.activityUnitLimit
+                )
+            )
+            logger.info(
+                "Global monitoring session renewed at unit \(session.completedActivityUnits, privacy: .public); limit=\(session.activityUnitLimit, privacy: .public)"
             )
         }
 
@@ -564,7 +596,8 @@
                 return false
             }
             guard let nextUnit = AgentBackgroundMonitoringPolicy.nextActivityUnit(
-                after: session.completedActivityUnits
+                after: session.completedActivityUnits,
+                limit: session.activityUnitLimit
             ) else {
                 resetLeaseState()
                 continuedProcessing.finish(identifier)
@@ -579,7 +612,7 @@
                     title: session.title,
                     subtitle: session.subtitle,
                     completedUnitCount: nextUnit,
-                    totalUnitCount: AgentBackgroundMonitoringPolicy.maximumActivityUnits
+                    totalUnitCount: session.activityUnitLimit
                 )
             )
             return true
