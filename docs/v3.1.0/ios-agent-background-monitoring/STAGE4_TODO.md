@@ -2,8 +2,8 @@
 
 ## Stage Status
 
-- **Status**: 🟡 In Progress
-- **Progress**: 33/35 tasks
+- **Status**: ✅ Completed
+- **Progress**: 35/35 tasks
 - **Dependencies**: Stage 3 ✅
 
 ## Tasks
@@ -36,13 +36,13 @@
 - [x] 将逐 turn request 收敛为单一两小时全局监控会话
 - [x] Agent 终态只更新卡片并发通知，不结束全局任务
 - [x] 用户操作幂等确保会话，并维护全部 Viewer Host 连接
-- [ ] 强制终止后通过显式启动或 Agent prompt 恢复系统监控卡片
+- [x] 强制终止后通过显式启动或 Agent prompt 恢复系统监控卡片
 - [x] 全局监控使用单一即时 request，并在 Settings 区分 Starting、Active 与提交失败
 - [x] 显式声明 Live Activities 支持，避免后台任务 Active 但系统活动 UI 不呈现
 - [x] 在首次系统 UI 更新前发布有效进度，避免首帧使用默认 0/0 状态
 - [x] 将系统卡片改为全局监控状态和工作 Agent 数量，不再绑定具体 window
 - [x] 将持久偏好和启动按钮收敛为一个真实反映任务生命周期的会话开关
-- [ ] 通过聚焦测试、iPhoneOS 构建并完成 iPhone 真机测试
+- [x] 通过聚焦测试、iPhoneOS 构建并完成 iPhone 真机测试
 
 ## Blockers
 

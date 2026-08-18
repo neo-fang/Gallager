@@ -377,6 +377,14 @@
 
         public func stopAll() {
             let identifier = monitoringSession?.identifier
+            resetLeaseState()
+            lastStartFailure = nil
+            if let identifier {
+                continuedProcessing.finish(identifier)
+            }
+        }
+
+        private func resetLeaseState() {
             monitoringSession = nil
             paneContexts.removeAll()
             panePhases.removeAll()
@@ -385,12 +393,8 @@
             lastSnapshotAtByHost.removeAll()
             pendingSnapshotRequestAtByHost.removeAll()
             lastNotificationDeliveryAtByPane.removeAll()
-            lastStartFailure = nil
             activityReporter?.cancel()
             activityReporter = nil
-            if let identifier {
-                continuedProcessing.finish(identifier)
-            }
         }
 
         private func apply(
@@ -484,10 +488,8 @@
 
         private func handleExpiration(identifier: String) {
             guard let session = monitoringSession, session.identifier == identifier else { return }
-            monitoringSession = nil
-            activityReporter?.cancel()
-            activityReporter = nil
             let lifetime = Date().timeIntervalSince(session.startedAt)
+            resetLeaseState()
             logger.warning(
                 "Global monitoring session expired after \(String(format: "%.3f", lifetime), privacy: .public)s"
             )
@@ -564,8 +566,7 @@
             guard let nextUnit = AgentBackgroundMonitoringPolicy.nextActivityUnit(
                 after: session.completedActivityUnits
             ) else {
-                monitoringSession = nil
-                activityReporter = nil
+                resetLeaseState()
                 continuedProcessing.finish(identifier)
                 return false
             }

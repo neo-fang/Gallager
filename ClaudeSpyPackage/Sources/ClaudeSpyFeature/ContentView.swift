@@ -72,16 +72,8 @@
             .onChange(of: settings.agentBackgroundMonitoringEnabled) { _, enabled in
                 if enabled {
                     agentBackgroundMonitoring.startFromUserAction()
-                    if agentBackgroundMonitoring.monitoringStatus == .inactive {
-                        settings.agentBackgroundMonitoringEnabled = false
-                    }
-                } else if agentBackgroundMonitoring.monitoringStatus != .inactive {
+                } else {
                     agentBackgroundMonitoring.stopAll()
-                }
-            }
-            .onChange(of: agentBackgroundMonitoring.monitoringStatus) { _, status in
-                if status == .inactive, settings.agentBackgroundMonitoringEnabled {
-                    settings.agentBackgroundMonitoringEnabled = false
                 }
             }
         }
@@ -660,6 +652,11 @@
                                     .font(.caption)
                                     .foregroundStyle(.red)
                                     .textSelection(.enabled)
+                            } else if settings.agentBackgroundMonitoringEnabled {
+                                LabeledContent("Monitoring Status") {
+                                    Text("Ready")
+                                        .foregroundStyle(.secondary)
+                                }
                             }
 
                         case .starting:
@@ -687,8 +684,9 @@
                         "Quick Input shows a reply field above agent terminals. "
                             + "Background monitoring keeps one finite notification session active "
                             + "for up to two hours across Agent turns and connected Macs. "
-                            + "iOS shows no permission prompt. The switch starts and stops the "
-                            + "current session; it returns off after expiry or a new app launch."
+                            + "iOS shows no permission prompt. If a system session expires, the "
+                            + "next Agent input starts a new one; iOS does not allow silent "
+                            + "background renewal without a foreground user action."
                     )
                 }
 
