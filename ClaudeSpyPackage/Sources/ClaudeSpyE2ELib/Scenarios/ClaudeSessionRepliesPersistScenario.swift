@@ -37,9 +37,12 @@ public enum ClaudeSessionRepliesPersistScenario {
         TestStep.iosScreenshot(label: "ios-prompt-filled")
         TestStep.iosTap(.labelContains("Send"))
 
-        // Verify the prompt submitted feedback is showing after submission
-        TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 5)
-        TestStep.iosScreenshot(label: "ios-prompt-submitted")
+        // A transport write is not proof that the TUI consumed Enter. The
+        // composer remains the source of truth until a real working state
+        // replaces it; never show or persist optimistic "Prompt submitted".
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 5)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Prompt submitted"), timeout: 1)
+        TestStep.iosScreenshot(label: "ios-prompt-awaiting-agent-state")
 
         // Navigate back to session list
         TestStep.iosTap(.labelContains("Sessions"))
@@ -48,15 +51,17 @@ public enum ClaudeSessionRepliesPersistScenario {
         // Re-enter session
         TestStep.iosTap(.labelContains("MyProject"))
 
-        // Verify the prompt submitted feedback persists after navigating back
-        TestStep.iosWaitForElement(.labelContains("Prompt submitted"), timeout: 10)
+        // The synthesized reply composer must still be available after
+        // navigating back while the fake E2E session remains idle.
+        TestStep.iosWaitForElement(.labelContains("Reply to the agent"), timeout: 10)
+        TestStep.iosWaitForElementToDisappear(.labelContains("Prompt submitted"), timeout: 1)
         // Wait for the terminal to finish (re)connecting — the baseline
         // captures the connected state, so the screenshot must not race
         // the "Connecting to terminal..." placeholder.
         TestStep.iosWaitForElementToDisappear(.labelContains("Connecting to terminal"), timeout: 10)
         // Settle wait for the terminal view's push transition.
         TestStep.wait(seconds: 1)
-        TestStep.iosScreenshot(label: "ios-prompt-persists")
+        TestStep.iosScreenshot(label: "ios-reply-composer-persists")
 
         // ──────────────────────────────────────────────────────────
         // Phase 1: AskUserQuestion with 2 questions

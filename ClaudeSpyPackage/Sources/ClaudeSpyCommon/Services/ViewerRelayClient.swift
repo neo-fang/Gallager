@@ -2,6 +2,21 @@ import ClaudeSpyEncryption
 import ClaudeSpyNetworking
 import Foundation
 
+/// Keeps JSONDecoder and its CPU work off MainActor while preserving the
+/// receive loop's message order.
+private actor WebSocketMessageDecoder {
+    private let decoder: JSONDecoder
+
+    init() {
+        decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+    }
+
+    func decode(_ data: Data) throws -> WebSocketMessage {
+        try decoder.decode(WebSocketMessage.self, from: data)
+    }
+}
+
 /// Errors that can occur during viewer relay communication.
 public enum ViewerRelayClientError: Error, LocalizedError {
     case notConnected
@@ -56,6 +71,7 @@ final public class ViewerRelayClient {
     // MARK: - Properties
 
     private let logger = Logger(label: "com.claudespy.viewerrelayclient")
+    private let messageDecoder = WebSocketMessageDecoder()
 
     /// Current connection state
     public private(set) var state: ConnectionState = .disconnected
@@ -118,11 +134,9 @@ final public class ViewerRelayClient {
     private let pongTimeoutSeconds: Int
 
     /// Set right before a keep-alive ping is sent, cleared on ANY inbound frame.
-    /// If it is still set when the pong deadline elapses, the socket produced no
-    /// traffic for a full cycle and is treated as dead. This catches half-open
-    /// sockets after a network switch, which `URLSession` does not surface as a
-    /// `receive()` error — without it the client stays `.connected` (green dot)
-    /// while nothing actually flows.
+    /// Two consecutive silent rounds are required before reconnecting. This
+    /// catches genuinely half-open sockets after a network switch without making
+    /// one delayed MainActor turn look like a dead connection.
     private var awaitingPong = false
 
     /// Task for receiving messages
@@ -136,6 +150,10 @@ final public class ViewerRelayClient {
 
     /// Task for retrying registration (handles server-side race condition)
     private var registrationRetryTask: Task<Void, Never>?
+    private var connectionGeneration = ConnectionGeneration()
+    private var activeSendCount = 0
+    private var activeSendBytes = 0
+    private var livenessPolicy = ConnectionLivenessPolicy()
 
     // MARK: - E2EE Properties
 
@@ -175,17 +193,45 @@ final public class ViewerRelayClient {
 
     /// Per-pane terminal stream handlers, keyed by pane ID.
     /// Multiple panes can receive stream data concurrently.
-    private var terminalStreamHandlers: [String: @MainActor @Sendable (TerminalStreamMessage) -> Void] = [:]
+    private var terminalStreamHandlers = TerminalStreamHandlerRegistry()
+    private var legacyTerminalHandlerRegistrationIds: [String: UUID] = [:]
 
-    /// Register a terminal stream handler for a specific pane
+    /// Installs the current handler for a pane and returns its ownership token.
+    /// Replacing a handler invalidates the old token; stale views therefore
+    /// cannot unregister their successor's handler.
+    @discardableResult
+    public func registerTerminalStreamHandler(
+        for paneId: String,
+        handler: @MainActor @escaping @Sendable (TerminalStreamMessage) -> Void
+    ) -> UUID {
+        terminalStreamHandlers.register(paneId: paneId, handler: handler)
+    }
+
+    public func unregisterTerminalStreamHandler(
+        for paneId: String,
+        registrationId: UUID
+    ) {
+        terminalStreamHandlers.unregister(
+            paneId: paneId,
+            registrationId: registrationId
+        )
+    }
+
+    /// Compatibility entry point for callers compiled against the original
+    /// setter API. Its registration is token-owned as well, so a later `nil`
+    /// cannot remove a replacement installed through the new API.
+    @available(*, deprecated, message: "Use registerTerminalStreamHandler and token-based unregister")
     public func setTerminalStreamHandler(
         for paneId: String,
         handler: (@MainActor @Sendable (TerminalStreamMessage) -> Void)?
     ) {
         if let handler {
-            terminalStreamHandlers[paneId] = handler
-        } else {
-            terminalStreamHandlers.removeValue(forKey: paneId)
+            legacyTerminalHandlerRegistrationIds[paneId] = registerTerminalStreamHandler(
+                for: paneId,
+                handler: handler
+            )
+        } else if let registrationId = legacyTerminalHandlerRegistrationIds.removeValue(forKey: paneId) {
+            unregisterTerminalStreamHandler(for: paneId, registrationId: registrationId)
         }
     }
 
@@ -361,12 +407,21 @@ final public class ViewerRelayClient {
         // Fire-and-forget: just write to the WebSocket and return a synthetic success.
         // The command type declares it doesn't need a response, so no handler or timeout.
         guard command.commandType.requiresResponse else {
-            await sendEncrypted(.command(commandMessage))
+            guard await sendEncrypted(.command(commandMessage)) else {
+                return .failure(
+                    ViewerRelayClientError.commandFailed("Unable to send relay message")
+                )
+            }
             // All fire-and-forget commands currently use CommandResponseMessage as Response
             if let response = CommandResponseMessage.success(for: commandMessage.id) as? C.Response {
                 return .success(response)
             }
             return .failure(ViewerRelayClientError.commandFailed("Unexpected response type"))
+        }
+
+        let generation = connectionGeneration.current
+        guard let task = webSocketTask else {
+            return .failure(ViewerRelayClientError.notConnected)
         }
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<Result<C.Response, Error>, Never>) in
@@ -384,7 +439,11 @@ final public class ViewerRelayClient {
             }
 
             Task {
-                guard await self.sendEncrypted(.command(commandMessage)) else {
+                guard await self.sendEncrypted(
+                    .command(commandMessage),
+                    using: task,
+                    generation: generation
+                ) else {
                     self.timeoutTasks.removeValue(forKey: commandMessage.id)?.cancel()
                     if let handler = self.pendingCommands.removeValue(forKey: commandMessage.id) {
                         handler(.failure(ViewerRelayClientError.commandFailed("Unable to send relay message")))
@@ -428,6 +487,8 @@ final public class ViewerRelayClient {
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
         case let .markHandled(spec):
             return (try? await sendCommand(spec, paneId: paneId).get()) != nil
+        case let .renameTmuxSession(spec):
+            return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .setSessionDescription(spec):
             return (try? await sendCommand(spec, paneId: "").get()) != nil
         case let .setSessionColor(spec):
@@ -544,6 +605,8 @@ final public class ViewerRelayClient {
             return
         }
 
+        connectionGeneration.invalidate()
+        let generation = connectionGeneration.current
         setState(.connecting)
 
         // Build WebSocket URL with query parameters
@@ -584,7 +647,7 @@ final public class ViewerRelayClient {
         task.resume()
 
         receiveTask = Task { [weak self] in
-            await self?.receiveMessages()
+            await self?.receiveMessages(using: task, generation: generation)
         }
 
         // Register as viewer
@@ -597,7 +660,8 @@ final public class ViewerRelayClient {
                 publicKeyId: publicKeyId
             )
         )
-        await send(registerMessage)
+        guard await send(registerMessage, using: task, generation: generation) else { return }
+        guard connectionGeneration.isCurrent(generation), webSocketTask === task else { return }
 
         // Transition to connected immediately. The server's viewerRegistered
         // response may be lost due to a race condition in Vapor's WebSocket
@@ -615,38 +679,51 @@ final public class ViewerRelayClient {
         // handles duplicate registrations idempotently.
         registrationRetryTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(1))
-            guard !Task.isCancelled else { return }
-            self?.logger.debug("Retrying registration (race condition mitigation)")
-            await self?.send(registerMessage)
+            guard
+                !Task.isCancelled,
+                let self,
+                self.connectionGeneration.isCurrent(generation),
+                self.webSocketTask === task
+            else { return }
+            self.logger.debug("Retrying registration (race condition mitigation)")
+            await self.send(registerMessage, using: task, generation: generation)
         }
 
         pingTask = Task { [weak self] in
-            await self?.pingLoop()
+            await self?.pingLoop(using: task, generation: generation)
         }
     }
 
-    private func receiveMessages() async {
+    private func receiveMessages(
+        using task: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async {
         while !Task.isCancelled {
-            guard let task = webSocketTask else {
-                break
-            }
+            guard connectionGeneration.isCurrent(generation), webSocketTask === task else { break }
 
             do {
                 let message = try await task.receive()
-                await handleMessage(message)
+                guard connectionGeneration.isCurrent(generation), webSocketTask === task else { break }
+                await handleMessage(message, using: task, generation: generation)
             } catch {
                 if !Task.isCancelled {
                     logger.error("WebSocket receive error: \(error)")
-                    await handleDisconnection()
+                    await handleDisconnection(failedTask: task, generation: generation)
                 }
                 break
             }
         }
     }
 
-    private func handleMessage(_ message: URLSessionWebSocketTask.Message) async {
+    private func handleMessage(
+        _ message: URLSessionWebSocketTask.Message,
+        using task: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async {
+        guard connectionGeneration.isCurrent(generation), webSocketTask === task else { return }
         // Any inbound frame proves the socket is alive; clear the keep-alive watchdog.
         awaitingPong = false
+        livenessPolicy.receivedInboundFrame()
 
         let data: Data
         switch message {
@@ -660,16 +737,20 @@ final public class ViewerRelayClient {
         }
 
         do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let wsMessage = try decoder.decode(WebSocketMessage.self, from: data)
-            await handleWebSocketMessage(wsMessage)
+            let wsMessage = try await messageDecoder.decode(data)
+            guard connectionGeneration.isCurrent(generation), webSocketTask === task else { return }
+            await handleWebSocketMessage(wsMessage, using: task, generation: generation)
         } catch {
             logger.error("Failed to decode WebSocket message: \(error)")
         }
     }
 
-    private func handleWebSocketMessage(_ message: WebSocketMessage) async {
+    private func handleWebSocketMessage(
+        _ message: WebSocketMessage,
+        using task: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async {
+        guard connectionGeneration.isCurrent(generation), webSocketTask === task else { return }
         // Decrypt encrypted messages first
         let decryptedMessage: WebSocketMessage
         if case .encrypted = message {
@@ -686,6 +767,8 @@ final public class ViewerRelayClient {
         } else {
             decryptedMessage = message
         }
+
+        guard connectionGeneration.isCurrent(generation), webSocketTask === task else { return }
 
         switch decryptedMessage {
         case let .viewerRegistered(response):
@@ -762,7 +845,7 @@ final public class ViewerRelayClient {
 
         case let .terminalStream(streamMessage):
             logger.trace("Received terminal stream for pane \(streamMessage.paneId)")
-            terminalStreamHandlers[streamMessage.paneId]?(streamMessage)
+            terminalStreamHandlers.deliver(streamMessage)
 
         case let .hostConnected(connectedMessage):
             logger.info("Host device connected")
@@ -890,8 +973,21 @@ final public class ViewerRelayClient {
     /// on it; fire-and-forget callers discard it.
     @discardableResult
     private func send(_ message: WebSocketMessage) async -> Bool {
+        let generation = connectionGeneration.current
         guard let task = webSocketTask else {
             logger.debug("No WebSocket task, cannot send message")
+            return false
+        }
+        return await send(message, using: task, generation: generation)
+    }
+
+    @discardableResult
+    private func send(
+        _ message: WebSocketMessage,
+        using task: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async -> Bool {
+        guard connectionGeneration.isCurrent(generation), webSocketTask === task else {
             return false
         }
 
@@ -905,10 +1001,29 @@ final public class ViewerRelayClient {
                 )
                 return false
             }
+            activeSendCount += 1
+            activeSendBytes += data.count
+            recordSendQueue()
+            defer {
+                activeSendCount -= 1
+                activeSendBytes -= data.count
+                recordSendQueue()
+            }
+            let sendStart = ContinuousClock.now
+            defer {
+                TerminalTransportMetrics.shared.recordDuration(.webSocketSend, since: sendStart)
+            }
+            guard connectionGeneration.isCurrent(generation), webSocketTask === task else {
+                return false
+            }
             try await task.send(.data(data))
+            guard connectionGeneration.isCurrent(generation), webSocketTask === task else {
+                return false
+            }
             return true
         } catch {
             logger.error("Failed to send WebSocket message: \(error)")
+            await handleDisconnection(failedTask: task, generation: generation)
             return false
         }
     }
@@ -941,51 +1056,126 @@ final public class ViewerRelayClient {
     /// Returns whether the encrypted frame was handed to the transport.
     @discardableResult
     private func sendEncrypted(_ message: WebSocketMessage) async -> Bool {
-        guard let e2eeService, await e2eeService.isSessionEstablished else {
+        let generation = connectionGeneration.current
+        guard let task = webSocketTask else {
+            logger.debug("No WebSocket task, cannot send encrypted message")
+            return false
+        }
+        return await sendEncrypted(message, using: task, generation: generation)
+    }
+
+    @discardableResult
+    private func sendEncrypted(
+        _ message: WebSocketMessage,
+        using task: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async -> Bool {
+        guard
+            connectionGeneration.isCurrent(generation),
+            webSocketTask === task,
+            let e2eeService,
+            await e2eeService.isSessionEstablished
+        else {
             logger.error("E2EE session not established, refusing to send sensitive message")
             return false
         }
 
         do {
+            let encryptionStart = ContinuousClock.now
+            defer {
+                TerminalTransportMetrics.shared.recordDuration(.encryption, since: encryptionStart)
+            }
             let encryptedMessage = try await message.encrypt(using: e2eeService)
-            return await send(encryptedMessage)
+            guard connectionGeneration.isCurrent(generation), webSocketTask === task else {
+                return false
+            }
+            return await send(encryptedMessage, using: task, generation: generation)
         } catch {
             logger.error("Failed to encrypt message: \(error)")
             return false
         }
     }
 
-    private func pingLoop() async {
-        while !Task.isCancelled, state.isConnected {
+    private func recordSendQueue() {
+        TerminalTransportMetrics.shared.recordQueue(
+            .webSocketSend,
+            id: "viewer:\(pairId ?? "unpaired")",
+            depth: activeSendCount,
+            bytes: activeSendBytes
+        )
+    }
+
+    private func pingLoop(
+        using task: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async {
+        var isFirstRound = true
+        while
+            !Task.isCancelled,
+            state.isConnected,
+            connectionGeneration.isCurrent(generation),
+            webSocketTask === task
+        {
             // Idle period between keep-alive pings.
-            try? await Task.sleep(for: .seconds(pingIntervalSeconds))
-            guard !Task.isCancelled, state.isConnected else { break }
+            let jitter = isFirstRound ? initialPingJitterSeconds : 0
+            isFirstRound = false
+            try? await Task.sleep(for: .seconds(pingIntervalSeconds + jitter))
+            guard
+                !Task.isCancelled,
+                state.isConnected,
+                connectionGeneration.isCurrent(generation),
+                webSocketTask === task
+            else { break }
 
             awaitingPong = true
-            await send(.ping)
+            guard await send(.ping, using: task, generation: generation) else { break }
 
             // Wait for the server's pong (or any other inbound frame) to clear the flag.
             try? await Task.sleep(for: .seconds(pongTimeoutSeconds))
-            guard !Task.isCancelled, state.isConnected else { break }
+            guard
+                !Task.isCancelled,
+                state.isConnected,
+                connectionGeneration.isCurrent(generation),
+                webSocketTask === task
+            else { break }
 
             if awaitingPong {
-                logger.warning("No pong within \(pongTimeoutSeconds)s — connection is half-open, forcing reconnect")
-                // Cancel the socket so receiveMessages() observes the failure and runs
-                // the standard disconnection/backoff path exactly once. Calling
-                // handleDisconnection() directly would race that loop and could spawn a
-                // second reconnect task.
-                webSocketTask?.cancel(with: .goingAway, reason: nil)
-                break
+                if livenessPolicy.missedRound() {
+                    logger.warning(
+                        "No inbound frame for \(livenessPolicy.consecutiveMissedRounds) keepalive rounds — forcing reconnect"
+                    )
+                    await handleDisconnection(failedTask: task, generation: generation)
+                    break
+                }
+                logger.notice(
+                    "No inbound frame for one keepalive round; waiting for confirmation"
+                )
             }
         }
     }
 
-    private func handleDisconnection() async {
+    /// A small stable offset keeps this iPhone's host sockets from probing on
+    /// the same MainActor turn. Short test intervals intentionally use no jitter.
+    private var initialPingJitterSeconds: Int {
+        guard pingIntervalSeconds >= 5, let pairId else { return 0 }
+        let checksum = pairId.utf8.reduce(0) { ($0 &* 31 &+ Int($1)) & 0x7FFF_FFFF }
+        return checksum % 5
+    }
+
+    private func handleDisconnection(
+        failedTask: URLSessionWebSocketTask,
+        generation: UInt64
+    ) async {
+        // A delayed receive/send failure from an old socket must never tear down
+        // its replacement.
+        guard connectionGeneration.isCurrent(generation), webSocketTask === failedTask else {
+            return
+        }
+
         isHostConnected = false
         connectedHostName = nil
-        await onHostDisconnected?()
-
         await cleanupConnection()
+        await onHostDisconnected?()
 
         guard shouldReconnect else { return }
 
@@ -1016,7 +1206,9 @@ final public class ViewerRelayClient {
     }
 
     private func cleanupConnection() async {
+        connectionGeneration.invalidate()
         awaitingPong = false
+        livenessPolicy.receivedInboundFrame()
 
         receiveTask?.cancel()
         receiveTask = nil

@@ -190,6 +190,14 @@ final public class SessionDetailService {
     private func applyForm(_ request: AgentResponseRequest, requestID: String, pluginID: String) {
         guard requestID != lastProcessedRequestID else { return }
         lastProcessedRequestID = requestID
+        #if os(iOS)
+            // reply-after-stop is a live composer, not a completed response.
+            // Clear legacy optimistic feedback so navigating back never replaces
+            // the composer with a stale "Prompt submitted" row.
+            if case .replyAfterStop = request {
+                sessionStore.setResponse(nil, forRequestID: requestID)
+            }
+        #endif
         // Pass sessionStore so ResponseState can persist/restore responses.
         responseState = ResponseState(
             request: request,
@@ -205,6 +213,7 @@ final public class SessionDetailService {
     /// state.
     private func clearResponseState() {
         guard lastProcessedRequestID != nil else { return }
+        responseState?.replyDraft = ""
         #if os(iOS)
             sessionStore.setResponse(nil, forRequestID: replyAfterStopRequestID)
         #endif
@@ -226,14 +235,48 @@ final public class SessionDetailService {
         await relayClient.send(command, paneId: paneId)
     }
 
-    /// Submit a structured `AgentResponse` for the open request. The host matches
-    /// `requestID` and calls `core.deliverResponse(...)` (spec §7.2).
+    /// Agent-agnostic keys for the synthesized reply composer. Empty text keeps
+    /// the existing interrupt behavior; non-empty text gives the TUI one input
+    /// cycle to commit its draft before Enter.
+    static func replyAfterStopKeystrokes(for text: String) -> [TmuxKey] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? [.escape]
+            : [.text(trimmed), .delay(200), .enter]
+    }
+
+    /// Clear only the draft whose command succeeded. A late response must not
+    /// erase a newer composer that replaced the submitted state meanwhile.
+    static func finishReplySubmission(
+        succeeded: Bool,
+        submittedState: ResponseState?,
+        currentState: ResponseState?
+    ) {
+        guard succeeded, let submittedState, currentState === submittedState else { return }
+        submittedState.replyDraft = ""
+    }
+
+    /// Submit a response for the open request. The synthesized reply-after-stop
+    /// composer is agent-agnostic, so it uses the command channel directly: the
+    /// viewer then waits for the host's tmux result instead of treating a socket
+    /// write as success. Blocking plugin forms still use structured delivery.
     public func submitResponse(_ response: AgentResponse, pluginID: String, requestID: String) async {
-        await relayClient.submitAgentResponse(
-            sessionId: paneId,
-            pluginId: pluginID,
-            requestId: requestID,
-            response: response
-        )
+        if case let .replyAfterStop(text) = response {
+            let submittedState = responseState
+            let keys = Self.replyAfterStopKeystrokes(for: text)
+            let succeeded = await relayClient.send(.sendKeystroke(keys), paneId: paneId)
+            Self.finishReplySubmission(
+                succeeded: succeeded,
+                submittedState: submittedState,
+                currentState: responseState
+            )
+        } else {
+            await relayClient.submitAgentResponse(
+                sessionId: paneId,
+                pluginId: pluginID,
+                requestId: requestID,
+                response: response
+            )
+        }
     }
 }

@@ -25,6 +25,9 @@ BUILD_DIR="$PROJECT_ROOT/build-ios"
 ARCHIVE_PATH="$BUILD_DIR/Gallager.xcarchive"
 EXPORT_PATH="$BUILD_DIR/export"
 APP_NAME="Gallager"
+LOCAL_BUILD_ROOT="$PROJECT_ROOT/.build-local"
+XCODE_DERIVED_DATA="$LOCAL_BUILD_ROOT/DerivedData/release-iOS"
+XCODE_SOURCE_PACKAGES="$LOCAL_BUILD_ROOT/SourcePackages"
 TEAM_ID="XG2WG7U93U"
 BUNDLE_ID="br.eng.gustavo.claudespy"
 BETA_GROUP_NAME="Beta 1"
@@ -35,6 +38,9 @@ ASC_API_BASE="https://api.appstoreconnect.apple.com/v1"
 # =====================================================
 # shellcheck source=scripts/common.sh
 source "$SCRIPT_DIR/common.sh"
+
+BUILD_STAMP="$(get_build_stamp)"
+SOURCE_REVISION="$(get_source_revision)"
 
 # =====================================================
 # Parse arguments
@@ -316,6 +322,8 @@ API response: $response"
 check_prerequisites() {
     log_info "Checking prerequisites..."
 
+    assert_primary_worktree
+
     if ! command -v xcrun &> /dev/null; then
         log_error "Xcode command line tools are not installed."
     fi
@@ -368,7 +376,7 @@ build_archive() {
     log_info "Building iOS archive..."
 
     rm -rf "$BUILD_DIR"
-    mkdir -p "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR" "$XCODE_DERIVED_DATA" "$XCODE_SOURCE_PACKAGES"
 
     xcodebuild archive \
         -workspace "$WORKSPACE" \
@@ -376,7 +384,12 @@ build_archive() {
         -configuration Release \
         -archivePath "$ARCHIVE_PATH" \
         -destination "generic/platform=iOS" \
+        -derivedDataPath "$XCODE_DERIVED_DATA" \
+        -clonedSourcePackagesDirPath "$XCODE_SOURCE_PACKAGES" \
+        -disablePackageRepositoryCache \
         -allowProvisioningUpdates \
+        GALLAGER_BUILD_STAMP="$BUILD_STAMP" \
+        GALLAGER_SOURCE_REVISION="$SOURCE_REVISION" \
         DEVELOPMENT_TEAM="$TEAM_ID" \
         -quiet \
         || log_error "Archive build failed"

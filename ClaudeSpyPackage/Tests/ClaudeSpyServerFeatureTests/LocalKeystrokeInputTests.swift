@@ -15,12 +15,123 @@
     /// app only deletes a character instead of a word.
     @MainActor
     struct LocalKeystrokeInputTests {
+        @Test("Control mode encodes literal text as hex")
+        func controlModeEncodesLiteralTextAsHex() {
+            let commands = TmuxControlInputEncoder.commands(
+                paneId: "%7",
+                keys: [.text("a;\n中")]
+            )
+
+            #expect(commands == ["send-keys -t %7 -H 61 3b 0a e4 b8 ad"])
+        }
+
+        @Test("Control mode keeps split Option-Backspace in one named command")
+        func controlModeKeepsOptionBackspaceTogether() {
+            let commands = TmuxControlInputEncoder.commands(
+                paneId: "%7",
+                keys: [.escape, .backspace]
+            )
+
+            #expect(commands == ["send-keys -t %7 Escape BSpace"])
+        }
+
+        @Test("Control mode preserves mixed input order")
+        func controlModePreservesMixedInputOrder() {
+            let commands = TmuxControlInputEncoder.commands(
+                paneId: "%7",
+                keys: [.text("a"), .left, .text("b"), .ctrl("c"), .alt("d"), .ctrlAlt("x")]
+            )
+
+            #expect(commands == [
+                "send-keys -t %7 -H 61",
+                "send-keys -t %7 Left",
+                "send-keys -t %7 -H 62 03 1b 64 1b 18",
+            ])
+        }
+
+        @Test("Control mode declines unsafe or heavyweight batches")
+        func controlModeDeclinesFallbackCases() {
+            #expect(TmuxControlInputEncoder.commands(paneId: "session:0.0", keys: [.text("a")]) == nil)
+            #expect(TmuxControlInputEncoder.commands(paneId: "%7", keys: [.ctrl("中")]) == nil)
+            #expect(TmuxControlInputEncoder.commands(paneId: "%7", keys: [.delay(1)]) == nil)
+            #expect(
+                TmuxControlInputEncoder.commands(
+                    paneId: "%7",
+                    keys: Array(repeating: .ctrl("a"), count: TmuxControlInputEncoder.maximumHexBytes + 1)
+                ) == nil
+            )
+            #expect(
+                TmuxControlInputEncoder.commands(
+                    paneId: "%7",
+                    keys: [.text(String(repeating: "a", count: TmuxControlInputEncoder.maximumHexBytes + 1))]
+                ) == nil
+            )
+        }
+
+        @Test("Control manager declines input without creating a connection")
+        func controlManagerDeclinesWithoutConnection() async throws {
+            let manager = TmuxControlClientManager(tmuxPath: "/path/that/must/not/run")
+
+            let sent = try await manager.sendKeystrokesIfConnected(
+                paneId: "%7",
+                sessionName: "missing",
+                keys: [.text("a")]
+            )
+
+            #expect(!sent)
+        }
+
+        @Test("Control manager sends input through an existing tmux connection")
+        func controlManagerUsesExistingConnection() async throws {
+            let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
+            let suffix = UUID().uuidString.lowercased()
+            let socketPath = "/tmp/gallager-input-\(suffix.prefix(8)).sock"
+            let sessionName = "gallager-input-\(suffix)"
+            defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+
+            try await withDependencies {
+                $0[ProcessRunner.self] = .liveValue
+            } operation: {
+                let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                let created = try await tmux.createSession(
+                    baseName: sessionName,
+                    width: 80,
+                    height: 24
+                )
+                let manager = TmuxControlClientManager(tmuxPath: tmuxPath, socketPath: socketPath)
+                try await manager.registerPaneDimensions(
+                    paneId: created.paneId,
+                    sessionName: created.sessionName,
+                    dimensions: (80, 24)
+                )
+
+                let sent = try await manager.sendKeystrokesIfConnected(
+                    paneId: created.paneId,
+                    sessionName: created.sessionName,
+                    keys: [.text("printf '\\nGALLAGER_%s_OK\\n' STAGE18"), .enter]
+                )
+
+                #expect(sent)
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var content = ""
+                repeat {
+                    content = try await tmux.capturePaneText(created.paneId, scrollback: true)
+                    if content.contains("GALLAGER_STAGE18_OK") { break }
+                    await Task.yield()
+                } while ContinuousClock.now < deadline
+                #expect(content.contains("GALLAGER_STAGE18_OK"))
+
+                await manager.disconnectAll()
+                try await tmux.killSession(created.sessionName)
+            }
+        }
+
         @Test("Keys enqueued in the same runloop turn coalesce into one batch")
         func coalescesSameTurnEnqueues() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 // SwiftTerm emits Option-Backspace as two synchronous callbacks.
@@ -36,8 +147,8 @@
         func separateTurnsFlushSeparately() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 coalescer.enqueue([.text("a")])
@@ -54,8 +165,8 @@
         func flushPendingDrainsImmediately() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 // A key buffered earlier in this turn must flush before a
@@ -77,8 +188,8 @@
         func flushPendingNoopWhenEmpty() async {
             await withMainSerialExecutor {
                 let batches = LockIsolated<[[TmuxKey]]>([])
-                let coalescer = KeystrokeCoalescer { keys in
-                    batches.withValue { $0.append(keys) }
+                let coalescer = KeystrokeCoalescer { batch in
+                    batches.withValue { $0.append(batch.keys) }
                 }
 
                 coalescer.flushPending()
@@ -109,6 +220,98 @@
             let escape = try #require(args.firstIndex(of: "Escape"))
             let bspace = try #require(args.firstIndex(of: "BSpace"))
             #expect(escape < bspace)
+        }
+
+        @Test("sendKeystrokes preserves delayed sequence boundaries")
+        func sendKeystrokesPreservesDelays() async throws {
+            let commands = LockIsolated<[[String]]>([])
+            try await withDependencies {
+                $0[ProcessRunner.self].run = { @Sendable _, arguments, _, _ in
+                    commands.withValue { $0.append(arguments) }
+                    return ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
+                }
+            } operation: {
+                let tmux = TmuxService(tmuxPath: "/usr/bin/tmux")
+                try await tmux.sendKeystrokes("%1", keys: [.text("choice"), .delay(1), .enter])
+            }
+
+            let sendKeysCalls = commands.value.filter { $0.contains("send-keys") }
+            #expect(sendKeysCalls == [
+                ["send-keys", "-t", "%1", "-l", "--", "choice"],
+                ["send-keys", "-t", "%1", "Enter"],
+            ])
+        }
+
+        @Test("Process path terminates options before literal input")
+        func processPathTerminatesOptionsBeforeLiteralInput() async throws {
+            let commands = LockIsolated<[[String]]>([])
+            try await withDependencies {
+                $0[ProcessRunner.self].run = { @Sendable _, arguments, _, _ in
+                    commands.withValue { $0.append(arguments) }
+                    return ProcessResult(exitCode: 0, stdout: Data(), stderr: Data())
+                }
+            } operation: {
+                let tmux = TmuxService(tmuxPath: "/usr/bin/tmux")
+                let input = "sudo scutil --set HostName -n"
+                try await tmux.sendKeystrokes("%1", keys: TmuxKey.from(bytes: Data(input.utf8)))
+            }
+
+            let literalCalls = commands.value.filter { $0.contains("-l") }
+            #expect(literalCalls == [
+                ["send-keys", "-t", "%1", "-l", "--", "sudo"],
+                ["send-keys", "-t", "%1", "-l", "--", "scutil"],
+                ["send-keys", "-t", "%1", "-l", "--", "--set"],
+                ["send-keys", "-t", "%1", "-l", "--", "HostName"],
+                ["send-keys", "-t", "%1", "-l", "--", "-n"],
+            ])
+        }
+
+        @Test("Process path pastes leading hyphen arguments into an isolated tmux pane")
+        func processPathPastesLeadingHyphenArguments() async throws {
+            let tmuxPath = try #require(TmuxBinaryLocator.liveValue.find())
+            let suffix = UUID().uuidString.lowercased()
+            let socketPath = "/tmp/gallager-paste-\(suffix.prefix(8)).sock"
+            let sessionName = "gallager-paste-\(suffix)"
+            defer { killTmuxServer(tmuxPath: tmuxPath, socketPath: socketPath) }
+
+            try await withDependencies {
+                $0[ProcessRunner.self] = .liveValue
+            } operation: {
+                let tmux = TmuxService(tmuxPath: tmuxPath, socketPath: socketPath)
+                let created = try await tmux.createSession(
+                    baseName: sessionName,
+                    width: 80,
+                    height: 24,
+                    runCommand: "cat"
+                )
+                let input = "sudo scutil --set HostName -n"
+
+                try await tmux.sendKeystrokes(
+                    created.paneId,
+                    keys: TmuxKey.from(bytes: Data(input.utf8))
+                )
+
+                let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+                var content = ""
+                repeat {
+                    content = try await tmux.capturePaneText(created.paneId, scrollback: true)
+                    if content.contains(input) { break }
+                    await Task.yield()
+                } while ContinuousClock.now < deadline
+                #expect(content.contains(input))
+
+                try await tmux.killSession(created.sessionName)
+            }
+        }
+
+        private func killTmuxServer(tmuxPath: String, socketPath: String) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: tmuxPath)
+            process.arguments = ["-S", socketPath, "kill-server"]
+            process.environment = [:]
+            process.standardError = Pipe()
+            process.standardOutput = Pipe()
+            try? process.run()
         }
     }
 #endif

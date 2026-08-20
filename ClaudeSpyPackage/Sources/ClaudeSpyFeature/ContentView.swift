@@ -524,6 +524,13 @@
                 Section {
                     @Bindable var settings = settings
 
+                    Picker("Keyboard Control", selection: $settings.terminalKeyboardControlPosition) {
+                        ForEach(TerminalKeyboardControlPosition.allCases, id: \.self) { position in
+                            Text(position.displayName).tag(position)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
                     Picker("Font", selection: $settings.terminalFontName) {
                         ForEach(Self.availableFonts, id: \.self) { font in
                             Text(font).tag(font)
@@ -545,7 +552,17 @@
                 } header: {
                     Text("Terminal")
                 } footer: {
-                    Text("Customize the font used in terminal snapshots.")
+                    Text("Choose where the keyboard control appears and customize the terminal font.")
+                }
+
+                Section {
+                    @Bindable var settings = settings
+
+                    Toggle("Agent Quick Input", isOn: $settings.agentQuickInputEnabled)
+                } header: {
+                    Text("Agent Input")
+                } footer: {
+                    Text("Shows a reply field above agent terminals. When off, use the keyboard button when you want to type.")
                 }
 
                 // New Session Section
@@ -588,6 +605,13 @@
 
                 // About Section
                 Section("About") {
+                    LabeledContent("Version") {
+                        Text(AppBuildInfo.current.displayVersion)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+
                     LabeledContent("Device ID") {
                         Text(settings.deviceId)
                             .font(.caption)

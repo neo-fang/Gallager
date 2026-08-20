@@ -15,8 +15,8 @@ struct PaneInfoTests {
     private static let preColorLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)My custom description"
     /// Pre-emoji format: color at 13, description at 14+ (no emoji column).
     private static let preEmojiLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)blue\(Self.sep)My custom description"
-    /// Current format: color at index 13, emoji at 14, description at 15.
-    private static let currentLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)blue\(Self.sep)🚀\(Self.sep)My custom description"
+    /// Current format: color at 13, emoji at 14, description at 15, stable window id at 16.
+    private static let currentLine = "%5\(Self.sep)work\(Self.sep)2\(Self.sep)0\(Self.sep)zsh\(Self.sep)/tmp\(Self.sep)80\(Self.sep)24\(Self.sep)1\(Self.sep)Title\(Self.sep)d0c6,80x24\(Self.sep)main\(Self.sep)1\(Self.sep)blue\(Self.sep)🚀\(Self.sep)My custom description\(Self.sep)@7"
 
     @Test("Parses a full tmux line including color, emoji, and description")
     func parsesCustomColorEmojiAndDescription() throws {
@@ -29,6 +29,8 @@ struct PaneInfoTests {
         #expect(pane.customColor == .blue)
         #expect(pane.customEmoji == "🚀")
         #expect(pane.customDescription == "My custom description")
+        #expect(pane.tmuxWindowId == "@7")
+        #expect(pane.stableWindowId == "@7")
     }
 
     @Test("Empty color, emoji, and description parse as nil")
@@ -83,6 +85,8 @@ struct PaneInfoTests {
         #expect(pane.customEmoji == nil)
         #expect(pane.customDescription == nil)
         #expect(pane.isWindowActive)
+        #expect(pane.tmuxWindowId == nil)
+        #expect(pane.stableWindowId == "work:2")
     }
 
     @Test("Pre-color format puts the description in the color slot")

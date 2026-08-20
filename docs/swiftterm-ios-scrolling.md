@@ -190,6 +190,7 @@ ClaudeSpy extends SwiftTerm's `TerminalView` with `InteractiveTerminalView`:
 | `onData` | Feed data to terminal |
 | `onResize` | Handle dimension changes |
 | `scrollToBottom` | Scroll terminal to bottom (callable from SwiftUI) |
+| `makeTextSnapshot` | Capture retained local terminal text for the copy surface |
 | `onInitialContentLoaded` | Called once after initial content is fed |
 
 ### Scroll-to-Bottom Implementation
@@ -214,6 +215,45 @@ Called on:
 - Keyboard show (after 350ms delay for animation)
 
 ## Key Constraints and Limitations
+
+### Text Selection Across the Outer Viewport
+
+SwiftTerm owns its selection gesture and only auto-scrolls when the drag leaves the
+`TerminalView` bounds. Gallager's `TerminalView` bounds cover the complete host-sized
+terminal, while the iPhone shows only a smaller rectangle through the outer scroll view.
+Reaching the phone edge therefore does not leave the terminal bounds, so SwiftTerm never
+scrolls and the selection cannot extend into content outside the outer viewport. The same
+ownership mismatch affects horizontal selection.
+
+Resizing is not an appropriate copy workaround:
+
+- Sending `ResizeTmuxPane` ultimately runs `tmux resize-window`, changing the shared tmux
+  window for the Mac and every viewer.
+- Resizing only the local SwiftTerm buffer makes it disagree with control sequences emitted
+  for the host dimensions and reintroduces the buffer corruption described above.
+- Multiple viewers would compete for the shared window size and require fragile restoration
+  when a viewer disconnects.
+
+The first-stage copy solution therefore keeps the terminal dimensions unchanged and creates
+a static text snapshot from the local SwiftTerm buffer only when requested. A native read-only
+text view owns selection in that snapshot, so iOS provides normal cross-screen selection,
+copy, and Select All without a relay request. The live terminal remains the source of truth;
+closing and reopening the copy view refreshes the snapshot.
+
+The snapshot walks SwiftTerm's active scroll-invariant lines, including retained scrollback,
+and removes only terminal cell padding on the right. It explicitly skips the null cells that
+follow wide characters; SwiftTerm's generic buffer export does not do that and would put an
+invisible NUL after Chinese or other double-width glyphs. Alternate-screen applications are
+read from the active alternate buffer rather than stale normal-buffer history.
+
+Only the selected pane contributes the toolbar action in a multi-pane layout. This avoids
+duplicated toolbar items and makes the copied buffer unambiguous. The sheet receives an
+immutable value: new terminal output continues normally but cannot move or invalidate the
+user's current selection.
+
+A later enhancement may teach the SwiftTerm fork about the outer visible rectangle and make
+selection-handle drags scroll the outer view. That is a direct-manipulation improvement, not a
+reason to change tmux sizing.
 
 ### SwiftTerm Limitations
 

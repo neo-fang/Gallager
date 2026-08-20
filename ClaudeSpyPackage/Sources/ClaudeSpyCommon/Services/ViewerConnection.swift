@@ -194,6 +194,7 @@ final public class ViewerConnection: Identifiable {
 
     /// Registered terminal stream handlers keyed by subscription UUID, with their target pane ID.
     private var terminalStreamSubscribers: [UUID: (paneId: String, handler: @MainActor (TerminalStreamMessage) -> Void)] = [:]
+    private var terminalHandlerRegistrationIds: [String: UUID] = [:]
 
     /// Subscribe to terminal stream messages for a specific pane.
     ///
@@ -225,18 +226,24 @@ final public class ViewerConnection: Identifiable {
 
         // If no more subscribers for this pane, remove the handler
         let hasOtherSubscribers = terminalStreamSubscribers.values.contains { $0.paneId == subscriber.paneId }
-        if !hasOtherSubscribers {
-            relayClient.setTerminalStreamHandler(for: subscriber.paneId, handler: nil)
+        if
+            !hasOtherSubscribers,
+            let registrationId = terminalHandlerRegistrationIds.removeValue(forKey: subscriber.paneId) {
+            relayClient.unregisterTerminalStreamHandler(
+                for: subscriber.paneId,
+                registrationId: registrationId
+            )
         }
     }
 
     /// Installs a per-pane handler on the relay client that routes messages to all matching subscribers.
     private func installTerminalStreamMultiplexer(for paneId: String) {
-        relayClient.setTerminalStreamHandler(for: paneId) { [weak self] message in
+        let registrationId = relayClient.registerTerminalStreamHandler(for: paneId) { [weak self] message in
             guard let self else { return }
             for (_, subscriber) in self.terminalStreamSubscribers where subscriber.paneId == message.paneId {
                 subscriber.handler(message)
             }
         }
+        terminalHandlerRegistrationIds[paneId] = registrationId
     }
 }

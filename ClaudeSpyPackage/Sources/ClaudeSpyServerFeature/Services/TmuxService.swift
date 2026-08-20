@@ -8,6 +8,9 @@ import Logging
 enum TmuxError: Error, LocalizedError {
     case tmuxNotFound
     case invalidPane(target: String)
+    case invalidSessionName(reason: String)
+    case sessionAlreadyExists(name: String)
+    case invalidWindowOrder(reason: String)
     case commandFailed(message: String)
 
     var errorDescription: String? {
@@ -16,6 +19,12 @@ enum TmuxError: Error, LocalizedError {
             return "tmux is not installed or not in PATH"
         case let .invalidPane(target):
             return "Session '\(target)' not found"
+        case let .invalidSessionName(reason):
+            return "Invalid session name: \(reason)"
+        case let .sessionAlreadyExists(name):
+            return "A session named '\(name)' already exists"
+        case let .invalidWindowOrder(reason):
+            return "Invalid window order: \(reason)"
         case let .commandFailed(message):
             return "tmux command failed: \(message)"
         }
@@ -71,6 +80,33 @@ enum PaneSurfaceRetry {
     static let attempts = 20
     /// Delay between attempts.
     static let delay = Duration.milliseconds(150)
+
+    /// Waits until the local pane cache contains the window owning `paneId`.
+    /// A concurrent periodic refresh can make `refreshPanes()` return its old
+    /// snapshot, so creation callers must not assume one refresh is sufficient.
+    @MainActor
+    static func localWindow(
+        containing paneId: String,
+        attempts: Int = PaneSurfaceRetry.attempts,
+        delay: Duration = PaneSurfaceRetry.delay,
+        windows: @escaping @MainActor () -> [LocalTmuxWindow],
+        refresh: @escaping @MainActor () async -> Void
+    ) async -> LocalTmuxWindow? {
+        guard attempts > 0 else { return nil }
+
+        for attempt in 0..<attempts {
+            if let window = windows().first(where: { window in
+                window.panes.contains(where: { $0.paneId == paneId })
+            }) {
+                return window
+            }
+            guard attempt < attempts - 1 else { break }
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return nil }
+            await refresh()
+        }
+        return nil
+    }
 }
 
 /// Service for interacting with tmux via CLI
@@ -290,8 +326,29 @@ final public class TmuxService {
     /// Error from the last refresh attempt, if any
     public private(set) var lastError: String?
 
-    /// Whether a refresh is currently in progress
+    /// Whether the initial pane discovery is in progress. Permanent background
+    /// polling is deliberately kept out of the SwiftUI observation graph.
     public private(set) var isRefreshing = false
+
+    /// Serializes refreshes without publishing every background poll into the
+    /// SwiftUI observation graph. `isRefreshing` is UI state; this is I/O state.
+    @ObservationIgnored private var refreshInFlight = false
+
+    /// A reorder spans several tmux subprocesses and therefore several actor
+    /// suspension points. Reject a second transaction for the same session
+    /// instead of interleaving two otherwise-valid swap plans.
+    @ObservationIgnored private var windowReordersInFlight: Set<String> = []
+
+    /// The loading indicator is only for the first snapshot after configuration,
+    /// not for the permanent discovery poll (including a legitimately empty tmux).
+    @ObservationIgnored private var hasCompletedInitialRefresh = false
+
+    /// Both the app-wide reconciler and agent plugins inspect the same process
+    /// tree. Share one short-lived snapshot so coincident 5s/10s polls do not
+    /// launch duplicate `tmux list-panes` and `ps` processes.
+    @ObservationIgnored private var cachedAgentProcessSnapshot: AgentProcessSnapshot?
+    @ObservationIgnored private var agentProcessSnapshotTask: Task<AgentProcessSnapshot?, Error>?
+    @ObservationIgnored private var agentProcessSnapshotGeneration: UInt64 = 0
 
     /// Sessions that currently have terminal clients attached (resize is controlled by the client)
     public private(set) var attachedSessionNames: Set<String> = []
@@ -320,6 +377,11 @@ final public class TmuxService {
     public func configure(tmuxPath: String, socketPath: String?) {
         self.tmuxPath = tmuxPath
         self.socketPath = socketPath?.isEmpty == true ? nil : socketPath
+        hasCompletedInitialRefresh = false
+        cachedAgentProcessSnapshot = nil
+        agentProcessSnapshotTask?.cancel()
+        agentProcessSnapshotTask = nil
+        agentProcessSnapshotGeneration &+= 1
     }
 
     /// Sets a handler to be called when the pane list changes.
@@ -358,14 +420,21 @@ final public class TmuxService {
     /// - Returns: The refreshed list of panes.
     @discardableResult
     public func refreshPanes() async -> [PaneInfo] {
-        guard !isRefreshing else { return panes }
+        guard !refreshInFlight else { return panes }
 
-        isRefreshing = true
-        lastError = nil
+        refreshInFlight = true
+        let reportsInitialLoading = !hasCompletedInitialRefresh
+        if reportsInitialLoading {
+            isRefreshing = true
+        }
         let oldPanes = panes
 
         defer {
-            isRefreshing = false
+            refreshInFlight = false
+            hasCompletedInitialRefresh = true
+            if reportsInitialLoading {
+                isRefreshing = false
+            }
 
             // Notify if panes changed (compare sets to ignore order)
             if Set(panes) != Set(oldPanes), let handler = onPanesChanged {
@@ -376,23 +445,31 @@ final public class TmuxService {
         }
 
         guard FileManager.default.isExecutableFile(atPath: tmuxPath) else {
+            if lastError != nil {
+                lastError = nil
+            }
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
                     "reason": "tmux binary not found at \(tmuxPath)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            panes = []
+            publishPanesIfChanged([])
             return panes
         }
 
         // Get sessions with attached clients to prefer them during deduplication
         let attachedSessions = await getAttachedSessionNames()
-        attachedSessionNames = attachedSessions
+        if attachedSessionNames != attachedSessions {
+            attachedSessionNames = attachedSessions
+        }
 
         switch await queryRefreshOutcome(attachedSessions: attachedSessions) {
         case let .assign(newPanes):
-            panes = newPanes
+            if lastError != nil {
+                lastError = nil
+            }
+            publishPanesIfChanged(newPanes)
             // When the override is active, type `export VISUAL=…` into any new
             // shell pane (issue #591 §5). Fired detached so it never blocks the
             // refresh; the per-pane dedup set keeps it idempotent.
@@ -400,13 +477,16 @@ final public class TmuxService {
                 Task { await injectOverrideIntoEligibleShellPanes() }
             }
         case let .empty(reason):
+            if lastError != nil {
+                lastError = nil
+            }
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: clearing panes", metadata: [
                     "reason": "\(reason)",
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            panes = []
+            publishPanesIfChanged([])
         case let .keep(reason, err):
             if !oldPanes.isEmpty {
                 logger.warning("tmux refresh: keeping old panes", metadata: [
@@ -414,11 +494,21 @@ final public class TmuxService {
                     "oldPaneCount": "\(oldPanes.count)",
                 ])
             }
-            lastError = err
+            if lastError != err {
+                lastError = err
+            }
             // panes intentionally untouched — observers see no change
         }
 
         return panes
+    }
+
+    /// Observation emits on assignment, not semantic change. tmux output order
+    /// is not UI state, so compare as sets and preserve the current ordering when
+    /// the snapshot contains the same pane metadata.
+    private func publishPanesIfChanged(_ newPanes: [PaneInfo]) {
+        guard Set(panes) != Set(newPanes) else { return }
+        panes = newPanes
     }
 
     /// Queries tmux and folds every signal into a single `RefreshOutcome`.
@@ -441,7 +531,7 @@ final public class TmuxService {
         // soon as `pane_title` contained a `|` (Codex CLI does this when it
         // surfaces "Action Required | <session>" titles).
         let sep = String(PaneInfo.fieldSeparator)
-        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}"
+        let format = "#{pane_id}\(sep)#{session_name}\(sep)#{window_index}\(sep)#{pane_index}\(sep)#{pane_current_command}\(sep)#{pane_current_path}\(sep)#{pane_width}\(sep)#{pane_height}\(sep)#{pane_active}\(sep)#{pane_title}\(sep)#{window_layout}\(sep)#{window_name}\(sep)#{window_active}\(sep)#{\(Self.colorOptionKey)}\(sep)#{\(Self.emojiOptionKey)}\(sep)#{\(Self.descriptionOptionKey)}\(sep)#{window_id}"
 
         let result: ProcessResult
         do {
@@ -534,6 +624,14 @@ final public class TmuxService {
         public let pluginID: String
     }
 
+    private struct AgentProcessSnapshot: Sendable {
+        let capturedAt: ContinuousClock.Instant
+        let paneInfo: [String: (pid: String, path: String)]
+        let processTree: ProcessTree?
+    }
+
+    private static let agentProcessSnapshotLifetime = Duration.seconds(1)
+
     /// Gets each pane's shell PID and current path via tmux, then walks the process tree
     /// from `ps` output to find any descendant process whose name is one of an enabled
     /// plugin's manifest `process_names`. This handles cases where the agent CLI is
@@ -547,6 +645,15 @@ final public class TmuxService {
     public func detectAgentPanes(
         processNamesByPlugin: [String: [String]]
     ) async -> [String: DetectedAgentPane] {
+        await detectAgentPanesIfAvailable(processNamesByPlugin: processNamesByPlugin) ?? [:]
+    }
+
+    /// Reliable variant used by periodic reconciliation. `nil` means tmux or
+    /// `ps` could not produce a trustworthy snapshot, which must not be treated
+    /// as proof that every previously detected agent exited.
+    func detectAgentPanesIfAvailable(
+        processNamesByPlugin: [String: [String]]
+    ) async -> [String: DetectedAgentPane]? {
         guard !processNamesByPlugin.isEmpty else { return [:] }
 
         // Invert to processName → pluginID for O(1) lookup while walking the tree.
@@ -561,27 +668,10 @@ final public class TmuxService {
         guard !pluginByProcessName.isEmpty else { return [:] }
 
         do {
-            // Get pane IDs, shell PIDs, and current paths in one tmux call.
-            // Joined with U+001F so a `|` in a working-directory path can't
-            // shift fields — see `PaneInfo.fieldSeparator`.
-            let sep = String(PaneInfo.fieldSeparator)
-            let result = try await runTmuxCommand([
-                "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
-            ])
-            guard result.isSuccess else { return [:] }
-
-            // Build paneId -> (panePid, currentPath) mapping
-            var paneInfo: [String: (pid: String, path: String)] = [:]
-            for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
-                let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
-                guard parts.count == 3 else { continue }
-                paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
-            }
-
+            guard let snapshot = try await agentProcessSnapshot() else { return nil }
+            let paneInfo = snapshot.paneInfo
             guard !paneInfo.isEmpty else { return [:] }
-
-            let tree = try await processTree()
-            guard let tree else { return [:] }
+            guard let tree = snapshot.processTree else { return nil }
 
             // Walk the subtree of each pane shell, collecting every descendant
             // whose process name a plugin claims. A pane can match more than one
@@ -607,10 +697,68 @@ final public class TmuxService {
             }
 
             return detected
+        } catch is CancellationError {
+            return nil
         } catch {
             logger.warning("detectAgentPanes failed: \(error)")
-            return [:]
+            return nil
         }
+    }
+
+    private func agentProcessSnapshot() async throws -> AgentProcessSnapshot? {
+        if
+            let cachedAgentProcessSnapshot,
+            ContinuousClock.now - cachedAgentProcessSnapshot.capturedAt < Self.agentProcessSnapshotLifetime {
+            return cachedAgentProcessSnapshot
+        }
+        if let agentProcessSnapshotTask {
+            return try await agentProcessSnapshotTask.value
+        }
+
+        let generation = agentProcessSnapshotGeneration
+        let task = Task { @MainActor [weak self] () throws -> AgentProcessSnapshot? in
+            try await self?.captureAgentProcessSnapshot()
+        }
+        agentProcessSnapshotTask = task
+        do {
+            let snapshot = try await task.value
+            guard agentProcessSnapshotGeneration == generation else {
+                throw CancellationError()
+            }
+            agentProcessSnapshotTask = nil
+            cachedAgentProcessSnapshot = snapshot
+            return snapshot
+        } catch {
+            if agentProcessSnapshotGeneration == generation {
+                agentProcessSnapshotTask = nil
+            }
+            throw error
+        }
+    }
+
+    private func captureAgentProcessSnapshot() async throws -> AgentProcessSnapshot? {
+        // Get pane IDs, shell PIDs, and current paths in one tmux call. Joined
+        // with U+001F so a `|` in a path cannot shift fields.
+        let sep = String(PaneInfo.fieldSeparator)
+        let result = try await runTmuxCommand([
+            "list-panes", "-a", "-F", "#{pane_id}\(sep)#{pane_pid}\(sep)#{pane_current_path}",
+        ])
+        guard result.isSuccess else { return nil }
+
+        var paneInfo: [String: (pid: String, path: String)] = [:]
+        for line in result.stdoutString.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\n") {
+            let parts = line.split(separator: PaneInfo.fieldSeparator, maxSplits: 2)
+            guard parts.count == 3 else { continue }
+            paneInfo[String(parts[0])] = (pid: String(parts[1]), path: String(parts[2]))
+        }
+
+        let tree = paneInfo.isEmpty ? nil : try await processTree()
+        guard paneInfo.isEmpty || tree != nil else { return nil }
+        return AgentProcessSnapshot(
+            capturedAt: .now,
+            paneInfo: paneInfo,
+            processTree: tree
+        )
     }
 
     /// Gets the names of sessions that have real terminal clients attached (excludes control-mode clients used by this app)
@@ -1788,6 +1936,11 @@ final public class TmuxService {
         var args = ["send-keys", "-t", target]
         if literal {
             args.append("-l") // Disable key name lookup
+            // Literal input may itself begin with "-" (for example a pasted
+            // shell argument such as "--set"). Without an option terminator,
+            // tmux parses that user text as another send-keys flag and drops
+            // this and every later input batch after returning an error.
+            args.append("--")
         }
         args.append(escapeTmuxSemicolon(keys))
 
@@ -2090,48 +2243,216 @@ final public class TmuxService {
         }
     }
 
-    /// Reorders a tmux window inside a single session so the windows match the
-    /// supplied id list. `windowIds` lists the windows of `sessionName` (each in
-    /// the form `sessionName:N`) in the order the caller wants them to appear.
+    /// Renames an existing tmux session without recreating its panes.
     ///
-    /// tmux only supports moving a window to one specific index at a time, so
-    /// the implementation rewrites every window index in two steps: first
-    /// parking each window at a high temporary index (offset by 1000) to free
-    /// up the lower indices, then moving each window into its target slot 0…N-1
-    /// in the desired order. After all moves complete a single `refreshPanes`
-    /// brings the in-memory model back in sync with tmux.
-    public func moveWindows(in sessionName: String, to windowIds: [String]) async throws {
-        guard !windowIds.isEmpty else { return }
-        // Park every window at a unique high index so the lower indices are
-        // free for re-assignment. -k forces tmux to overwrite the destination
-        // if it's already in use, which shouldn't happen at +1000 but keeps
-        // the call defensive against future renumbering.
-        for (offset, id) in windowIds.enumerated() {
-            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + offset)")
-            let result = try await runTmuxCommand([
-                "move-window", "-k",
-                "-s", id,
-                "-t", parkTarget,
-            ])
+    /// The caller owns the subsequent pane refresh because it also needs to
+    /// migrate UI state keyed by the old session name before observers prune it.
+    public func renameSession(from sessionName: String, to requestedName: String) async throws {
+        let currentName = sessionName
+        guard !currentName.isEmpty else {
+            throw TmuxError.invalidSessionName(reason: "the current name is empty")
+        }
+
+        let newName = try Self.validatedSessionName(requestedName)
+        guard newName != currentName else { return }
+
+        let existingNames = await getExistingSessionNames()
+        guard existingNames.contains(currentName) else {
+            throw TmuxError.invalidPane(target: currentName)
+        }
+        guard !existingNames.contains(newName) else {
+            throw TmuxError.sessionAlreadyExists(name: newName)
+        }
+
+        let result = try await runTmuxCommand([
+            "rename-session",
+            "-t", Self.sessionTarget(currentName),
+            newName,
+        ])
+        guard result.isSuccess else {
+            throw TmuxError.commandFailed(message: result.stderrString)
+        }
+    }
+
+    /// Trims and validates a tmux session name supplied by the user.
+    nonisolated static func validatedSessionName(_ rawName: String) throws -> String {
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw TmuxError.invalidSessionName(reason: "name must not be empty")
+        }
+        guard !name.contains(":"), !name.contains(".") else {
+            throw TmuxError.invalidSessionName(reason: "':' and '.' are not allowed")
+        }
+        guard !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw TmuxError.invalidSessionName(reason: "control characters are not allowed")
+        }
+        return name
+    }
+
+    struct WindowPosition: Equatable, Sendable {
+        let stableId: String
+        var index: Int
+    }
+
+    struct WindowSwap: Equatable, Sendable {
+        let sourceId: String
+        let targetIndex: Int
+    }
+
+    /// Produces the minimal left-to-right swap sequence while preserving the
+    /// session's actual index slots (including base-index 1 and sparse slots).
+    nonisolated static func windowReorderSwaps(
+        current: [WindowPosition],
+        desiredIds: [String]
+    ) throws -> [WindowSwap] {
+        guard !current.isEmpty else {
+            throw TmuxError.invalidWindowOrder(reason: "session has no windows")
+        }
+        let currentIds = current.map(\.stableId)
+        guard Set(currentIds).count == currentIds.count else {
+            throw TmuxError.invalidWindowOrder(reason: "tmux returned duplicate window ids")
+        }
+        guard Set(current.map(\.index)).count == current.count else {
+            throw TmuxError.invalidWindowOrder(reason: "tmux returned duplicate window indices")
+        }
+        guard desiredIds.count == current.count, Set(desiredIds).count == desiredIds.count else {
+            throw TmuxError.invalidWindowOrder(reason: "every window must appear exactly once")
+        }
+        guard Set(desiredIds) == Set(currentIds) else {
+            throw TmuxError.invalidWindowOrder(reason: "window set changed during drag")
+        }
+
+        let targetIndices = current.map(\.index).sorted()
+        var indexById = Dictionary(uniqueKeysWithValues: current.map { ($0.stableId, $0.index) })
+        var idByIndex = Dictionary(uniqueKeysWithValues: current.map { ($0.index, $0.stableId) })
+        var swaps: [WindowSwap] = []
+
+        for (desiredId, targetIndex) in zip(desiredIds, targetIndices) {
+            guard let sourceIndex = indexById[desiredId] else {
+                throw TmuxError.invalidWindowOrder(reason: "window \(desiredId) disappeared")
+            }
+            guard sourceIndex != targetIndex else { continue }
+            guard let displacedId = idByIndex[targetIndex] else {
+                throw TmuxError.invalidWindowOrder(reason: "target index \(targetIndex) disappeared")
+            }
+
+            swaps.append(WindowSwap(sourceId: desiredId, targetIndex: targetIndex))
+            indexById[desiredId] = targetIndex
+            indexById[displacedId] = sourceIndex
+            idByIndex[targetIndex] = desiredId
+            idByIndex[sourceIndex] = displacedId
+        }
+        return swaps
+    }
+
+    /// Reorders every window in one session using tmux's stable `#{window_id}`.
+    /// Existing index slots are retained; no destination is overwritten.
+    ///
+    /// Returns the old `session:index` to new `session:index` mapping so local
+    /// UI state that intentionally stores executable tmux targets can migrate
+    /// before the refreshed pane snapshot is published.
+    @discardableResult
+    public func moveWindows(in sessionName: String, to requestedIds: [String]) async throws -> [String: String] {
+        guard windowReordersInFlight.insert(sessionName).inserted else {
+            throw TmuxError.invalidWindowOrder(reason: "another reorder is already in progress")
+        }
+        defer { windowReordersInFlight.remove(sessionName) }
+
+        let sep = String(PaneInfo.fieldSeparator)
+        let listed = try await runTmuxCommand([
+            "list-windows", "-t", Self.sessionTarget(sessionName),
+            "-F", "#{window_id}\(sep)#{window_index}",
+        ])
+        guard listed.isSuccess else {
+            throw TmuxError.commandFailed(message: listed.stderrString)
+        }
+
+        let original = try listed.stdoutString
+            .split(separator: "\n")
+            .map(String.init)
+            .map { line -> WindowPosition in
+                let fields = line.split(separator: PaneInfo.fieldSeparator, omittingEmptySubsequences: false)
+                guard fields.count == 2, let index = Int(fields[1]) else {
+                    throw TmuxError.invalidWindowOrder(reason: "could not parse tmux window list")
+                }
+                return WindowPosition(stableId: String(fields[0]), index: index)
+            }
+
+        // Accept legacy `session:index` requests from an older viewer, but
+        // normalize immediately so every actual swap is addressed by @id.
+        let stableIds = Set(original.map(\.stableId))
+        let legacyToStable = Dictionary(uniqueKeysWithValues: original.map {
+            ("\(sessionName):\($0.index)", $0.stableId)
+        })
+        let normalizedIds = requestedIds.map { id in
+            stableIds.contains(id) ? id : (legacyToStable[id] ?? id)
+        }
+        let swaps = try Self.windowReorderSwaps(current: original, desiredIds: normalizedIds)
+
+        var applied = 0
+        for swap in swaps {
+            let result: ProcessResult
+            do {
+                result = try await runTmuxCommand([
+                    "swap-window", "-d",
+                    "-s", swap.sourceId,
+                    "-t", Self.windowTarget(in: sessionName, windowIndex: "\(swap.targetIndex)"),
+                ])
+            } catch {
+                if applied > 0 {
+                    await restoreWindowOrder(original, in: sessionName)
+                }
+                throw error
+            }
             guard result.isSuccess else {
+                // A sequence of tmux commands is not atomic. Restore the
+                // original logical order after a partial failure whenever the
+                // socket is still usable, then report the original error.
+                if applied > 0 {
+                    await restoreWindowOrder(original, in: sessionName)
+                }
                 throw TmuxError.commandFailed(message: result.stderrString)
             }
+            applied += 1
         }
-        // Now move each parked window into its final slot. Iterate in the new
-        // order so the final tmux indices match the caller's intent.
-        for newIndex in windowIds.indices {
-            let parkTarget = Self.windowTarget(in: sessionName, windowIndex: "\(1_000 + newIndex)")
-            let finalTarget = Self.windowTarget(in: sessionName, windowIndex: "\(newIndex)")
-            let result = try await runTmuxCommand([
-                "move-window", "-k",
-                "-s", parkTarget,
-                "-t", finalTarget,
-            ])
-            guard result.isSuccess else {
-                throw TmuxError.commandFailed(message: result.stderrString)
-            }
+
+        let targetIndices = original.map(\.index).sorted()
+        let newIndexById = Dictionary(uniqueKeysWithValues: zip(normalizedIds, targetIndices))
+        return Dictionary(uniqueKeysWithValues: original.compactMap { position in
+            guard let newIndex = newIndexById[position.stableId] else { return nil }
+            return (
+                "\(sessionName):\(position.index)",
+                "\(sessionName):\(newIndex)"
+            )
+        })
+    }
+
+    private func restoreWindowOrder(_ original: [WindowPosition], in sessionName: String) async {
+        let desired = original.sorted { $0.index < $1.index }.map(\.stableId)
+        let sep = String(PaneInfo.fieldSeparator)
+        guard
+            let listed = try? await runTmuxCommand([
+                "list-windows", "-t", Self.sessionTarget(sessionName),
+                "-F", "#{window_id}\(sep)#{window_index}",
+            ]),
+            listed.isSuccess
+        else { return }
+        let current = listed.stdoutString.split(separator: "\n").compactMap { line -> WindowPosition? in
+            let fields = line.split(separator: PaneInfo.fieldSeparator, omittingEmptySubsequences: false)
+            guard fields.count == 2, let index = Int(fields[1]) else { return nil }
+            return WindowPosition(stableId: String(fields[0]), index: index)
         }
-        await refreshPanes()
+        guard let rollback = try? Self.windowReorderSwaps(current: current, desiredIds: desired) else { return }
+        for swap in rollback {
+            guard
+                let result = try? await runTmuxCommand([
+                    "swap-window", "-d",
+                    "-s", swap.sourceId,
+                    "-t", Self.windowTarget(in: sessionName, windowIndex: "\(swap.targetIndex)"),
+                ]),
+                result.isSuccess
+            else { return }
+        }
     }
 
     /// Lists window names for a session in window-index order.
@@ -2473,7 +2794,7 @@ final public class TmuxService {
 
     /// Snapshot of the system process tree, built from `ps` output.
     /// Shared by `detectClaudePanes` and `runningProcesses`.
-    private struct ProcessTree {
+    private struct ProcessTree: Sendable {
         private let childrenOf: [String: [String]]
         private let names: [String: String]
 

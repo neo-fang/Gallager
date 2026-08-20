@@ -65,6 +65,8 @@
             case appearanceMode
             case terminalFontName
             case terminalFontSize
+            case terminalKeyboardControlPosition
+            case agentQuickInputEnabled
             case newSessionName
             case newSessionWidth
             case newSessionHeight
@@ -118,6 +120,22 @@
         /// Font size for terminal snapshot display
         public var terminalFontSize: Double = 10 {
             didSet { preferences.setDouble(terminalFontSize, Keys.terminalFontSize) }
+        }
+
+        /// Where the terminal keyboard show/hide control is displayed.
+        public var terminalKeyboardControlPosition: TerminalKeyboardControlPosition = .topRight {
+            didSet {
+                preferences.setString(
+                    terminalKeyboardControlPosition.rawValue,
+                    Keys.terminalKeyboardControlPosition
+                )
+            }
+        }
+
+        /// Whether agent panes use the optional response field above the terminal.
+        /// When disabled, the keyboard remains a separate, explicit user action.
+        public var agentQuickInputEnabled = false {
+            didSet { preferences.setBool(agentQuickInputEnabled, Keys.agentQuickInputEnabled) }
         }
 
         /// Base name for new tmux sessions created from iOS
@@ -186,6 +204,10 @@
             // Terminal settings with iOS-appropriate defaults
             self.terminalFontName = preferences.string(Keys.terminalFontName) ?? "Menlo"
             self.terminalFontSize = preferences.optionalDouble(Keys.terminalFontSize) ?? 10
+            self.terminalKeyboardControlPosition = TerminalKeyboardControlPosition(
+                storedValue: preferences.string(Keys.terminalKeyboardControlPosition)
+            )
+            self.agentQuickInputEnabled = preferences.optionalBool(Keys.agentQuickInputEnabled) ?? false
 
             // New session settings
             self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"

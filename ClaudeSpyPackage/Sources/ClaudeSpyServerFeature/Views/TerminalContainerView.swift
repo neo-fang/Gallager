@@ -164,17 +164,55 @@ struct TerminalContainerView: NSViewRepresentable {
         /// File drop (a heavyweight paste) is intentionally off this chain, so its
         /// ordering relative to keystrokes is best-effort.
         private var pendingKeyTask: Task<Void, Never>?
+        private var pendingInputBatchCount = 0
+        private var pendingInputBytes = 0
+        private var inputGeneration: UInt64 = 0
+        private let transportMetrics = TerminalTransportMetrics.shared
 
         /// Coalesces the two synchronous `send()` callbacks SwiftTerm emits for a
         /// Meta/Option sequence (ESC + key) into one batch, sent as a single
         /// `send-keys` so the app sees one Meta keypress. See `KeystrokeCoalescer`.
         private lazy var keyCoalescer = KeystrokeCoalescer { [weak self] batch in
-            guard let self, let target = self.paneState?.target else { return }
+            guard let self, let paneState = self.paneState else { return }
+            let token = self.transportMetrics.beginLocalInput(
+                paneId: paneState.paneId,
+                acceptedAt: batch.acceptedAt
+            )
+            let byteCount = batch.keys.reduce(0) { $0 + max(1, $1.tmuxKeyName.utf8.count) }
+            let generation = self.inputGeneration
+            self.addPendingInput(byteCount: byteCount, paneId: paneState.paneId)
             let previous = self.pendingKeyTask
-            self.pendingKeyTask = Task {
+            self.pendingKeyTask = Task { @MainActor [weak self] in
                 _ = await previous?.value
-                await self.sendKeysToTmux(batch, target: target)
+                guard let self, !Task.isCancelled, self.inputGeneration == generation else {
+                    self?.transportMetrics.discardLocalInput(token)
+                    return
+                }
+                defer { self.removePendingInput(byteCount: byteCount, paneId: paneState.paneId) }
+                self.transportMetrics.recordLocalInput(token, stage: .sendStarted)
+                await self.sendKeysToTmux(
+                    batch.keys,
+                    paneId: paneState.paneId,
+                    target: paneState.target,
+                    metricsToken: token
+                )
             }
+        }
+
+        /// Limits SwiftTerm parsing/drawing to a bounded MainActor time slice.
+        /// Pending keyboard input forces smaller chunks and a yield after each
+        /// feed while preserving the exact terminal byte order.
+        private lazy var feedCoalescer = TerminalFeedCoalescer(
+            id: "local:\(paneState?.paneId ?? "unknown")",
+            maximumFeedBytes: 8_192,
+            prioritizedFeedBytes: 4_096,
+            maximumTurnDuration: .milliseconds(2),
+            shouldPrioritizeInput: { [weak self] in
+                guard let self else { return false }
+                return self.pendingInputBatchCount > 0 || self.keyCoalescer.hasPendingKeys
+            }
+        ) { [weak self] data in
+            self?.feedDataNow(data)
         }
 
         // MARK: Initialization
@@ -231,9 +269,14 @@ struct TerminalContainerView: NSViewRepresentable {
             terminalView.onRawInput = { [weak self] data in
                 guard let self, let paneState = self.paneState else { return }
                 self.keyCoalescer.flushPending()
+                let generation = self.inputGeneration
+                let byteCount = data.count
+                self.addPendingInput(byteCount: byteCount, paneId: paneState.paneId)
                 let previous = self.pendingKeyTask
-                self.pendingKeyTask = Task {
+                self.pendingKeyTask = Task { @MainActor [weak self] in
                     _ = await previous?.value
+                    guard let self, !Task.isCancelled, self.inputGeneration == generation else { return }
+                    defer { self.removePendingInput(byteCount: byteCount, paneId: paneState.paneId) }
                     await self.sendRawBytesToTmux(data, target: paneState.target)
                 }
             }
@@ -262,27 +305,38 @@ struct TerminalContainerView: NSViewRepresentable {
 
         // MARK: - Input Handling
 
-        private func sendKeysToTmux(_ keys: [TmuxKey], target: String) async {
-            guard let tmuxService else { return }
+        private func sendKeysToTmux(
+            _ keys: [TmuxKey],
+            paneId: String,
+            target: String,
+            metricsToken: TerminalTransportMetrics.LocalInputToken
+        ) async {
+            guard let tmuxService else {
+                transportMetrics.failLocalInput(metricsToken)
+                return
+            }
 
             do {
-                if let paneState, let paneStreamManager {
-                    do {
-                        try await paneStreamManager.sendKeystrokes(
-                            paneId: paneState.paneId,
-                            sessionName: paneState.sessionName,
-                            keys: keys
-                        )
-                    } catch {
-                        // Keep input reliable if the persistent control connection
-                        // is reconnecting; the subprocess path is slower but safe.
-                        try await tmuxService.sendKeystrokes(target, keys: keys)
-                    }
+                let sentThroughControlMode = if let paneStreamManager {
+                    try await paneStreamManager.sendKeystrokesIfConnected(
+                        paneId: paneId,
+                        keys: keys,
+                        onFirstCommandWritten: { [metrics = transportMetrics] in
+                            metrics.recordLocalInput(metricsToken, stage: .tmuxWrite)
+                        }
+                    )
                 } else {
-                    try await tmuxService.sendKeystrokes(target, keys: keys)
+                    false
                 }
+
+                if !sentThroughControlMode {
+                    transportMetrics.recordLocalInput(metricsToken, stage: .tmuxWrite)
+                    try await tmuxService.sendKeystrokes(target, keys: keys)
+                 }
+                 transportMetrics.recordLocalInput(metricsToken, stage: .tmuxAcknowledged)
                 consecutiveKeyFailures = 0
             } catch {
+                transportMetrics.failLocalInput(metricsToken)
                 consecutiveKeyFailures += 1
                 print("Failed to send keys to tmux: \(error)")
 
@@ -347,7 +401,14 @@ struct TerminalContainerView: NSViewRepresentable {
 
             pendingKeyTask?.cancel()
             pendingKeyTask = nil
+            inputGeneration &+= 1
+            pendingInputBatchCount = 0
+            pendingInputBytes = 0
+            if let paneId = paneState?.paneId {
+                transportMetrics.clearQueue(.localInput, id: paneId)
+            }
             keyCoalescer.reset()
+            feedCoalescer.discardPending()
             rowsLockedToTmux = false
             terminalView.lockedDimensions = nil
             guard let subId = subscriptionId else { return }
@@ -396,6 +457,9 @@ struct TerminalContainerView: NSViewRepresentable {
                     },
                     onDimensionChange: { [weak self] newWidth, newHeight in
                         self?.updateTerminalDimensions(cols: newWidth, rows: newHeight)
+                    },
+                    onResync: { [weak self] result in
+                        self?.handleResync(result)
                     }
                 )
 
@@ -438,6 +502,10 @@ struct TerminalContainerView: NSViewRepresentable {
         // MARK: Data Handling
 
         private func handleData(_ data: Data) {
+            feedCoalescer.enqueue(data)
+        }
+
+        private func feedDataNow(_ data: Data) {
             let bytes = [UInt8](data)[...]
 
             if !hasScrolledInitial {
@@ -451,6 +519,53 @@ struct TerminalContainerView: NSViewRepresentable {
             } else {
                 // Subsequent data - preserve user's scroll position
                 terminalView.feedPreservingScroll(bytes)
+            }
+            if let paneId = paneState?.paneId {
+                transportMetrics.recordLocalFeed(paneId: paneId)
+            }
+        }
+
+        private func addPendingInput(byteCount: Int, paneId: String) {
+            pendingInputBatchCount += 1
+            pendingInputBytes += byteCount
+            recordPendingInput(paneId: paneId)
+        }
+
+        private func removePendingInput(byteCount: Int, paneId: String) {
+            pendingInputBatchCount = max(0, pendingInputBatchCount - 1)
+            pendingInputBytes = max(0, pendingInputBytes - byteCount)
+            recordPendingInput(paneId: paneId)
+        }
+
+        private func recordPendingInput(paneId: String) {
+            transportMetrics.recordQueue(
+                .localInput,
+                id: paneId,
+                depth: pendingInputBatchCount,
+                bytes: pendingInputBytes
+            )
+        }
+
+        private func handleResync(_ result: Result<PaneStreamManager.SubscriptionResult, Error>) {
+            switch result {
+            case let .success(snapshot):
+                updateTerminalDimensions(cols: snapshot.width, rows: snapshot.height)
+                feedCoalescer.replace(with: snapshot.initialContent) { [weak self] in
+                    guard let self else { return }
+                    hasScrolledInitial = false
+                    terminalView.getTerminal().resetToInitialState()
+                    terminalView.preserveUserScroll = false
+                }
+                terminalView.preserveUserScroll = true
+
+                if let paneState, let tmuxService {
+                    Task { [weak self] in
+                        await self?.syncMouseMode(target: paneState.target, tmuxService: tmuxService)
+                    }
+                }
+
+            case let .failure(error):
+                updateState(.error("Terminal resync failed: \(error.localizedDescription)"))
             }
         }
 

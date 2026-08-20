@@ -77,6 +77,14 @@ actor TmuxControlClient {
     private var process: Process?
     private var stdin: FileHandle?
     private var stdoutPipe: Pipe?
+    private var processGeneration: UInt64 = 0
+
+    /// Process termination must finish inside AppKit's shutdown deadline. Normal
+    /// tmux control clients exit immediately; these bounds only cover a wedged
+    /// child and never apply to the tmux server or a pane process.
+    private static let gracefulTerminationTimeout = Duration.seconds(1)
+    private static let forcedTerminationTimeout = Duration.seconds(1)
+    private static let terminationPollInterval = Duration.milliseconds(20)
 
     // Cached dimensions for change detection
     private var cachedDimensions: [String: (width: Int, height: Int)] = [:]
@@ -166,6 +174,9 @@ actor TmuxControlClient {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tmuxPath)
 
+        processGeneration &+= 1
+        let generation = processGeneration
+
         var arguments = ["-C", "-f", "no-output,ignore-size", "attach", "-t", sessionTarget]
         if let socketPath, !socketPath.isEmpty {
             arguments = ["-S", socketPath] + arguments
@@ -185,7 +196,10 @@ actor TmuxControlClient {
         process.terminationHandler = { [weak self] proc in
             guard let self else { return }
             Task {
-                await self.handleProcessTermination(exitCode: proc.terminationStatus)
+                await self.handleProcessTermination(
+                    generation: generation,
+                    exitCode: proc.terminationStatus
+                )
             }
         }
 
@@ -226,6 +240,9 @@ actor TmuxControlClient {
     func disconnect() async {
         logger.info("Disconnecting from tmux control mode")
 
+        let processToStop = process
+        let generationToStop = processGeneration
+
         stdoutPipe?.fileHandleForReading.readabilityHandler = nil
         dataContinuation?.finish()
         dataContinuation = nil
@@ -240,17 +257,56 @@ actor TmuxControlClient {
         receivedInitialResponse = false
         skippingInitialBlock = false
 
-        if let process, process.isRunning {
-            process.terminate()
+        // Closing our write end prevents a control client waiting on stdin from
+        // surviving App shutdown. Do this before SIGTERM and keep the exact
+        // Process object alive until it has actually exited.
+        let inputToClose = stdin
+        stdin = nil
+        try? inputToClose?.close()
+
+        if let processToStop, processToStop.isRunning {
+            processToStop.terminate()
+            if !(await waitForTermination(
+                of: processToStop,
+                timeout: Self.gracefulTerminationTimeout
+            )) {
+                let pid = processToStop.processIdentifier
+                logger.warning("tmux control client ignored SIGTERM; sending SIGKILL", metadata: [
+                    "pid": "\(pid)",
+                ])
+                if processToStop.isRunning, kill(pid, SIGKILL) != 0, errno != ESRCH {
+                    logger.error("Failed to SIGKILL tmux control client", metadata: [
+                        "pid": "\(pid)",
+                        "errno": "\(errno)",
+                    ])
+                }
+                if !(await waitForTermination(
+                    of: processToStop,
+                    timeout: Self.forcedTerminationTimeout
+                )) {
+                    logger.error("tmux control client remained alive after SIGKILL", metadata: [
+                        "pid": "\(pid)",
+                    ])
+                }
+            }
         }
 
-        stdin = nil
-        stdoutPipe = nil
-        process = nil
+        // An exit handler may have run while this actor was suspended. Never
+        // let cleanup for an old generation erase a newer connection.
+        if processGeneration == generationToStop {
+            stdoutPipe = nil
+            process = nil
+            cachedDimensions.removeAll()
+            byteBuffer.removeAll()
+        }
+    }
 
-        // Clear state
-        cachedDimensions.removeAll()
-        byteBuffer.removeAll()
+    private func waitForTermination(of process: Process, timeout: Duration) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while process.isRunning, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: Self.terminationPollInterval)
+        }
+        return !process.isRunning
     }
 
     // MARK: - Dimension Tracking
@@ -270,7 +326,11 @@ actor TmuxControlClient {
     // MARK: - Command Execution
 
     /// Sends a command to tmux and waits for the response
-    func sendCommand(_ command: String, timeout: TimeInterval = 5) async throws -> CommandResponse {
+    func sendCommand(
+        _ command: String,
+        timeout: TimeInterval = 5,
+        onWritten: (@Sendable () -> Void)? = nil
+    ) async throws -> CommandResponse {
         guard let stdin else {
             throw TmuxControlError.notConnected
         }
@@ -281,6 +341,7 @@ actor TmuxControlClient {
         // Write command with newline
         let commandData = Data((command + "\n").utf8)
         try stdin.write(contentsOf: commandData)
+        onWritten?()
 
         // Create timeout task that we can cancel on success
         let timeoutTask = Task {
@@ -548,7 +609,15 @@ actor TmuxControlClient {
         _onExit?(reason)
     }
 
-    private func handleProcessTermination(exitCode: Int32) async {
+    private func handleProcessTermination(generation: UInt64, exitCode: Int32) async {
+        guard generation == processGeneration else {
+            logger.debug("Ignoring stale tmux process termination", metadata: [
+                "generation": "\(generation)",
+                "currentGeneration": "\(processGeneration)",
+            ])
+            return
+        }
+
         logger.warning("tmux process terminated", metadata: [
             "exitCode": "\(exitCode)",
         ])
@@ -585,6 +654,11 @@ actor TmuxControlClient {
     /// Number of pending commands awaiting a response. Tests only.
     var testPendingCommandCount: Int {
         pendingCommandQueue.count
+    }
+
+    /// PID of the exact control-mode subprocess owned by this actor. Tests only.
+    var testProcessIdentifier: Int32? {
+        process?.processIdentifier
     }
 
     /// Bypass the initial attach-response skip so tests can feed normal blocks. Tests only.

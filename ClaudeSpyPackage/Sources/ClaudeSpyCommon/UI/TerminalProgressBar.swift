@@ -1,4 +1,5 @@
 import ClaudeSpyNetworking
+import Foundation
 import SwiftUI
 
 /// Slim progress bar shown at the bottom of a session row when any of its
@@ -66,9 +67,13 @@ private struct ScannerBar: View {
     private static let segmentFraction: CGFloat = 0.30
     /// One full sweep (left → right → left) duration in seconds.
     private static let cycleDuration = 1.6
+    /// Sidebar progress does not need display-refresh-rate updates. Twelve
+    /// frames per second remains visually smooth at this size and avoids a
+    /// permanent 60/120 Hz SwiftUI invalidation source for every busy session.
+    private static let refreshInterval: TimeInterval = 1.0 / 12.0
 
     var body: some View {
-        TimelineView(.animation) { context in
+        TimelineView(.periodic(from: .now, by: Self.refreshInterval)) { context in
             let segmentWidth = width * Self.segmentFraction
             let travel = max(0, width - segmentWidth)
             let phase = context.date.timeIntervalSinceReferenceDate

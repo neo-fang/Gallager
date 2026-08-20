@@ -154,6 +154,12 @@ public enum TabReorderScenario {
         TestStep.log("Phase 5: Cmd-Shift-] cycles to the next tab; Cmd-Shift-[ cycles back")
         // Start on winC (the leftmost tab after the reorder).
         TestStep.macClickButton(titled: "tabreorder:0 winC")
+        TestStep.waitForTmuxDisplayMessage(
+            target: "tabreorder",
+            format: "#{window_name}",
+            contains: "winC",
+            timeout: 5
+        )
         TestStep.macWaitForElementQuery(
             .allOf([.labelContains("tabreorder:0 winC"), .valueContains("selected")]),
             timeout: 5
@@ -241,14 +247,9 @@ public enum TabReorderScenario {
         // regression where dragging a terminal to the right pane left it
         // visible on both panes.
         //
-        // Caveat: prior phases reordered tmux, which renumbers the
-        // `session:N` IDs that `tabOrder` keys on. After reorder the visual
-        // tab strip can show windows in a different sequence than the user
-        // expects, and a cross-divider drag may flip the window currently
-        // occupying tmux index 0 — not necessarily the user's source. We
-        // verify the *effect* (some terminal lands on the right side) via
-        // generic `Move terminal to left:` queries instead of asserting a
-        // specific window name.
+        // Earlier phases reordered tmux. Tab state now follows tmux's stable
+        // `@id`, so the dragged logical window remains the source even though
+        // its executable `session:index` target changed.
         TestStep.log("Phase 8: Open hello.txt, split it, then drag a terminal across the divider")
         TestStep.macClickButton(titled: "Files")
         TestStep.macWaitForElement(titled: "hello.txt", timeout: 10)

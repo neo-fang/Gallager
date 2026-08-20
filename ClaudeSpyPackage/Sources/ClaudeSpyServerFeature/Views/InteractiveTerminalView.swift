@@ -47,6 +47,29 @@
 
     // MARK: - Scroll Event Overlay
 
+    struct TerminalLinkGestureState {
+        private(set) var didDrag = false
+
+        /// Starts a new click sequence. A click count above one means a
+        /// previously staged single-click action belongs to this same sequence
+        /// and must be cancelled.
+        mutating func mouseDown(clickCount: Int) -> Bool {
+            didDrag = false
+            return clickCount > 1
+        }
+
+        mutating func mouseDragged() {
+            didDrag = true
+        }
+
+        /// Returns whether this completed gesture can stage a link activation,
+        /// then resets the drag state for every mouse-up return path.
+        mutating func mouseUp(clickCount: Int) -> Bool {
+            defer { didDrag = false }
+            return clickCount == 1 && !didDrag
+        }
+    }
+
     /// Intercepts events: horizontal scrolls handled here, vertical/mouse forwarded to terminal.
     final private class ScrollEventOverlay: NSView {
         weak var terminalView: TerminalView?
@@ -67,6 +90,9 @@
         /// Last terminal cell that generated a drag SGR sequence.
         /// Used to suppress redundant events when the cursor stays in the same cell.
         private var lastDragPosition: (col: Int, row: Int)?
+
+        private var linkGesture = TerminalLinkGestureState()
+        private var pendingLinkActivationTask: Task<Void, Never>?
 
         override var acceptsFirstResponder: Bool {
             false
@@ -172,6 +198,11 @@
         }
 
         override func mouseDown(with event: NSEvent) {
+            lastDragPosition = nil
+            if linkGesture.mouseDown(clickCount: event.clickCount) {
+                cancelPendingLinkActivation()
+            }
+
             // In mouse mode, suppress the press if it lands on a URL we'd
             // intercept in `mouseUp` (file/http/https/ftp). Otherwise SwiftTerm
             // forwards a mouse-press SGR sequence to the terminal app (e.g.
@@ -194,6 +225,8 @@
         }
 
         override func mouseDragged(with event: NSEvent) {
+            linkGesture.mouseDragged()
+
             // When mouse mode is active, synthesize SGR drag (motion) escape
             // sequences ourselves. SwiftTerm only emits motion events for
             // .anyEvent mode (1003), silently dropping them for
@@ -232,18 +265,19 @@
         }
 
         override func mouseUp(with event: NSEvent) {
-            lastDragPosition = nil
+            let shouldActivateLink = linkGesture.mouseUp(clickCount: event.clickCount)
+            defer { lastDragPosition = nil }
 
-            if let interactive = interactiveView {
+            if shouldActivateLink, let interactive = interactiveView {
                 let point = interactive.convert(event.locationInWindow, from: nil)
-                // Intercept the same scheme set in both modes: in mouse mode
-                // the matching `mouseDown` carve-out has already suppressed
-                // the press for these URLs, so the TUI app never saw the
-                // click. Routing through `handleURLClick` then `onOpenURL`
-                // gives the host's `browserLinkBehavior` policy authority
-                // over OSC 8 hyperlinks rendered by TUIs like Claude Code.
                 let allowed = TerminalURLDetector.defaultAllowedSchemes.union(["file"])
-                if interactive.handleURLClick(at: point, allowedSchemes: allowed) {
+                if let url = interactive.url(at: point, allowedSchemes: allowed) {
+                    // The first mouse-up of a double or triple click also has
+                    // clickCount == 1. Stage the action for the system's own
+                    // double-click interval; the next mouse-down cancels it.
+                    // This keeps link clicks working without stealing word/row
+                    // selection gestures.
+                    scheduleLinkActivation(url, in: interactive)
                     return
                 }
             }
@@ -263,6 +297,25 @@
                 interactive.autoCopyOnSelect,
                 interactive.getSelectedTextTrimmed() != nil {
                 interactive.copySelectionToClipboard()
+            }
+        }
+
+        private func cancelPendingLinkActivation() {
+            pendingLinkActivationTask?.cancel()
+            pendingLinkActivationTask = nil
+        }
+
+        private func scheduleLinkActivation(_ url: URL, in interactive: InteractiveTerminalView) {
+            cancelPendingLinkActivation()
+            pendingLinkActivationTask = Task { @MainActor [weak self, weak interactive] in
+                do {
+                    try await Task.sleep(for: .seconds(NSEvent.doubleClickInterval))
+                } catch {
+                    return
+                }
+                guard let self, let interactive else { return }
+                self.pendingLinkActivationTask = nil
+                interactive.openURL(url)
             }
         }
 
@@ -368,6 +421,7 @@
 
         /// Callback invoked when the terminal title changes (via OSC 0 or OSC 2 escape sequences).
         var onTitleChange: (@MainActor (String) -> Void)?
+        private var lastReportedTitle: String?
 
         /// Callback invoked when the user clicks a URL in the terminal. The
         /// callback should return `true` if it handled the URL (and the
@@ -420,13 +474,30 @@
         private var highlightedURLRange: (row: Int, startCol: Int, endCol: Int)?
         private var urlHighlightLayer: CALayer?
         private var urlUnderlineLayers: [CALayer] = []
+        private var urlRowCache = TerminalURLRowCache()
         private var cachedCellSize: CGSize?
         private var lastMouseGridPosition: (col: Int, row: Int)?
+
+        private struct URLUnderlineLayoutSignature: Equatable {
+            let columns: Int
+            let rows: Int
+            let displayRow: Int
+            let cellSize: CGSize
+            let terminalFrame: CGRect
+            let boundsSize: CGSize
+            let horizontalOffset: CGFloat
+            let mouseModeActive: Bool
+        }
 
         /// OSC 8 hyperlink payload cache, mirrored from SwiftTerm cells before
         /// we clear them to suppress SwiftTerm's own dashed underline rendering.
         /// See `TerminalPayloadCache` for the full rationale.
         private let payloadCache = TerminalPayloadCache()
+        private static let urlUnderlineRefreshInterval = Duration.milliseconds(100)
+        private var urlContentGeneration: UInt64 = 0
+        private var renderedURLContentGeneration: UInt64?
+        private var renderedURLLayoutSignature: URLUnderlineLayoutSignature?
+        private var urlUnderlineUpdateTask: Task<Void, Never>?
 
         /// ANSI base colors used when copying terminal content as rich text.
         /// Updated together with SwiftTerm by `applyTheme(_:)`.
@@ -1198,8 +1269,8 @@
             )
         }
 
-        private func extractAndClearPayloads() {
-            payloadCache.extractAndClear(from: terminalView.getTerminal())
+        private func extractAndClearPayloads(afterFeeding bytes: ArraySlice<UInt8>) {
+            payloadCache.update(from: terminalView.getTerminal(), afterFeeding: bytes)
         }
 
         /// Converts a point in this view's coordinate space to a viewport grid position (col, row).
@@ -1368,36 +1439,30 @@
             }
         }
 
-        /// Called by the scroll overlay on click — opens URL if one is at the click position.
+        /// Resolves a URL under the given terminal point without opening it.
         ///
         /// In normal mode `allowedSchemes` is the union of the default
         /// http/https/ftp set plus `file://`, so OSC 8 file links from the
-        /// local terminal are routed through `onOpenURL` and open as an
-        /// in-app file tab. In mouse mode the caller passes `["file"]` so
-        /// only file links are intercepted; all other URLs fall through to
-        /// the terminal app.
+        /// local terminal can be routed through `onOpenURL` and open as an
+        /// in-app file tab. Mouse mode uses the same set so TUI applications
+        /// cannot race the configured browser-link policy.
         ///
         /// `TerminalURLDetector` still rejects `file://` by default for the
         /// hover/highlight rendering path (which can run against remote panes
         /// where opening local files would be unsafe).
-        fileprivate func handleURLClick(at point: NSPoint, allowedSchemes: Set<String>) -> Bool {
-            guard let pos = gridPosition(for: point) else { return false }
+        fileprivate func url(at point: NSPoint, allowedSchemes: Set<String>) -> URL? {
+            guard let pos = gridPosition(for: point) else { return nil }
             let terminal = terminalView.getTerminal()
             let closures = urlClosures(for: terminal)
-            if
-                let url = TerminalURLDetector.urlAt(
-                    col: pos.col,
-                    row: pos.row,
-                    cols: terminal.cols,
-                    lineText: closures.lineText,
-                    cellPayload: closures.cellPayload,
-                    allowedSchemes: allowedSchemes
-                ),
-                let nsURL = URL(string: url) {
-                openURL(nsURL)
-                return true
-            }
-            return false
+            guard let url = TerminalURLDetector.urlAt(
+                col: pos.col,
+                row: pos.row,
+                cols: terminal.cols,
+                lineText: closures.lineText,
+                cellPayload: closures.cellPayload,
+                allowedSchemes: allowedSchemes
+            ) else { return nil }
+            return URL(string: url)
         }
 
         /// Whether the given point lies on a URL we want to intercept (any of
@@ -1410,24 +1475,14 @@
             at point: NSPoint,
             allowedSchemes: Set<String>
         ) -> Bool {
-            guard let pos = gridPosition(for: point) else { return false }
-            let terminal = terminalView.getTerminal()
-            let closures = urlClosures(for: terminal)
-            return TerminalURLDetector.urlAt(
-                col: pos.col,
-                row: pos.row,
-                cols: terminal.cols,
-                lineText: closures.lineText,
-                cellPayload: closures.cellPayload,
-                allowedSchemes: allowedSchemes
-            ) != nil
+            url(at: point, allowedSchemes: allowedSchemes) != nil
         }
 
         /// Opens a URL by giving `onOpenURL` first chance to handle it. Falls
         /// back to the `URLOpener` dependency (`NSWorkspace.shared.open` in
         /// production, a file-backed log in E2E tests) when the callback is
         /// absent or declines to handle the URL.
-        private func openURL(_ url: URL) {
+        fileprivate func openURL(_ url: URL) {
             if onOpenURL?(url) == true { return }
             @Dependency(URLOpener.self) var urlOpener
             urlOpener.openInDefaultBrowser(url)
@@ -1450,7 +1505,15 @@
         /// next layout pass (`rangeChanged`/`scrolled`), unlike iOS which
         /// repaints immediately. In practice TUIs always redraw when toggling
         /// mouse tracking, so the latency isn't user-visible.
-        private func updateURLUnderlines() {
+        private func updateURLUnderlinesIfNeeded() {
+            let terminal = terminalView.getTerminal()
+            let signature = currentURLUnderlineLayoutSignature
+            let contentNeedsRefresh = renderedURLContentGeneration != urlContentGeneration
+            let layoutNeedsRefresh = renderedURLLayoutSignature != signature
+            guard contentNeedsRefresh || layoutNeedsRefresh else { return }
+            renderedURLContentGeneration = urlContentGeneration
+            renderedURLLayoutSignature = signature
+
             for layer in urlUnderlineLayers {
                 layer.removeFromSuperlayer()
             }
@@ -1458,20 +1521,28 @@
 
             if isMouseModeActive { return }
 
-            let terminal = terminalView.getTerminal()
             guard cellSize.width > 0, cellSize.height > 0 else { return }
+            urlRowCache.retainViewportRows(in: 0..<terminal.rows)
 
             CATransaction.begin()
             CATransaction.setDisableActions(true)
 
             let closures = urlClosures(for: terminal)
             for row in 0..<terminal.rows {
-                let urls = TerminalURLDetector.detectURLs(
-                    row: row,
-                    cols: terminal.cols,
-                    lineText: closures.lineText,
-                    cellPayload: closures.cellPayload
-                )
+                guard let line = terminal.getLine(row: row) else { continue }
+                let urls = urlRowCache.urls(
+                    forViewportRow: row,
+                    absoluteRow: terminal.buffer.yDisp + row,
+                    line: line,
+                    cols: terminal.cols
+                ) {
+                    TerminalURLDetector.detectURLs(
+                        row: row,
+                        cols: terminal.cols,
+                        lineText: closures.lineText,
+                        cellPayload: closures.cellPayload
+                    )
+                }
                 for url in urls {
                     let x = CGFloat(url.startCol) * cellSize.width - horizontalOffset
                     // Position underline near cell bottom (NSView: origin at bottom-left)
@@ -1487,6 +1558,43 @@
             }
 
             CATransaction.commit()
+        }
+
+        /// Terminal output changes link decorations, not view geometry. Scheduling
+        /// the scan directly avoids turning every output chunk into a full AppKit /
+        /// SwiftUI layout pass while still coalescing bursts on the main run loop.
+        private func scheduleURLUnderlineUpdate(contentChanged: Bool = false) {
+            if contentChanged {
+                urlContentGeneration &+= 1
+            }
+            guard urlUnderlineUpdateTask == nil else { return }
+            let contentNeedsRefresh = renderedURLContentGeneration != urlContentGeneration
+            let layoutNeedsRefresh = renderedURLLayoutSignature != currentURLUnderlineLayoutSignature
+            guard contentNeedsRefresh || layoutNeedsRefresh else { return }
+            urlUnderlineUpdateTask = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(for: Self.urlUnderlineRefreshInterval)
+                } catch {
+                    return
+                }
+                guard let self else { return }
+                self.urlUnderlineUpdateTask = nil
+                self.updateURLUnderlinesIfNeeded()
+            }
+        }
+
+        private var currentURLUnderlineLayoutSignature: URLUnderlineLayoutSignature {
+            let terminal = terminalView.getTerminal()
+            return URLUnderlineLayoutSignature(
+                columns: terminal.cols,
+                rows: terminal.rows,
+                displayRow: terminal.buffer.yDisp,
+                cellSize: cellSize,
+                terminalFrame: terminalView.frame,
+                boundsSize: bounds.size,
+                horizontalOffset: horizontalOffset,
+                mouseModeActive: isMouseModeActive
+            )
         }
 
         // MARK: - Horizontal Scrolling
@@ -1523,6 +1631,7 @@
             var frame = terminalView.frame
             frame.origin.x = -horizontalOffset
             terminalView.frame = frame
+            scheduleURLUnderlineUpdate()
         }
 
         private func updateHorizontalScroller() {
@@ -1561,6 +1670,7 @@
                 updateTerminalPosition()
             }
             updateHorizontalScroller()
+            scheduleURLUnderlineUpdate()
         }
 
         // MARK: - Layout
@@ -1580,7 +1690,7 @@
                 terminalView.frame.origin.y = bounds.height - terminalView.frame.size.height
             }
             updateHorizontalScroller()
-            updateURLUnderlines()
+            scheduleURLUnderlineUpdate()
             onResize?(frame.size)
         }
 
@@ -1591,6 +1701,7 @@
             set {
                 terminalView.font = newValue
                 cachedCellSize = nil
+                scheduleURLUnderlineUpdate()
             }
         }
 
@@ -1653,8 +1764,8 @@
 
         func feed(byteArray: ArraySlice<UInt8>) {
             terminalView.feed(byteArray: byteArray)
-            extractAndClearPayloads()
-            needsLayout = true
+            extractAndClearPayloads(afterFeeding: byteArray)
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func feedPreservingScroll(_ bytes: ArraySlice<UInt8>) {
@@ -1664,11 +1775,11 @@
             // - Position <= 0.001 (no scrollback yet, or at very top)
             let wasAtExtreme = savedPosition >= 0.999 || savedPosition <= 0.001
             terminalView.feed(byteArray: bytes)
-            extractAndClearPayloads()
+            extractAndClearPayloads(afterFeeding: bytes)
             if preserveUserScroll, !wasAtExtreme {
                 terminalView.scroll(toPosition: savedPosition)
             }
-            needsLayout = true
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func scroll(toPosition position: Double) {
@@ -1773,11 +1884,14 @@
         }
 
         func scrolled(source: TerminalView, position: Double) {
-            needsLayout = true
+            scheduleURLUnderlineUpdate()
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
-            onTitleChange?(title)
+            let stableTitle = TerminalTitleStabilizer.stabilize(title)
+            guard stableTitle != lastReportedTitle else { return }
+            lastReportedTitle = stableTitle
+            onTitleChange?(stableTitle)
         }
 
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
@@ -1818,7 +1932,7 @@
         }
 
         func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
-            needsLayout = true
+            scheduleURLUnderlineUpdate(contentChanged: true)
         }
 
         func iTermContent(source: TerminalView, content: ArraySlice<UInt8>) {

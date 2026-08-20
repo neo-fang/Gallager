@@ -1,4 +1,5 @@
 #if os(macOS)
+    import ClaudeSpyNetworking
     import Foundation
     import Logging
 
@@ -129,6 +130,46 @@
             return try await client.sendCommand(command, timeout: timeout)
         }
 
+        /// Sends a small interactive key batch through an existing control client.
+        ///
+        /// This method never creates a connection. Returning `false` means no
+        /// command was written and the caller may safely use its process-based
+        /// fallback. Once any command succeeds, later failures are thrown instead
+        /// of returning `false`, which prevents replaying an already-partial batch.
+        func sendKeystrokesIfConnected(
+            paneId: String,
+            sessionName: String,
+            keys: [TmuxKey],
+            onFirstCommandWritten: (@Sendable () -> Void)? = nil
+        ) async throws -> Bool {
+            guard let commands = TmuxControlInputEncoder.commands(paneId: paneId, keys: keys) else {
+                return false
+            }
+            guard !commands.isEmpty else { return true }
+            guard let client = clients[sessionName], await client.isConnected else { return false }
+
+            var completedCommand = false
+            for (index, command) in commands.enumerated() {
+                let response: CommandResponse
+                do {
+                    response = try await client.sendCommand(
+                        command,
+                        onWritten: index == 0 ? onFirstCommandWritten : nil
+                    )
+                } catch TmuxControlError.notConnected where !completedCommand {
+                    return false
+                } catch {
+                    throw error
+                }
+
+                guard !response.isError else {
+                    throw TmuxControlError.commandFailed(message: response.output)
+                }
+                completedCommand = true
+            }
+            return true
+        }
+
         /// Unregisters a pane from dimension tracking.
         ///
         /// - Parameters:
@@ -147,16 +188,56 @@
             // Client cleanup happens via handleClientExit when the session is destroyed.
         }
 
+        /// Moves a live control connection to the session's new dictionary key.
+        /// tmux keeps the connection attached across `rename-session`; only our
+        /// lookup key and exit callback need to follow the new name.
+        func sessionRenamed(from oldName: String, to newName: String) async {
+            guard oldName != newName, let client = clients.removeValue(forKey: oldName) else { return }
+
+            if clients[newName] != nil {
+                // A subscriber raced ahead and already established the new-key
+                // client. Keep that authoritative connection; the old client's
+                // exit callback still targets oldName, so disconnecting it cannot
+                // remove the replacement.
+                await client.disconnect()
+                return
+            }
+
+            await client.setOnExit { [weak self] reason in
+                Task { @MainActor [weak self] in
+                    self?.handleClientExit(sessionName: newName, reason: reason)
+                }
+            }
+            clients[newName] = client
+
+            logger.info("Rekeyed control client after session rename", metadata: [
+                "oldSession": "\(oldName)",
+                "newSession": "\(newName)",
+            ])
+        }
+
         /// Disconnects all control clients.
         public func disconnectAll() async {
             logger.info("Disconnecting all control clients")
-            for (sessionName, client) in clients {
-                await client.disconnect()
-                logger.debug("Disconnected client", metadata: [
-                    "session": "\(sessionName)",
-                ])
-            }
+            let clientsToDisconnect = clients
             clients.removeAll()
+
+            // Each client owns an independent child process. Stop them in
+            // parallel so one wedged session cannot consume the shutdown budget
+            // before the remaining exact child PIDs are reaped.
+            await withTaskGroup(of: String.self) { group in
+                for (sessionName, client) in clientsToDisconnect {
+                    group.addTask {
+                        await client.disconnect()
+                        return sessionName
+                    }
+                }
+                for await sessionName in group {
+                    logger.debug("Disconnected client", metadata: [
+                        "session": "\(sessionName)",
+                    ])
+                }
+            }
         }
 
         /// Extracts the session name from a pane target.

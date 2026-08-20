@@ -478,6 +478,10 @@ struct TmuxPaneMirrorApp: App {
 
             // Window menu - tab navigation shortcuts
             CommandGroup(before: .windowList) {
+                TerminalWindowNavigationMenuItems()
+
+                Divider()
+
                 Button("Previous Tab") {
                     NotificationCenter.default.post(name: .selectPreviousTab, object: nil)
                 }
@@ -715,6 +719,45 @@ private struct CloseTabMenuItem: View {
             }
         }
         .keyboardShortcut("w", modifiers: .command)
+    }
+}
+
+/// Window-menu commands for tmux-window-only navigation. The focused value is
+/// supplied only by the active panes scene, so Settings/About keep standard
+/// macOS key handling and terminal views never install a key-event monitor.
+private struct TerminalWindowNavigationMenuItems: View {
+    @FocusedValue(\.terminalWindowNavigationActions) private var actions
+
+    private var windowCount: Int {
+        actions?.windowCount ?? 0
+    }
+
+    var body: some View {
+        Button("Previous Terminal Window") {
+            actions?.selectPrevious()
+        }
+        .keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+        .disabled(windowCount < 2)
+
+        Button("Next Terminal Window") {
+            actions?.selectNext()
+        }
+        .keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+        .disabled(windowCount < 2)
+
+        Menu("Select Terminal Window") {
+            ForEach(0 ..< 9, id: \.self) { index in
+                Button("Terminal Window \(index + 1)") {
+                    actions?.selectAtIndex(index)
+                }
+                .keyboardShortcut(
+                    KeyEquivalent(Character(String(index + 1))),
+                    modifiers: .command
+                )
+                .disabled(index >= windowCount)
+            }
+        }
+        .disabled(windowCount == 0)
     }
 }
 

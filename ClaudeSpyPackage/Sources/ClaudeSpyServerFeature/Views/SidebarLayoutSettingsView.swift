@@ -219,6 +219,7 @@ private struct SidebarPreview: View {
                         customDescription: "My Feature Branch",
                         projectName: isTerminal ? nil : "Gallager",
                         sessionName: "dev",
+                        windowName: "terminal 1",
                         terminalTitle: isTerminal ? nil : "claude",
                         command: isTerminal ? "zsh" : "claude",
                         currentPath: "~/Development/Gallager",

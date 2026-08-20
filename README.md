@@ -49,6 +49,14 @@ The Apple targets require a recent Xcode (Swift 6.3+ toolchain), macOS 15+, and 
   ```
 - **Tests** — `swift test` in `ClaudeSpyPackage`; `./gradlew testDebugUnitTest` in `android`; end-to-end suite via `./scripts/e2e-test.sh` (see [docs/e2e-testing.md](docs/e2e-testing.md)).
 
+Local installable packages must be built from the primary worktree. Run
+`./scripts/package-local-macos.sh` for the signed DMG. For a personal-device
+iOS IPA, copy `Config/Local.xcconfig.example` to the ignored
+`Config/Local.xcconfig`, set your development team and bundle ID, then run
+`./scripts/package-local-ios.sh`. Both scripts keep Xcode and SwiftPM caches in
+`.build-local/`, write artifacts to `dist/`, and embed a visible UTC build stamp
+and Git revision in the app's About UI.
+
 Tip: the repo carries e2e screenshot baselines, so a blobless clone is much faster: `git clone --filter=blob:none https://github.com/gpambrozio/Gallager.git`
 
 ## Self-hosting

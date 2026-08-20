@@ -20,7 +20,10 @@ func macOnlyDependencies() -> [Package.Dependency] {
     #if os(macOS)
         return [
             .package(url: "https://github.com/gpambrozio/SFSymbolsMacro", branch: "swift-syntax-602"),
-            .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0"),
+            .package(
+                url: "https://github.com/jarviszeng-zjc/SwiftTerm.git",
+                revision: "0a664be86b78d0d16bb1dbd5ae5020f6e353070c"
+            ),
             .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.4"),
             .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),
             .package(url: "https://github.com/mchakravarty/ProjectNavigator", exact: "1.10.1"),

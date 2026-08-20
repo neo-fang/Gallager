@@ -9,8 +9,8 @@ import Testing
 @Suite("KeystrokeDebouncer")
 @MainActor
 struct KeystrokeDebouncerTests {
-    @Test("Keys enqueued within the debounce window flush as a single send")
-    func batchesWithinWindow() async {
+    @Test("The batch deadline does not slide when more keys arrive")
+    func boundedBatchWindow() async {
         await withMainSerialExecutor {
             let clock = TestClock()
             let sentOps = LockIsolated<[KeystrokeDebouncer.SendOp]>([])
@@ -24,17 +24,57 @@ struct KeystrokeDebouncerTests {
                     sentOps.withValue { $0.append(op) }
                 }
                 debouncer.enqueue([.text("a")])
-                // Halfway through the window — adding more keys must extend the
-                // batch, not start a new one.
+                // A second key joins the existing batch without moving the
+                // first key's deadline.
                 await clock.advance(by: .milliseconds(20))
                 debouncer.enqueue([.text("b")])
                 #expect(sentOps.value.isEmpty)
 
-                // Crossing the deadline AFTER the second enqueue: only one
-                // batched send fires, containing both characters.
-                await clock.advance(by: .milliseconds(40))
+                await clock.advance(by: .milliseconds(9))
+                await Task.megaYield()
+                #expect(sentOps.value.isEmpty)
+
+                // The original 30 ms deadline flushes both keys. A sliding
+                // debounce would still be waiting for the second key's deadline.
+                await clock.advance(by: .milliseconds(1))
                 await Task.megaYield()
                 #expect(sentOps.value == [.keys([.text("a"), .text("b")])])
+            }
+        }
+    }
+
+    @Test("Continuous typing flushes while input is still arriving")
+    func continuousTypingStillFlushes() async {
+        await withMainSerialExecutor {
+            let clock = TestClock()
+            let sentOps = LockIsolated<[KeystrokeDebouncer.SendOp]>([])
+            await withDependencies {
+                $0.continuousClock = clock
+            } operation: { @MainActor in
+                let debouncer = KeystrokeDebouncer(
+                    paneId: "%0",
+                    debounceInterval: .milliseconds(30)
+                ) { op in
+                    sentOps.withValue { $0.append(op) }
+                }
+
+                debouncer.enqueue([.text("a")])
+                await clock.advance(by: .milliseconds(10))
+                debouncer.enqueue([.text("b")])
+                await clock.advance(by: .milliseconds(10))
+                debouncer.enqueue([.text("c")])
+                await clock.advance(by: .milliseconds(10))
+                await Task.megaYield()
+
+                #expect(sentOps.value == [.keys([.text("a"), .text("b"), .text("c")])])
+
+                debouncer.enqueue([.text("d")])
+                await clock.advance(by: .milliseconds(30))
+                await Task.megaYield()
+                #expect(sentOps.value == [
+                    .keys([.text("a"), .text("b"), .text("c")]),
+                    .keys([.text("d")]),
+                ])
             }
         }
     }
@@ -101,6 +141,54 @@ struct KeystrokeDebouncerTests {
                 await Task.megaYield()
                 #expect(sentOps.value.count == 2)
             }
+        }
+    }
+
+    @Test("Immediate batches bypass the timer and preserve pending-key order")
+    func immediateBatchBypassesTimer() async {
+        await withMainSerialExecutor {
+            let clock = TestClock()
+            let sentOps = LockIsolated<[KeystrokeDebouncer.SendOp]>([])
+            await withDependencies {
+                $0.continuousClock = clock
+            } operation: { @MainActor in
+                let debouncer = KeystrokeDebouncer(
+                    paneId: "%0",
+                    debounceInterval: .seconds(1)
+                ) { op in
+                    sentOps.withValue { $0.append(op) }
+                }
+
+                debouncer.enqueue([.text("pending")])
+                debouncer.enqueueImmediately([.text("now")])
+                await Task.megaYield()
+
+                #expect(sentOps.value == [
+                    .keys([.text("pending")]),
+                    .keys([.text("now")]),
+                ])
+
+                // The cancelled timer must not emit a duplicate batch later.
+                await clock.advance(by: .seconds(2))
+                await Task.megaYield()
+                #expect(sentOps.value.count == 2)
+            }
+        }
+    }
+
+    @Test("A cancelled sender restarts for the next immediate batch")
+    func restartsAfterCancellation() async {
+        await withMainSerialExecutor {
+            let sentOps = LockIsolated<[KeystrokeDebouncer.SendOp]>([])
+            let debouncer = KeystrokeDebouncer(paneId: "%0") { op in
+                sentOps.withValue { $0.append(op) }
+            }
+
+            debouncer.cancelAll()
+            debouncer.enqueueImmediately([.text("current")])
+            await Task.megaYield()
+
+            #expect(sentOps.value == [.keys([.text("current")])])
         }
     }
 

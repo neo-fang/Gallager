@@ -422,8 +422,13 @@
                 break
             }
 
-            // Start periodic validation to clean up stale sessions
+            // Keep tmux metadata fresh and independently reconcile agent
+            // processes at a lower cadence. The provider is read each pass so
+            // plugin enable/disable changes take effect without restarting.
             windowManager.startPeriodicSessionValidation()
+            windowManager.startPeriodicAgentReconciliation { [weak self] in
+                self?.pluginRegistry?.processNamesByPlugin ?? [:]
+            }
 
             // Initial sleep prevention update (in case there are already sessions)
             updateSleepPrevention()
@@ -455,6 +460,8 @@
         /// how this is invoked.
         public func shutdown() async {
             logger.info("App shutdown: disconnecting pane streams and control clients")
+            windowManager.stopPeriodicSessionValidation()
+            windowManager.stopPeriodicAgentReconciliation()
             await paneStreamManager.disconnectAll()
             await controlClientManager.disconnectAll()
 
@@ -1912,8 +1919,9 @@
                 // glyph to a plain terminal (the legacy `claudeSession = nil` on
                 // SessionEnd). The status path set working=false earlier in this
                 // same envelope; dispatch fans status out before app actions, so
-                // this clear is the last write and wins. Process detection re-adds
-                // sessions only at startup, so it won't resurrect this one.
+                // this clear is the last write and wins. Process reconciliation
+                // suppresses this pane until the exiting process disappears, so
+                // it cannot resurrect the ended session on the next scan.
                 if windowManager.endAgentSession(forPane: sessionID) {
                     sessionStateChanged = true
                 }
@@ -2379,7 +2387,7 @@
                     var newPane: PaneInfo?
                     for attempt in 0..<PaneSurfaceRetry.attempts {
                         let panes = await tmux.refreshPanes()
-                        await MainActor.run { winManager.updatePaneStates(from: panes) }
+                        await MainActor.run { _ = winManager.updatePaneStates(from: panes) }
                         if let found = panes.first(where: { $0.paneId == newPaneId }) {
                             // Keep the latest snapshot even if it's still settling,
                             // so we return the pane rather than throwing if the cwd
@@ -2969,6 +2977,9 @@
                 connectionManager: connectionManager,
                 paneStreamManager: paneStreamManager
             )
+            connectionManager.onViewerUnavailable = { [weak terminalStreamService] viewerId in
+                await terminalStreamService?.stopStreams(for: viewerId)
+            }
 
             // Wire terminal notification display (fires for any monitored pane, regardless of streaming)
             let notificationService = terminalNotificationService
@@ -2995,11 +3006,11 @@
             paneStreamManager.startPeriodicPaneRefresh(tmuxService: tmuxService)
 
             // Detect coding-agent instances already running in tmux panes, using
-            // each enabled plugin's manifest `process_names` (spec §6).
+            // each enabled plugin's manifest `process_names` (spec §6). The same
+            // reconciliation runs every ten seconds after setup completes.
             let processNames = pluginRegistry?.processNamesByPlugin ?? [:]
             let agentPanes = await tmuxService.detectAgentPanes(processNamesByPlugin: processNames)
-            if !agentPanes.isEmpty {
-                windowManager.markDetectedAgentSessions(agentPanes)
+            if windowManager.reconcileDetectedAgentSessions(agentPanes) {
                 logger.info("Detected running agents in panes: \(agentPanes.keys.sorted())")
             }
 
@@ -3029,16 +3040,22 @@
             let streamService = terminalStreamService
             let tmux = tmuxService
             let editorManager = editorSessionManager
-            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, weak connectionManager] command in
+            connectionManager.onCommand = { [weak self, executor, streamService, tmux, winManager, editorManager, paneStreaming, weak connectionManager] viewerId, command in
                 // Handle stream commands
-                if case .startTerminalStream = command.command {
+                if case let .startTerminalStream(spec) = command.command {
                     return await Self.handleStartStream(
                         command: command,
+                        spec: spec,
+                        viewerId: viewerId,
                         streamService: streamService
                     )
                 }
-                if case .stopTerminalStream = command.command {
-                    await streamService.stopStreaming(paneId: command.paneId)
+                if case let .stopTerminalStream(spec) = command.command {
+                    await streamService.stopStreaming(
+                        paneId: command.paneId,
+                        viewerId: viewerId,
+                        leaseId: spec.leaseId
+                    )
                     return .success(for: command.id)
                 }
 
@@ -3122,6 +3139,21 @@
                     return .success(for: command.id)
                 }
 
+                // Rename the real tmux session, then refresh every host-side
+                // cache before publishing the replacement name to viewers.
+                if case let .renameTmuxSession(spec) = command.command {
+                    do {
+                        try await tmux.renameSession(from: spec.sessionName, to: spec.newName)
+                        let allPanes = await tmux.refreshPanes()
+                        winManager.updatePaneStates(from: allPanes)
+                        await paneStreaming.updateMonitoring(panes: allPanes)
+                        await connectionManager?.pushSessionStateToAll()
+                        return .success(for: command.id)
+                    } catch {
+                        return .failure(for: command.id, error: error.localizedDescription)
+                    }
+                }
+
                 // Handle session description (applied to every pane in the session)
                 // pushSessionStateToAll() runs via onSessionMetadataChanged, not here.
                 if case let .setSessionDescription(spec) = command.command {
@@ -3156,10 +3188,8 @@
                     return .success(for: command.id)
                 }
 
-                // Handle window reorder — rewrites tmux indices via the same
-                // two-phase park-then-place path used locally, then pushes
-                // the refreshed session state so every viewer sees the new
-                // tab order.
+                // Handle window reorder, then publish one refreshed snapshot
+                // so every viewer sees the new stable-id order.
                 if case let .moveTmuxWindows(spec) = command.command {
                     do {
                         try await tmux.moveWindows(in: spec.sessionName, to: spec.windowIds)
@@ -3296,20 +3326,17 @@
 
             // Set up session state handler
             connectionManager.onSessionStateRequest = {
-                [weak self, weak windowManager, tmuxService, editorManager] in
+                [weak self, weak windowManager, editorManager] in
                 guard let windowManager else {
                     return SessionStateMessage(pairId: "", paneStates: [:])
                 }
-                // Refresh panes to ensure metadata is current
-                let allPanes = await tmuxService.refreshPanes()
-                await windowManager.updatePaneStates(from: allPanes)
-                var paneStates = await windowManager.paneStates
-
-                // Inject active editor sessions into pane states.
-                for (paneId, var state) in paneStates {
-                    state.editorSession = await editorManager.editorSessionInfo(for: paneId)
-                    paneStates[paneId] = state
-                }
+                // A Viewer snapshot is a read path. Periodic/control-event
+                // discovery keeps these models current; refreshing and writing
+                // them here made every remote read invalidate the Host UI.
+                let paneStates = await HostSessionStateSnapshot.make(
+                    windowManager: windowManager,
+                    editorManager: editorManager
+                )
 
                 // The merged per-plugin project list (the cores own scanning now).
                 let agentProjects = await self?.currentAgentProjects() ?? []
@@ -3376,6 +3403,16 @@
             // badge down with it. Decrease-only and deduplicated by the
             // shared high-water mark, so quiet refreshes are free.
             windowManager.onPaneStatesPruned = { [weak self] in
+                await self?.broadcastBadgeDecreaseIfNeeded()
+            }
+
+            // Process reconciliation is intentionally quiet when nothing
+            // changed. A real classification change affects sleep prevention,
+            // the full viewer snapshot, and potentially the iOS badge.
+            windowManager.onAgentProcessReconciliationChanged = {
+                [weak self, weak connectionManager] in
+                self?.updateSleepPrevention()
+                await connectionManager?.pushSessionStateToAll()
                 await self?.broadcastBadgeDecreaseIfNeeded()
             }
         }
@@ -3534,6 +3571,8 @@
 
         private static func handleStartStream(
             command: CommandMessage,
+            spec: StartTerminalStream,
+            viewerId: String,
             streamService: TerminalStreamService
         ) async -> CommandResponseMessage? {
             let paneId = command.paneId
@@ -3542,7 +3581,9 @@
             do {
                 try await streamService.startStreaming(
                     paneId: paneId,
-                    target: paneTarget
+                    target: paneTarget,
+                    viewerId: viewerId,
+                    leaseId: spec.leaseId
                 )
 
                 return .success(for: command.id)

@@ -17,6 +17,8 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
     public let sessionName: String
     /// The window index within the session
     public let windowIndex: Int
+    /// tmux's stable window id (for example `@3`).
+    public let tmuxWindowId: String?
     /// The pane index within the window
     public let paneIndex: Int
     /// The command currently running in the pane
@@ -54,11 +56,18 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         "\(sessionName):\(windowIndex)"
     }
 
+    /// Stable identity for state that must survive window reordering.
+    public var stableWindowId: String {
+        guard let tmuxWindowId, !tmuxWindowId.isEmpty else { return windowId }
+        return tmuxWindowId
+    }
+
     public init(
         paneId: String,
         target: String,
         sessionName: String,
         windowIndex: Int,
+        tmuxWindowId: String? = nil,
         paneIndex: Int,
         command: String,
         currentPath: String,
@@ -77,6 +86,7 @@ public struct PaneInfo: Identifiable, Sendable, Hashable {
         self.target = target
         self.sessionName = sessionName
         self.windowIndex = windowIndex
+        self.tmuxWindowId = tmuxWindowId
         self.paneIndex = paneIndex
         self.command = command
         self.currentPath = currentPath
@@ -113,7 +123,7 @@ public extension PaneInfo {
     /// Expected field order (separated by `fieldSeparator`):
     /// id, session, window, pane, command, path, width, height, active,
     /// title, layout, windowName, windowActive, customColor, customEmoji,
-    /// customDescription.
+    /// customDescription, tmuxWindowId.
     init?(fromTmuxOutput line: String) {
         let components = line.split(separator: Self.fieldSeparator, omittingEmptySubsequences: false).map(String.init)
         guard components.count >= 9 else { return nil }
@@ -128,6 +138,12 @@ public extension PaneInfo {
         self.paneId = components[0]
         self.sessionName = components[1]
         self.windowIndex = windowIndex
+        if components.count >= 17 {
+            let raw = components[16]
+            self.tmuxWindowId = raw.isEmpty ? nil : raw
+        } else {
+            self.tmuxWindowId = nil
+        }
         self.paneIndex = paneIndex
         self.command = components[4]
         self.currentPath = components[5]
@@ -172,6 +188,7 @@ public extension PaneInfo {
             target: target,
             sessionName: sessionName,
             windowIndex: windowIndex,
+            tmuxWindowId: tmuxWindowId,
             paneIndex: paneIndex,
             command: command,
             currentPath: currentPath,
@@ -189,10 +206,31 @@ public extension PaneInfo {
 
     /// Updates the tmux metadata fields of an existing PaneState, preserving
     /// Claude session, terminal title, yolo mode, and other runtime state.
-    func updateMetadata(of state: inout PaneState) {
+    @discardableResult
+    func updateMetadata(of state: inout PaneState) -> Bool {
+        guard
+            state.target != target
+            || state.sessionName != sessionName
+            || state.windowIndex != windowIndex
+            || state.tmuxWindowId != tmuxWindowId
+            || state.paneIndex != paneIndex
+            || state.command != command
+            || state.currentPath != currentPath
+            || state.width != width
+            || state.height != height
+            || state.isActive != isActive
+            || state.windowLayout != windowLayout
+            || state.windowName != windowName
+            || state.isWindowActive != isWindowActive
+            || state.customDescription != customDescription
+            || state.customColor != customColor
+            || state.customEmoji != customEmoji
+        else { return false }
+
         state.target = target
         state.sessionName = sessionName
         state.windowIndex = windowIndex
+        state.tmuxWindowId = tmuxWindowId
         state.paneIndex = paneIndex
         state.command = command
         state.currentPath = currentPath
@@ -205,5 +243,6 @@ public extension PaneInfo {
         state.customDescription = customDescription
         state.customColor = customColor
         state.customEmoji = customEmoji
+        return true
     }
 }

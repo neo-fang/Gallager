@@ -138,8 +138,10 @@
             }
             #expect(await sup.state() == .disabled)
             // The onAutoDisabled callback hops through a Task to fill the capture,
-            // so it may land a beat after the state flips — poll for it too.
-            while Date() < deadline, await capture.lines.isEmpty {
+            // so it may land a beat after the state flips. Give that hop its own
+            // deadline instead of reusing one the crash loop may have exhausted.
+            let captureDeadline = Date().addingTimeInterval(2)
+            while Date() < captureDeadline, await capture.lines.isEmpty {
                 try await Task.sleep(for: .milliseconds(20))
             }
             #expect(await !capture.lines.isEmpty)

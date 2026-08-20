@@ -36,8 +36,8 @@ struct CodexKeystrokesTests {
 
         let texts = await host.sentText
         let keys = await host.sentKeys
-        #expect(texts.map(\.text) == ["hello world"])
-        #expect(keys.map(\.keys) == [[.enter]])
+        #expect(texts.isEmpty)
+        #expect(keys.map(\.keys) == [[.text("hello world"), .delay(200), .enter]])
     }
 
     @Test("empty prompt sends nothing")
@@ -56,8 +56,8 @@ struct CodexKeystrokesTests {
         await core.deliverResponse(sessionID: "s", requestID: "r", .replyAfterStop(text: "keep going"))
         let texts = await host.sentText
         let keys = await host.sentKeys
-        #expect(texts.map(\.text) == ["keep going"])
-        #expect(keys.map(\.keys) == [[.enter]])
+        #expect(texts.isEmpty)
+        #expect(keys.map(\.keys) == [[.text("keep going"), .delay(200), .enter]])
     }
 
     @Test("empty replyAfterStop just interrupts with Escape")

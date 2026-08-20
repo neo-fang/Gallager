@@ -22,6 +22,7 @@
 
         @State private var creatingSelection: ProjectPickerSelection?
         @State private var creationError: String?
+        @State private var renameError: String?
         @State private var selectedHostForNewSession: PairedHost?
 
         var body: some View {
@@ -71,6 +72,20 @@
                     Text(error)
                 }
             }
+            .alert("Session Rename Failed", isPresented: .init(
+                get: { renameError != nil },
+                set: {
+                    if !$0 {
+                        renameError = nil
+                    }
+                }
+            )) {
+                Button("OK") { renameError = nil }
+            } message: {
+                if let renameError {
+                    Text(renameError)
+                }
+            }
             .sheet(item: $selectedHostForNewSession) { host in
                 ProjectPickerSheet(
                     host: host,
@@ -95,6 +110,18 @@
                         showUsername: settings.hasDuplicateHostName(for: host),
                         onNewSession: {
                             selectedHostForNewSession = host
+                        },
+                        onRename: { sessionName, newName in
+                            Task {
+                                let result = await connectionManager.sendCommand(
+                                    RenameTmuxSession(sessionName: sessionName, newName: newName),
+                                    paneId: "",
+                                    hostId: host.id
+                                )
+                                if case let .failure(error) = result {
+                                    renameError = error.localizedDescription
+                                }
+                            }
                         },
                         onSetDescription: { sessionName, description in
                             Task {
@@ -242,6 +269,7 @@
         let sessions: [TmuxSession]
         var showUsername = false
         let onNewSession: () -> Void
+        var onRename: (String, String) -> Void = { _, _ in }
         var onSetDescription: (String, String?) -> Void = { _, _ in }
         var onSetColor: (String, SessionColor?) -> Void = { _, _ in }
         var onSetEmoji: (String, String?) -> Void = { _, _ in }
@@ -324,14 +352,16 @@
             let claudePaneInSession = session.windows.flatMap(\.panes).first(where: { $0.agentSession != nil })
             // CLI-driven state override propagated from the host, if any pane has one set.
             let cliSessionState = session.cliSessionState
-            // Latest `OSC 9;4` progress from any pane in this session, propagated by the host.
-            let sessionProgress = session.windows.flatMap(\.panes).compactMap(\.progress).first
+            // Real terminal progress wins across the session; a working agent
+            // supplies an indeterminate fallback when no pane reports progress.
+            let sessionProgress = session.windows.flatMap(\.panes).effectiveProgress
 
             NavigationLink(value: SessionNavigation(sessionName: session.sessionName, hostId: host.id)) {
                 VStack(spacing: 0) {
                     if let claudePane = claudePaneInSession, let claudeSession = claudePane.agentSession {
                         SessionRowView(
                             paneId: claudePane.paneId,
+                            sessionName: session.sessionName,
                             session: claudeSession,
                             cliSessionState: cliSessionState,
                             isActive: sessionStore.isPaneActive(paneId: claudePane.paneId, hostId: host.id),
@@ -383,6 +413,7 @@
                 currentDescription: session.customDescription,
                 currentEmoji: session.customEmoji,
                 isDisabled: connection?.isHostConnected != true,
+                onRename: onRename,
                 onSetDescription: onSetDescription,
                 onSetEmoji: onSetEmoji,
                 additionalMenu: {
@@ -558,6 +589,7 @@
 
     struct SessionRowView: View {
         let paneId: String
+        let sessionName: String
         let session: AgentSession
         var cliSessionState: CLISessionState?
         let isActive: Bool
@@ -566,6 +598,15 @@
         var windowCount = 1
         var telemetry: SessionTelemetry?
         var permissionMode: String?
+
+        private var detail: String? {
+            let description = customDescription.flatMap { $0.isEmpty ? nil : $0 }
+            let projectName = session.displayName
+            if let description, projectName != sessionName {
+                return "\(description) · \(projectName)"
+            }
+            return description ?? (projectName == sessionName ? nil : projectName)
+        }
 
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
@@ -587,38 +628,24 @@
                 .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Custom description shown prominently if set
-                    if let customDescription {
-                        HStack {
-                            Text(customDescription)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
+                    HStack {
+                        Text(sessionName)
+                            .font(.headline)
+                        if windowCount > 1 {
+                            Text("\(windowCount) windows")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.fill.tertiary, in: Capsule())
                         }
+                    }
 
-                        Text(session.displayName)
+                    if let detail {
+                        Text(detail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            // Project folder name (or pane ID as fallback)
-                            Text(session.displayName)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
-                        }
+                            .lineLimit(1)
                     }
 
                     // Status label (the plugin model dropped the per-event buffer,
@@ -658,6 +685,14 @@
             pane.target.isEmpty ? pane.paneId : pane.target
         }
 
+        private var detail: String? {
+            let description = pane.customDescription.flatMap { $0.isEmpty ? nil : $0 }
+            if let description, displayName != pane.sessionName {
+                return "\(description) · \(displayName)"
+            }
+            return description ?? (displayName == pane.sessionName ? nil : displayName)
+        }
+
         var body: some View {
             HStack(alignment: .top, spacing: 12) {
                 VStack(spacing: 8) {
@@ -680,38 +715,24 @@
                 .frame(width: 20)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    // Custom description shown prominently if set
-                    if let customDescription = pane.customDescription {
-                        HStack {
-                            Text(customDescription)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
+                    HStack {
+                        Text(pane.sessionName)
+                            .font(.headline)
+                        if windowCount > 1 {
+                            Text("\(windowCount) windows")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.fill.tertiary, in: Capsule())
                         }
+                    }
 
-                        Text(displayName)
+                    if let detail {
+                        Text(detail)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                    } else {
-                        HStack {
-                            // Display name (folder name or pane ID)
-                            Text(displayName)
-                                .font(.headline)
-                            if windowCount > 1 {
-                                Text("\(windowCount) windows")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.fill.tertiary, in: Capsule())
-                            }
-                        }
+                            .lineLimit(1)
                     }
 
                     // Command and path info

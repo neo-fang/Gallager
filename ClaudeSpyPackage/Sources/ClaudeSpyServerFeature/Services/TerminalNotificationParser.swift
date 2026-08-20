@@ -49,6 +49,12 @@
         /// Buffer for incomplete OSC sequences split across reads
         private var oscBuffer = Data()
 
+        /// Whether parsing the next chunk must resume an OSC sequence that
+        /// started in a previous read.
+        var hasBufferedSequence: Bool {
+            !oscBuffer.isEmpty
+        }
+
         init(scanOnly: Bool = false) {
             self.scanOnly = scanOnly
         }

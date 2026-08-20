@@ -332,6 +332,10 @@ final class SessionFileTabsState {
     /// renders by iterating this array and dispatching on the case.
     var tabOrder: [TabDragPayload] = []
 
+    /// Serializes tmux window reorder transactions for this session. File and
+    /// browser tab moves remain synchronous and are not blocked by it.
+    var isWindowReorderPending = false
+
     /// True when at least one entry has been sent to the right pane. Drives
     /// the split content layout and the tab strip icons.
     var isSplit: Bool {
@@ -344,6 +348,32 @@ final class SessionFileTabsState {
         Set(rightSide.compactMap {
             if case let .window(id) = $0 { id } else { nil }
         })
+    }
+
+    /// Rewrites every live reference to a tmux window after its owning session
+    /// is renamed. Window indices and pane IDs stay stable, but tmux window IDs
+    /// embed the session name and therefore all change together.
+    func remapWindowIDs(_ mapping: [String: String]) {
+        guard !mapping.isEmpty else { return }
+
+        for index in openFileTabs.indices {
+            switch openFileTabs[index].origin {
+            case let .terminalWindow(windowID):
+                openFileTabs[index].origin = .terminalWindow(mapping[windowID] ?? windowID)
+            case let .gitTab(windowID):
+                openFileTabs[index].origin = .gitTab(windowId: mapping[windowID] ?? windowID)
+            case nil:
+                break
+            }
+        }
+        for index in openBrowserTabs.indices {
+            guard let windowID = openBrowserTabs[index].originWindowId else { continue }
+            openBrowserTabs[index].originWindowId = mapping[windowID] ?? windowID
+        }
+
+        rightSide = Set(rightSide.map { $0.remappingWindowID(using: mapping) })
+        selectedRight = selectedRight?.remappingWindowID(using: mapping)
+        tabOrder = tabOrder.map { $0.remappingWindowID(using: mapping) }
     }
 
     /// Cancels in-flight browser downloads across every tab, deleting their
