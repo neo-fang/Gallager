@@ -26,6 +26,10 @@ data class TerminalRender(
     val spans: List<TerminalStyleSpan> = emptyList(),
     val snapshotGeneration: Int = 0,
     val historyRows: Int = 0,
+    val mouseTrackingActive: Boolean = false,
+    val alternateBufferActive: Boolean = false,
+    val columns: Int = 0,
+    val rows: Int = 0,
 )
 
 /**
@@ -129,6 +133,10 @@ class TerminalTranscript(
             return TerminalRender(
                 snapshotGeneration = snapshotGeneration,
                 historyRows = screen.activeTranscriptRows,
+                mouseTrackingActive = emulator.isMouseTrackingActive,
+                alternateBufferActive = emulator.isAlternateBufferActive,
+                columns = columns,
+                rows = rows,
             )
         }
 
@@ -153,6 +161,10 @@ class TerminalTranscript(
             spans = spans,
             snapshotGeneration = snapshotGeneration,
             historyRows = screen.activeTranscriptRows,
+            mouseTrackingActive = emulator.isMouseTrackingActive,
+            alternateBufferActive = emulator.isAlternateBufferActive,
+            columns = columns,
+            rows = rows,
         )
     }
 

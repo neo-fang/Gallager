@@ -117,9 +117,22 @@ class TerminalTranscriptTest {
         transcript.feed("Main conversation".toByteArray())
         transcript.feed("\u001B[?1049h\u001B[2J\u001B[HTemporary TUI".toByteArray())
         assertEquals("Temporary TUI", transcript.value())
+        assertEquals(true, transcript.render().alternateBufferActive)
 
         transcript.feed("\u001B[?1049l".toByteArray())
         assertEquals("Main conversation", transcript.value())
+        assertFalse(transcript.render().alternateBufferActive)
+    }
+
+    @Test
+    fun tracksRemoteMouseModeFromTerminalControlSequences() {
+        val transcript = TerminalTranscript(initialColumns = 20, initialRows = 3)
+
+        transcript.feed("\u001B[?1000h\u001B[?1006h".toByteArray())
+        assertEquals(true, transcript.render().mouseTrackingActive)
+
+        transcript.feed("\u001B[?1000l".toByteArray())
+        assertFalse(transcript.render().mouseTrackingActive)
     }
 
     @Test

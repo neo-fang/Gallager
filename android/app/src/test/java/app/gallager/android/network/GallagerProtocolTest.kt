@@ -14,7 +14,7 @@ class GallagerProtocolTest {
     fun advertisesCtrlXThreeCompatibility() {
         val hello = parseOuterFrame(GallagerProtocol.peerHello())
 
-        assertEquals("3.0.0", hello.payload?.get("appVersion")?.jsonPrimitive?.content)
+        assertEquals("3.0.1", hello.payload?.get("appVersion")?.jsonPrimitive?.content)
         assertEquals("3.0", hello.payload?.get("minRequiredPartnerVersion")?.jsonPrimitive?.content)
     }
 

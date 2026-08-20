@@ -3,6 +3,7 @@ package app.gallager.android.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
@@ -87,6 +88,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -107,6 +109,7 @@ import app.gallager.android.model.ConnectionStatus
 import app.gallager.android.model.PaneSummary
 import app.gallager.android.model.PluginPresentation
 import app.gallager.android.terminal.TerminalRender
+import app.gallager.android.terminal.TerminalMouseScroll
 import app.gallager.android.terminal.TerminalStyle
 
 @Composable
@@ -842,6 +845,62 @@ private fun TerminalScreen(
             }
         },
     ) { padding ->
+        val terminalInteractionModifier = if (terminalContent.mouseTrackingActive && connected) {
+            Modifier.pointerInput(
+                pane.paneId,
+                terminalContent.columns,
+                terminalContent.rows,
+            ) {
+                var accumulatedY = 0f
+                val lineThreshold = 16.dp.toPx().coerceAtLeast(1f)
+                detectVerticalDragGestures(
+                    onDragStart = { accumulatedY = 0f },
+                    onDragCancel = { accumulatedY = 0f },
+                    onDragEnd = { accumulatedY = 0f },
+                ) { change, dragAmount ->
+                    if (dragAmount == 0f) return@detectVerticalDragGestures
+                    change.consume()
+
+                    // Reset immediately when the user reverses direction.
+                    if (accumulatedY != 0f && (accumulatedY > 0f) != (dragAmount > 0f)) {
+                        accumulatedY = 0f
+                    }
+                    accumulatedY += dragAmount
+
+                    var events = 0
+                    while (kotlin.math.abs(accumulatedY) >= lineThreshold) {
+                        events++
+                        accumulatedY -= if (accumulatedY > 0f) lineThreshold else -lineThreshold
+                    }
+                    if (events == 0) return@detectVerticalDragGestures
+
+                    val columns = terminalContent.columns
+                    val rows = terminalContent.rows
+                    val column = if (columns > 0) {
+                        (change.position.x / size.width.coerceAtLeast(1) * columns).toInt()
+                    } else {
+                        0
+                    }
+                    val row = if (rows > 0) {
+                        (change.position.y / size.height.coerceAtLeast(1) * rows).toInt()
+                    } else {
+                        0
+                    }
+                    onSend(
+                        TerminalMouseScroll.encode(
+                            revealOlder = dragAmount > 0f,
+                            column = column,
+                            row = row,
+                            columns = columns,
+                            rows = rows,
+                            events = events,
+                        ),
+                    )
+                }
+            }
+        } else {
+            Modifier.verticalScroll(scrollState)
+        }
         SelectionContainer {
             Text(
                 text = if (terminalContent.text.isBlank()) {
@@ -857,7 +916,7 @@ private fun TerminalScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .verticalScroll(scrollState)
+                    .then(terminalInteractionModifier)
                     .horizontalScroll(horizontalScrollState)
                     .padding(12.dp),
             )
