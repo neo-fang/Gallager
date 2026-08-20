@@ -82,6 +82,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -131,6 +132,7 @@ fun GallagerApp(viewModel: GallagerViewModel) {
             commandFeedback = state.relay.commandFeedback,
             onBack = viewModel::closeTerminal,
             onSend = viewModel::sendInput,
+            onRequestHistory = viewModel::requestEarlierHistory,
             onCreateWindow = { path -> viewModel.createWindow(selectedPane.sessionName, path) },
             onSplit = viewModel::splitPane,
             onCloseWindow = { viewModel.closeWindow(selectedPane) },
@@ -593,6 +595,7 @@ private fun TerminalScreen(
     commandFeedback: String?,
     onBack: () -> Unit,
     onSend: (ByteArray) -> Unit,
+    onRequestHistory: () -> Boolean,
     onCreateWindow: (String?) -> Unit,
     onSplit: (Boolean) -> Unit,
     onCloseWindow: () -> Unit,
@@ -603,6 +606,10 @@ private fun TerminalScreen(
     val scrollState = rememberScrollState()
     val horizontalScrollState = rememberScrollState()
     var followTerminalTail by remember(pane.paneId) { mutableStateOf(true) }
+    var historyRequestInFlight by remember(pane.paneId) { mutableStateOf(false) }
+    var historyRequestToken by remember(pane.paneId) { mutableStateOf(0) }
+    var historyRequestOldMax by remember(pane.paneId) { mutableStateOf<Int?>(null) }
+    var historyRequestOldValue by remember(pane.paneId) { mutableStateOf(0) }
     var input by remember(pane.paneId) { mutableStateOf("") }
     var actionMenuExpanded by remember { mutableStateOf(false) }
     var showNewWindowDialog by remember { mutableStateOf(false) }
@@ -657,13 +664,44 @@ private fun TerminalScreen(
             when (interaction) {
                 is DragInteraction.Start -> followTerminalTail = false
                 is DragInteraction.Stop,
-                is DragInteraction.Cancel ->
+                is DragInteraction.Cancel -> {
                     followTerminalTail = scrollState.value >= scrollState.maxValue - 48
+                    if (
+                        interaction is DragInteraction.Stop &&
+                        !followTerminalTail &&
+                        scrollState.value <= 48 &&
+                        !historyRequestInFlight &&
+                        onRequestHistory()
+                    ) {
+                        historyRequestOldMax = scrollState.maxValue
+                        historyRequestOldValue = scrollState.value
+                        historyRequestInFlight = true
+                        historyRequestToken++
+                    }
+                }
             }
         }
     }
     LaunchedEffect(pane.paneId, terminalContent.text.length) {
         if (followTerminalTail) scrollState.scrollTo(scrollState.maxValue)
+    }
+    LaunchedEffect(pane.paneId, terminalContent.snapshotGeneration) {
+        val oldMax = historyRequestOldMax ?: return@LaunchedEffect
+        // Let Compose measure the replacement snapshot before compensating for
+        // the newly prepended rows. This keeps the previously visible text under
+        // the user's finger instead of jumping to the oldest row.
+        withFrameNanos { }
+        withFrameNanos { }
+        val preserved = historyRequestOldValue + (scrollState.maxValue - oldMax)
+        scrollState.scrollTo(preserved.coerceIn(0, scrollState.maxValue))
+        historyRequestOldMax = null
+        historyRequestInFlight = false
+    }
+    LaunchedEffect(pane.paneId, historyRequestToken) {
+        val token = historyRequestToken
+        if (token == 0) return@LaunchedEffect
+        kotlinx.coroutines.delay(10_000)
+        if (historyRequestToken == token) historyRequestInFlight = false
     }
 
     Scaffold(

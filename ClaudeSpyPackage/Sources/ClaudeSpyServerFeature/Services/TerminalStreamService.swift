@@ -195,7 +195,8 @@ final public class TerminalStreamService {
         paneId: String,
         target: String,
         viewerId: String,
-        leaseId: UUID? = nil
+        leaseId: UUID? = nil,
+        scrollbackLines: Int? = nil
     ) async throws {
         let bootstrapStart = ContinuousClock.now
 
@@ -216,7 +217,10 @@ final public class TerminalStreamService {
             context.beginBootstrap(for: viewerId, leaseId: leaseId)
 
             let captureStart = ContinuousClock.now
-            guard let current = await paneStreamManager.currentContent(for: paneId) else {
+            guard let current = await paneStreamManager.currentContent(
+                for: paneId,
+                scrollbackLines: scrollbackLines
+            ) else {
                 await stopStreaming(
                     paneId: paneId,
                     force: true,

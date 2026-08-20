@@ -53,6 +53,7 @@ class RelayClient(
     private var keepAliveJob: Job? = null
     private var reconnectAttempt = 0
     private var activePaneId: String? = null
+    private var activeScrollbackLines: Int? = null
     private val pendingCommands = ConcurrentHashMap<String, String>()
     @Volatile private var shouldReconnect = false
 
@@ -84,13 +85,18 @@ class RelayClient(
         scope.cancel()
     }
 
-    fun startTerminalStream(paneId: String) {
+    fun startTerminalStream(paneId: String, scrollbackLines: Int? = null) {
+        if (activePaneId != paneId) activeScrollbackLines = null
         activePaneId = paneId
-        sendEncrypted(GallagerProtocol.startTerminalStream(paneId))
+        if (scrollbackLines != null) activeScrollbackLines = scrollbackLines
+        sendEncrypted(GallagerProtocol.startTerminalStream(paneId, scrollbackLines))
     }
 
     fun stopTerminalStream(paneId: String) {
-        if (activePaneId == paneId) activePaneId = null
+        if (activePaneId == paneId) {
+            activePaneId = null
+            activeScrollbackLines = null
+        }
         sendEncrypted(GallagerProtocol.stopTerminalStream(paneId))
     }
 
@@ -295,7 +301,9 @@ class RelayClient(
             error = null,
         )
         sendEncrypted(GallagerProtocol.requestSessionState())
-        activePaneId?.let { sendEncrypted(GallagerProtocol.startTerminalStream(it)) }
+        activePaneId?.let {
+            sendEncrypted(GallagerProtocol.startTerminalStream(it, activeScrollbackLines))
+        }
     }
 
     private fun handleSessionState(payload: JsonObject?) {

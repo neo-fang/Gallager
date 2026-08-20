@@ -54,6 +54,14 @@
 
     @Suite("Terminal Rendering - Garbled Output Investigation")
     struct TerminalRenderingTests {
+        @Test("Viewer-requested scrollback stays inside the mobile buffer cap")
+        @MainActor
+        func boundsRequestedScrollback() {
+            #expect(TmuxService.boundedScrollbackLines(-10) == 0)
+            #expect(TmuxService.boundedScrollbackLines(2_500) == 2_500)
+            #expect(TmuxService.boundedScrollbackLines(25_000) == 10_000)
+        }
+
         // MARK: - H1: filterToColorCodesOnly strips too aggressively
 
         @Suite("H1: filterToColorCodesOnly behavior")

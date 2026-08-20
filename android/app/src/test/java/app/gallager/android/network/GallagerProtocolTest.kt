@@ -77,6 +77,28 @@ class GallagerProtocolTest {
     }
 
     @Test
+    fun requestsBoundedHistoryAndParsesAuthoritativeReset() {
+        val frame = parseOuterFrame(GallagerProtocol.startTerminalStream("%2", 25_000))
+        val start = frame.payload
+            ?.get("command")?.jsonObject
+            ?.get("startTerminalStream")?.jsonObject
+            ?.get("_0")?.jsonObject
+        assertEquals(10_000, start?.get("scrollbackLines")?.jsonPrimitive?.content?.toInt())
+
+        val content = Base64.getEncoder().encodeToString("older".toByteArray())
+        val payload = GallagerProtocol.json.parseToJsonElement(
+            """{
+              "paneId":"%2",
+              "updateType":{"resetState":{"_0":{"width":80,"height":24,"contentBase64":"$content"}}}
+            }""",
+        ).jsonObject
+
+        val update = GallagerProtocol.terminalUpdate(payload)
+        assertEquals(TerminalUpdateType.INITIAL, update?.type)
+        assertEquals("older", update?.bytes?.toString(Charsets.UTF_8))
+    }
+
+    @Test
     fun parsesTerminalDimensionChanges() {
         val payload = GallagerProtocol.json.parseToJsonElement(
             """{

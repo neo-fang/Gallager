@@ -24,6 +24,8 @@ data class TerminalStyleSpan(
 data class TerminalRender(
     val text: String = "",
     val spans: List<TerminalStyleSpan> = emptyList(),
+    val snapshotGeneration: Int = 0,
+    val historyRows: Int = 0,
 )
 
 /**
@@ -44,11 +46,13 @@ class TerminalTranscript(
     private var columns = initialColumns.coerceIn(MIN_COLUMNS, MAX_COLUMNS)
     private var rows = initialRows.coerceIn(MIN_ROWS, MAX_ROWS)
     private var emulator = createEmulator()
+    private var snapshotGeneration = 0
 
     fun reset(bytes: ByteArray, columns: Int? = null, rows: Int? = null) {
         this.columns = (columns ?: this.columns).coerceIn(MIN_COLUMNS, MAX_COLUMNS)
         this.rows = (rows ?: this.rows).coerceIn(MIN_ROWS, MAX_ROWS)
         emulator = createEmulator()
+        snapshotGeneration++
         feed(bytes)
     }
 
@@ -121,7 +125,12 @@ class TerminalTranscript(
         }
 
         val lastVisibleRow = renderedRows.indexOfLast { it.isNotEmpty() }
-        if (lastVisibleRow < 0) return TerminalRender()
+        if (lastVisibleRow < 0) {
+            return TerminalRender(
+                snapshotGeneration = snapshotGeneration,
+                historyRows = screen.activeTranscriptRows,
+            )
+        }
 
         val text = StringBuilder()
         val spans = mutableListOf<TerminalStyleSpan>()
@@ -139,7 +148,12 @@ class TerminalTranscript(
             appendStyleSpan(spans, runStart, text.length, runStyle)
             if (rowIndex < lastVisibleRow) text.append('\n')
         }
-        return TerminalRender(text.toString(), spans)
+        return TerminalRender(
+            text = text.toString(),
+            spans = spans,
+            snapshotGeneration = snapshotGeneration,
+            historyRows = screen.activeTranscriptRows,
+        )
     }
 
     private fun createEmulator(): TerminalEmulator = TerminalEmulator(

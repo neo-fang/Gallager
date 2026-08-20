@@ -25,7 +25,7 @@ import java.util.Base64
 import java.util.UUID
 
 object GallagerProtocol {
-    const val APP_VERSION = "2.2.1"
+    const val APP_VERSION = "2.2.2"
     const val MIN_HOST_VERSION = "2.0"
 
     val json = Json {
@@ -98,10 +98,12 @@ object GallagerProtocol {
 
     fun pong(): String = frame("pong")
 
-    fun startTerminalStream(paneId: String): String = commandFrame(
+    fun startTerminalStream(paneId: String, scrollbackLines: Int? = null): String = commandFrame(
         paneId,
         "startTerminalStream",
-        buildJsonObject { },
+        buildJsonObject {
+            scrollbackLines?.let { put("scrollbackLines", it.coerceIn(0, 10_000)) }
+        },
     )
 
     fun stopTerminalStream(paneId: String): String = commandFrame(
@@ -265,7 +267,7 @@ object GallagerProtocol {
         val value = update[type]
         val data = (value as? JsonObject)?.let { it["_0"] ?: it } as? JsonObject
         return when (type) {
-            "initialState" -> TerminalUpdate(
+            "initialState", "resetState" -> TerminalUpdate(
                 paneId = paneId,
                 type = TerminalUpdateType.INITIAL,
                 bytes = data?.string("contentBase64")?.let(Base64.getDecoder()::decode),

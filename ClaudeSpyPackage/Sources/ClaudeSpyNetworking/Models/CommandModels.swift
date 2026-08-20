@@ -473,8 +473,15 @@ public struct StartTerminalStream: CommandSpec, Equatable {
     /// older peers that encode an empty command remain wire-compatible.
     public let leaseId: UUID?
 
-    public init(leaseId: UUID? = nil) {
+    /// Optional absolute scrollback depth requested by a viewer. Older viewers
+    /// omit it and retain the small bootstrap snapshot. A viewer can repeat the
+    /// start command for an already-owned stream to request a deeper,
+    /// authoritative snapshot without interrupting live output.
+    public let scrollbackLines: Int?
+
+    public init(leaseId: UUID? = nil, scrollbackLines: Int? = nil) {
         self.leaseId = leaseId
+        self.scrollbackLines = scrollbackLines
     }
 
     public var commandType: CommandType {

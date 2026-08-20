@@ -71,7 +71,7 @@ struct AndroidProtocolCompatibilityTests {
 
     @Test("Android stream-start command uses Swift associated-value shape")
     func streamStartCommand() throws {
-        let data = Data(#"{"type":"command","payload":{"id":"00000000-0000-0000-0000-000000000002","paneId":"%1","command":{"startTerminalStream":{"_0":{}}},"timestamp":"2026-08-05T00:00:00Z"}}"#.utf8)
+        let data = Data(#"{"type":"command","payload":{"id":"00000000-0000-0000-0000-000000000002","paneId":"%1","command":{"startTerminalStream":{"_0":{"scrollbackLines":2500}}},"timestamp":"2026-08-05T00:00:00Z"}}"#.utf8)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
@@ -81,10 +81,11 @@ struct AndroidProtocolCompatibilityTests {
             Issue.record("Expected command")
             return
         }
-        guard case .startTerminalStream = command.command else {
+        guard case let .startTerminalStream(spec) = command.command else {
             Issue.record("Expected startTerminalStream")
             return
         }
         #expect(command.paneId == "%1")
+        #expect(spec.scrollbackLines == 2_500)
     }
 }

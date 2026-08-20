@@ -8,7 +8,7 @@ struct TerminalStreamLeaseCommandTests {
     func modernRoundTrip() throws {
         let leaseId = UUID()
         let commands: [CommandType] = [
-            .startTerminalStream(StartTerminalStream(leaseId: leaseId)),
+            .startTerminalStream(StartTerminalStream(leaseId: leaseId, scrollbackLines: 2_500)),
             .stopTerminalStream(StopTerminalStream(leaseId: leaseId)),
         ]
 
@@ -43,6 +43,19 @@ struct TerminalStreamLeaseCommandTests {
         #expect(encodedStart.isEmpty)
         #expect(encodedStop.isEmpty)
         #expect(start.leaseId == nil)
+        #expect(start.scrollbackLines == nil)
         #expect(stop.leaseId == nil)
+    }
+
+    @Test("History depth survives the Android command shape")
+    func historyDepthRoundTrip() throws {
+        let command = StartTerminalStream(scrollbackLines: 10_000)
+        let decoded = try JSONDecoder().decode(
+            StartTerminalStream.self,
+            from: JSONEncoder().encode(command)
+        )
+
+        #expect(decoded.scrollbackLines == 10_000)
+        #expect(decoded.leaseId == nil)
     }
 }

@@ -3583,7 +3583,8 @@
                     paneId: paneId,
                     target: paneTarget,
                     viewerId: viewerId,
-                    leaseId: spec.leaseId
+                    leaseId: spec.leaseId,
+                    scrollbackLines: spec.scrollbackLines
                 )
 
                 return .success(for: command.id)

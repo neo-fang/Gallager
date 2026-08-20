@@ -37,6 +37,7 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
     private var relayClient: RelayClient? = null
     private var relayCollection: Job? = null
     private var streamingPaneId: String? = null
+    private val requestedHistoryLines = mutableMapOf<String, Int>()
 
     init {
         _uiState.value.pairedHost?.let(::connect)
@@ -116,6 +117,23 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
         relayClient?.sendInput(paneId, bytes)
     }
 
+    /** Requests a progressively deeper authoritative terminal snapshot. */
+    fun requestEarlierHistory(): Boolean {
+        val paneId = _uiState.value.selectedPaneId ?: return false
+        if (!_uiState.value.relay.hostConnected) return false
+        val current = requestedHistoryLines[paneId] ?: 0
+        val next = when {
+            current < 1_000 -> 1_000
+            current < 2_500 -> 2_500
+            current < 5_000 -> 5_000
+            current < 10_000 -> 10_000
+            else -> return false
+        }
+        requestedHistoryLines[paneId] = next
+        relayClient?.startTerminalStream(paneId, scrollbackLines = next)
+        return true
+    }
+
     fun createSession(name: String, workingDirectory: String?, configDir: String?, pluginId: String) {
         relayClient?.createSession(
             name = name.trim(),
@@ -155,6 +173,7 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
             relayClient?.destroy()
             relayClient = null
             streamingPaneId = null
+            requestedHistoryLines.clear()
             runCatching { application.pairingApi.unpair(host.serverUrl, host.pairId) }
             application.pairingStore.clearHost()
             application.crypto.clearSession()

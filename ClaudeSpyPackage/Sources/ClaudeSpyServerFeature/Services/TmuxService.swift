@@ -882,10 +882,13 @@ final public class TmuxService {
     /// - Returns: Terminal data that will populate both scrollback and visible area
     public func capturePaneWithScrollbackForStreaming(
         _ target: String,
-        scrollbackMultiplier: Int = 3
+        scrollbackMultiplier: Int = 3,
+        scrollbackLines requestedScrollbackLines: Int? = nil
     ) async throws -> Data {
         let (width, height) = try await getPaneDimensions(target)
-        let scrollbackLines = height * scrollbackMultiplier
+        let scrollbackLines = Self.boundedScrollbackLines(
+            requestedScrollbackLines ?? height * scrollbackMultiplier
+        )
 
         // `-N` preserves trailing spaces at each line's end (without `-J`'s
         // wrapped-line joining) on BOTH captures. Without it tmux trims trailing
@@ -918,6 +921,13 @@ final public class TmuxService {
             width: width,
             height: height
         )
+    }
+
+    /// Keeps viewer-requested history snapshots inside both tmux relay and
+    /// Android emulator limits. The normal bootstrap path remains much smaller;
+    /// this cap applies when the user explicitly asks for older output.
+    static func boundedScrollbackLines(_ lines: Int) -> Int {
+        min(max(lines, 0), 10_000)
     }
 
     /// Captures pane content for streaming using control mode commands.

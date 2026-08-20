@@ -21,6 +21,7 @@ class TerminalTranscriptTest {
         transcript.reset("new".toByteArray())
 
         assertEquals("new", transcript.value())
+        assertEquals(1, transcript.render().snapshotGeneration)
     }
 
     @Test

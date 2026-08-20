@@ -535,9 +535,15 @@
         ///
         /// - Parameter paneId: The pane ID to capture content for
         /// - Returns: Current content, width, and height if the pane has subscribers; nil otherwise
-        public func currentContent(for paneId: String) async -> (content: Data, width: Int, height: Int)? {
+        public func currentContent(
+            for paneId: String,
+            scrollbackLines: Int? = nil
+        ) async -> (content: Data, width: Int, height: Int)? {
             guard let context = readers[paneId], !context.subscriberIds.isEmpty else { return nil }
-            guard let content = try? await tmuxService.capturePaneWithScrollbackForStreaming(context.target) else {
+            guard let content = try? await tmuxService.capturePaneWithScrollbackForStreaming(
+                context.target,
+                scrollbackLines: scrollbackLines
+            ) else {
                 return nil
             }
             return (content, context.width, context.height)
