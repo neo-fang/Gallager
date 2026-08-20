@@ -136,6 +136,7 @@ fun GallagerApp(viewModel: GallagerViewModel) {
             onBack = viewModel::closeTerminal,
             onSend = viewModel::sendInput,
             onRequestHistory = viewModel::requestEarlierHistory,
+            onRefreshTerminal = viewModel::refreshTerminalSnapshot,
             onCreateWindow = { path -> viewModel.createWindow(selectedPane.sessionName, path) },
             onSplit = viewModel::splitPane,
             onCloseWindow = { viewModel.closeWindow(selectedPane) },
@@ -599,6 +600,7 @@ private fun TerminalScreen(
     onBack: () -> Unit,
     onSend: (ByteArray) -> Unit,
     onRequestHistory: () -> Boolean,
+    onRefreshTerminal: () -> Unit,
     onCreateWindow: (String?) -> Unit,
     onSplit: (Boolean) -> Unit,
     onCloseWindow: () -> Unit,
@@ -852,11 +854,21 @@ private fun TerminalScreen(
                 terminalContent.rows,
             ) {
                 var accumulatedY = 0f
+                var didSendScroll = false
                 val lineThreshold = 16.dp.toPx().coerceAtLeast(1f)
                 detectVerticalDragGestures(
-                    onDragStart = { accumulatedY = 0f },
-                    onDragCancel = { accumulatedY = 0f },
-                    onDragEnd = { accumulatedY = 0f },
+                    onDragStart = {
+                        accumulatedY = 0f
+                        didSendScroll = false
+                    },
+                    onDragCancel = {
+                        accumulatedY = 0f
+                        if (didSendScroll) onRefreshTerminal()
+                    },
+                    onDragEnd = {
+                        accumulatedY = 0f
+                        if (didSendScroll) onRefreshTerminal()
+                    },
                 ) { change, dragAmount ->
                     if (dragAmount == 0f) return@detectVerticalDragGestures
                     change.consume()
@@ -876,16 +888,13 @@ private fun TerminalScreen(
 
                     val columns = terminalContent.columns
                     val rows = terminalContent.rows
-                    val column = if (columns > 0) {
-                        (change.position.x / size.width.coerceAtLeast(1) * columns).toInt()
-                    } else {
-                        0
-                    }
-                    val row = if (rows > 0) {
-                        (change.position.y / size.height.coerceAtLeast(1) * rows).toInt()
-                    } else {
-                        0
-                    }
+                    // Claude Code can ignore wheel input over its prompt or
+                    // status bar. The pane centre is consistently within the
+                    // conversation viewport, regardless of where the drag
+                    // began on the phone.
+                    val column = columns / 2
+                    val row = rows / 2
+                    didSendScroll = true
                     onSend(
                         TerminalMouseScroll.encode(
                             revealOlder = dragAmount > 0f,

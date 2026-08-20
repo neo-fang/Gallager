@@ -10,6 +10,7 @@ import app.gallager.android.model.PaneSummary
 import app.gallager.android.model.RelaySnapshot
 import app.gallager.android.network.RelayClient
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +37,7 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
 
     private var relayClient: RelayClient? = null
     private var relayCollection: Job? = null
+    private var terminalSnapshotRefresh: Job? = null
     private var streamingPaneId: String? = null
     private val requestedHistoryLines = mutableMapOf<String, Int>()
 
@@ -115,6 +117,23 @@ class GallagerViewModel(private val application: GallagerApplication) : ViewMode
     fun sendInput(bytes: ByteArray) {
         val paneId = _uiState.value.selectedPaneId ?: return
         relayClient?.sendInput(paneId, bytes)
+    }
+
+    /**
+     * Re-captures the authoritative host screen after a remote TUI scroll.
+     * Full-screen apps redraw asynchronously, so waiting briefly avoids
+     * capturing the pane before the wheel event has been rendered.
+     */
+    fun refreshTerminalSnapshot() {
+        val paneId = _uiState.value.selectedPaneId ?: return
+        if (!_uiState.value.relay.hostConnected) return
+        terminalSnapshotRefresh?.cancel()
+        terminalSnapshotRefresh = viewModelScope.launch {
+            delay(180)
+            if (_uiState.value.selectedPaneId == paneId) {
+                relayClient?.startTerminalStream(paneId)
+            }
+        }
     }
 
     /** Requests a progressively deeper authoritative terminal snapshot. */
