@@ -21,7 +21,7 @@
     public final class NotificationActionService {
         public static let shared = NotificationActionService()
 
-        private let logger = Logger(label: "com.claudespy.notificationaction")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.notificationaction")
 
         /// The app's live connection manager, registered by `ContentView` so
         /// action taps reuse existing sockets. `weak` so the service never
@@ -68,7 +68,8 @@
                 userText: (response as? UNTextInputNotificationResponse)?.userText,
                 pairId: userInfo["pairId"] as? String,
                 paneId: userInfo["paneId"] as? String,
-                originalTitle: response.notification.request.content.title
+                originalTitle: response.notification.request.content.title,
+                originalSubtitle: response.notification.request.content.subtitle
             )
         }
 
@@ -83,7 +84,8 @@
             userText: String?,
             pairId: String?,
             paneId: String?,
-            originalTitle: String
+            originalTitle: String,
+            originalSubtitle: String?
         ) async -> Bool {
             guard let plan = NotificationActionPlanner.plan(
                 context: context,
@@ -118,6 +120,7 @@
                     index: index,
                     progress: progress,
                     originalTitle: originalTitle,
+                    originalSubtitle: originalSubtitle,
                     pairId: pairId,
                     paneId: paneId
                 )
@@ -158,6 +161,7 @@
         /// SpringBoard, out of the harness's reach).
         public struct IncomingActionNotification {
             public let title: String
+            public let subtitle: String?
             public let pairId: String
             public let paneId: String?
             public let context: NotificationActionContext
@@ -170,12 +174,14 @@
         /// notification is materialized.
         public func noteIncomingAgentNotification(
             title: String,
+            subtitle: String?,
             pairId: String,
             paneId: String?,
             action: NotificationActionContext
         ) {
             lastIncomingAction = IncomingActionNotification(
                 title: title,
+                subtitle: subtitle,
                 pairId: pairId,
                 paneId: paneId,
                 context: action
@@ -228,7 +234,8 @@
                     userText: userText,
                     pairId: incoming.pairId,
                     paneId: incoming.paneId,
-                    originalTitle: incoming.title
+                    originalTitle: incoming.title,
+                    originalSubtitle: incoming.subtitle
                 )
             }
         #endif
@@ -241,6 +248,7 @@
         /// so this path mirrors what the NSE does for pushes).
         public func scheduleActionableLocalNotification(
             title: String,
+            subtitle: String?,
             body: String,
             paneId: String?,
             hostId: String,
@@ -255,6 +263,7 @@
             else {
                 PushNotificationService.shared.scheduleLocalNotification(
                     title: title,
+                    subtitle: subtitle,
                     body: body,
                     paneId: paneId,
                     hostId: hostId
@@ -268,6 +277,7 @@
 
             let content = UNMutableNotificationContent()
             content.title = title
+            content.subtitle = subtitle ?? ""
             // Multi-question forms: the baked body only says "Claude has N
             // questions" — append the first question so the expanded
             // notification's buttons have a visible question (mirrors the NSE).
@@ -425,6 +435,7 @@
             index: Int,
             progress: NotificationActionProgress,
             originalTitle: String,
+            originalSubtitle: String?,
             pairId: String?,
             paneId: String?
         ) async {
@@ -447,6 +458,7 @@
             // Keep the original title so the flow reads as one conversation;
             // the body advances to the next question (numbered, "(2/2) …").
             content.title = originalTitle
+            content.subtitle = originalSubtitle ?? ""
             content.body = context.numberedQuestionBody(at: index) ?? question.question
             content.sound = .default
             content.categoryIdentifier = category.identifier

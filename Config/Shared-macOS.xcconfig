@@ -12,4 +12,9 @@ MACOSX_DEPLOYMENT_TARGET = 26.0
 // ==========================================
 // Product Identity
 // ==========================================
-PRODUCT_NAME = Gallager
+PRODUCT_NAME = CtrlX
+
+// A distribution must supply its own Sparkle endpoint and EdDSA public key in
+// Local-macOS.xcconfig. Empty values keep updates safely disabled.
+CTRLX_SPARKLE_FEED_URL =
+CTRLX_SPARKLE_PUBLIC_KEY =

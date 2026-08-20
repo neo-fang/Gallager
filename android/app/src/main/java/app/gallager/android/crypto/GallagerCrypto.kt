@@ -84,7 +84,7 @@ class GallagerCrypto(
     }
 
     companion object {
-        const val PROTOCOL_SALT = "ClaudeSpy-E2EE-v1"
+        const val PROTOCOL_SALT = "CtrlX-E2EE-v1"
         const val ENCRYPTION_VERSION = 1
         private const val X25519_KEY_SIZE = 32
         private const val SESSION_KEY_SIZE = 32

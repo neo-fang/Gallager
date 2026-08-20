@@ -26,7 +26,7 @@
         public let shutdownTimeout: Duration
 
         private var didReply = false
-        private let logger = Logger(label: "com.claudespy.shutdown")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.shutdown")
 
         @Dependency(\.continuousClock) private var clock
 

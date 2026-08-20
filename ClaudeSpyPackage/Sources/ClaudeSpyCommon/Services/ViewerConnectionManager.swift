@@ -13,7 +13,7 @@ import Foundation
 final public class ViewerConnectionManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.viewerconnectionmanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.viewerconnectionmanager")
 
     /// Active connections keyed by pairId
     private var connections: [String: ViewerConnection] = [:]
@@ -53,6 +53,10 @@ final public class ViewerConnectionManager {
     /// Parameter is the pairId of the disconnected host.
     public var onHostDisconnected: ((_ hostId: String) async -> Void)?
 
+    /// Called when this viewer's Relay transport is interrupted. The Host may
+    /// still be running and the connection remains eligible for reconnection.
+    public var onTransportInterrupted: ((_ hostId: String) async -> Void)?
+
     /// Called when a pairing was removed by the other side.
     /// Parameter is the pairId that was unpaired.
     public var onUnpaired: ((_ hostId: String) async -> Void)?
@@ -62,6 +66,14 @@ final public class ViewerConnectionManager {
     /// All active connections
     public var activeConnections: [ViewerConnection] {
         Array(connections.values)
+    }
+
+    /// Every Host for which this manager owns a connection, including one that
+    /// is currently reconnecting. A global background monitor must probe both
+    /// healthy and interrupted transports; filtering to connected Hosts would
+    /// make recovery impossible precisely when it is needed.
+    public var managedHostIDs: [String] {
+        connections.keys.sorted()
     }
 
     /// Whether any host is currently connected via WebSocket
@@ -223,6 +235,30 @@ final public class ViewerConnectionManager {
         }
     }
 
+    /// Maintain the one existing connection used by a finite background Agent
+    /// monitor. Healthy connections receive one liveness ping and, when asked,
+    /// one current-state snapshot. Stale connections are replaced in place.
+    @discardableResult
+    public func maintainBackgroundConnection(
+        for hostId: String,
+        requestSessionState: Bool,
+        staleAfter: Duration
+    ) async -> Bool {
+        guard let connection = connections[hostId] else {
+            logger.debug("Cannot maintain missing host connection: \(hostId)")
+            return false
+        }
+
+        let result = await connection.probeConnection(staleAfter: staleAfter)
+        guard
+            requestSessionState,
+            result == .alive,
+            connection.isHostConnected
+        else { return false }
+
+        return await connection.requestSessionState()
+    }
+
     /// Re-enable reconnection on every connection that stopped after a terminal
     /// failure (e.g. version mismatch) and retry. Used by E2E scenarios that
     /// simulate an in-place "upgrade" of the app's reported version.
@@ -345,6 +381,10 @@ final public class ViewerConnectionManager {
             onPartnerKeyReceived: { [weak self] publicKey, keyId in
                 guard let self else { return }
                 await self.onPartnerKeyReceived?(hostId, publicKey, keyId)
+            },
+            onTransportInterrupted: { [weak self] in
+                guard let self else { return }
+                await self.onTransportInterrupted?(hostId)
             },
             onHostDisconnected: { [weak self] in
                 guard let self else { return }

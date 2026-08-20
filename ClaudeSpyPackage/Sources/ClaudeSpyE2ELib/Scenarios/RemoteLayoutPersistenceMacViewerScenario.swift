@@ -26,7 +26,7 @@ import Foundation
 /// instance backs `PreferencesService` with in-memory storage
 /// (`ClaudeSpyServerApp`), so a relaunched viewer loses its pairing and can't
 /// reconnect — there'd be no remote session to restore into. The disk round
-/// trip itself (atomic `layouts.json` write/read under `--gallager-state-root`)
+/// trip itself (atomic `layouts.json` write/read under `--ctrlx-state-root`)
 /// is covered by `LayoutStoreTests`; the window-ref split remap is covered by
 /// `LayoutSnapshotMapperTests`. This scenario covers the remote-specific
 /// wiring those unit tests can't: folder resolution from synced pane state,

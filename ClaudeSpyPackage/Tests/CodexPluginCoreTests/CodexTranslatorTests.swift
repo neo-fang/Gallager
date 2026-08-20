@@ -15,16 +15,16 @@ struct CodexTranslatorTests {
 
     /// Builds an initialized core wired to a fresh mock host. The pane↔session
     /// correlation store is pointed at a throwaway temp dir so tests never touch
-    /// the real `~/.claudespy/codex-sessions/`.
+    /// the real `~/.ctrlx/codex-sessions/`.
     private func makeCore() async throws -> (CodexPluginCore, MockPluginHost) {
         let host = MockPluginHost()
         let correlationRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-corr-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-corr-\(UUID().uuidString)")
         let core = CodexPluginCore(correlation: CodexSessionCorrelation(root: correlationRoot))
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cx-test-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cx-test-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: Data(),
             marketplaceSource: URL(fileURLWithPath: "/")
@@ -467,7 +467,7 @@ struct CodexTranslatorTests {
     private func makeCore(closePaneOnSessionEnd: Bool) async throws -> (CodexPluginCore, MockPluginHost) {
         let host = MockPluginHost()
         let correlationRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-corr-pref-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-corr-pref-\(UUID().uuidString)")
         let core = CodexPluginCore(correlation: CodexSessionCorrelation(root: correlationRoot))
         let settingsData = try JSONEncoder().encode(
             CodexSettings(closePaneOnSessionEnd: closePaneOnSessionEnd)
@@ -475,7 +475,7 @@ struct CodexTranslatorTests {
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cx-test-pref-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cx-test-pref-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: settingsData,
             marketplaceSource: URL(fileURLWithPath: "/")

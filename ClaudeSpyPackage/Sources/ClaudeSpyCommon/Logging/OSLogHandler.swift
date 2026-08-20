@@ -19,9 +19,9 @@ struct OSLogHandler: LogHandler {
 
     init(label: String) {
         // Convert label to subsystem/category
-        // Labels like "com.claudespy.sessionstore" become subsystem "com.claudespy", category "sessionstore"
-        let subsystem = "com.claudespy"
-        let category = label.replacingOccurrences(of: "com.claudespy.", with: "")
+        // Labels like "com.jicezeng.ctrlx.sessionstore" become subsystem "com.jicezeng.ctrlx", category "sessionstore"
+        let subsystem = "com.jicezeng.ctrlx"
+        let category = label.replacingOccurrences(of: "com.jicezeng.ctrlx.", with: "")
         self.osLogger = os.Logger(subsystem: subsystem, category: category)
     }
 

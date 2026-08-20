@@ -3,13 +3,13 @@ import Foundation
 
 // MARK: - plugin (parent verb group, spec §14)
 
-/// `gallager plugin <subcommand>` — inspect and drive the in-process plugin
+/// `ctrlx plugin <subcommand>` — inspect and drive the in-process plugin
 /// runtime (spec §14). All state lives in the running Gallager app; these verbs
 /// are thin JSON-RPC clients over the existing Unix socket.
 struct PluginCommand: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "plugin",
-        abstract: "Inspect and manage Gallager plugins",
+        abstract: "Inspect and manage CtrlX plugins",
         subcommands: [
             PluginListCommand.self,
             PluginInfoCommand.self,
@@ -327,8 +327,8 @@ struct PluginInstallCommand: ParsableCommand {
         installation; you are asked to confirm unless --yes is passed.
 
         Examples:
-          gallager plugin install https://example.com/plugin.json
-          gallager plugin install --zip ./my-agent.zip
+          ctrlx plugin install https://example.com/plugin.json
+          ctrlx plugin install --zip ./my-agent.zip
         """
     )
 

@@ -14,7 +14,7 @@ import Logging
 final public class ConnectedViewerManager {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.connectedviewermanager")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.connectedviewermanager")
 
     /// Active connections keyed by pairId
     private var connections: [String: ConnectedViewer] = [:]
@@ -277,6 +277,7 @@ final public class ConnectedViewerManager {
     /// actionable on iOS (open-form context, issue #710).
     public func sendCustomPushNotificationToAll(
         title: String,
+        subtitle: String? = nil,
         body: String,
         paneId: String?,
         action: NotificationActionContext? = nil
@@ -286,6 +287,7 @@ final public class ConnectedViewerManager {
                 group.addTask {
                     await connection.sendCustomPushNotification(
                         title: title,
+                        subtitle: subtitle,
                         body: body,
                         paneId: paneId,
                         action: action

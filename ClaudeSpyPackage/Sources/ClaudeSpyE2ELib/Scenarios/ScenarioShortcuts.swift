@@ -34,7 +34,7 @@ public enum Shortcut {
             tags: ["shortcut"]
         ) {
             TestStep.macOpenPanesWindow(instance: instance)
-            TestStep.macWaitForWindow(titled: "Gallager", timeout: 5, instance: instance)
+            TestStep.macWaitForWindow(titled: "CtrlX", timeout: 5, instance: instance)
             TestStep.wait(seconds: 1)
             TestStep.macMoveWindow(x: 10, y: 10, instance: instance)
             TestStep.macResizeWindow(width: 1_000, height: 600, instance: instance)
@@ -189,7 +189,7 @@ public enum Shortcut {
     /// (rbenv/homebrew/…), but a function overrides command lookup.
     ///
     /// The function is delivered by writing it to a file and pointing the tmux
-    /// *global* environment variable `GALLAGER_E2E_EXTRA_ZSHRC` at it. The E2E
+    /// *global* environment variable `CTRLX_E2E_EXTRA_ZSHRC` at it. The E2E
     /// ZDOTDIR shim's `.zshrc` (see `TestOrchestrator.ensureZDotDirShim`) sources
     /// that file last — after the user's rc — so `claude()` wins. We can't set a
     /// competing `ZDOTDIR` here: the app forces `ZDOTDIR=<shim>` per-pane
@@ -214,7 +214,7 @@ public enum Shortcut {
             // only needs to define `claude()`.
             Shortcut.tmuxRunCommand(
                 target: target,
-                command: #"F="$TMPDIR/e2e-claude-stub.zshrc"; printf 'claude() { echo E2E_CLAUDE_STUB_READY; echo "args: $*"; cat; }\n' > "$F"; tmux set-environment -g GALLAGER_E2E_EXTRA_ZSHRC "$F""#
+                command: #"F="$TMPDIR/e2e-claude-stub.zshrc"; printf 'claude() { echo E2E_CLAUDE_STUB_READY; echo "args: $*"; cat; }\n' > "$F"; tmux set-environment -g CTRLX_E2E_EXTRA_ZSHRC "$F""#
             )
             TestStep.wait(seconds: 1)
         }
@@ -227,7 +227,7 @@ public enum Shortcut {
             "Uninstall Claude Stub",
             tags: ["shortcut"]
         ) {
-            Shortcut.tmuxRunCommand(target: target, command: "tmux set-environment -g -u GALLAGER_E2E_EXTRA_ZSHRC")
+            Shortcut.tmuxRunCommand(target: target, command: "tmux set-environment -g -u CTRLX_E2E_EXTRA_ZSHRC")
             TestStep.wait(seconds: 1)
         }
     }

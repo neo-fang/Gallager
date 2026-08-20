@@ -37,7 +37,7 @@
     /// LiveNotificationHandler.ensurePermission() (same
     /// notDetermined/authorized/denied handling and delegate installation).
     private actor LiveLicenseNotificationHandler {
-        private let logger = Logger(label: "com.claudespy.licensenotification")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.licensenotification")
         private var isAuthorized = false
         private var hasRequestedPermission = false
         private var hasInstalledDelegate = false
@@ -47,7 +47,7 @@
             guard isAuthorized else { return }
 
             let content = UNMutableNotificationContent()
-            content.title = "Gallager trial ending"
+            content.title = "CtrlX trial ending"
             content.body = "Your hosted-relay trial ends in less than \(hoursRemaining) hours. "
                 + "Subscribe to keep remote access."
             content.sound = .default

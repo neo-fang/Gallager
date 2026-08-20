@@ -207,7 +207,7 @@
         /// names dispatch through the same Python script, so the test can pick
         /// either and still assert against the same log file.
         ///
-        /// When `logPath` is set, it's exported as `GALLAGER_FAKE_EDITOR_LOG`
+        /// When `logPath` is set, it's exported as `CTRLX_FAKE_EDITOR_LOG`
         /// so the script appends every received file path to that file — the
         /// test scenario can poll it to assert the dispatch genuinely went
         /// through the editor process.
@@ -230,7 +230,7 @@
                     }
                     if let logPath {
                         var env = ProcessInfo.processInfo.environment
-                        env["GALLAGER_FAKE_EDITOR_LOG"] = logPath
+                        env["CTRLX_FAKE_EDITOR_LOG"] = logPath
                         process.environment = env
                     }
                     do {

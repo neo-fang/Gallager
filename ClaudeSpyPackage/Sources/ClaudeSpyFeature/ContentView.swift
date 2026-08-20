@@ -20,6 +20,7 @@
         @Environment(\.scenePhase) private var scenePhase
         @State private var pushService = PushNotificationService.shared
         @State private var backgroundTaskService = BackgroundTaskService.shared
+        @State private var agentBackgroundMonitoring = AgentBackgroundMonitoringService.shared
 
         public init() { }
 
@@ -56,14 +57,24 @@
             }
             .environment(settings)
             .environment(sessionStore)
+            .environment(agentBackgroundMonitoring)
             .preferredColorScheme(settings.appearanceMode.colorScheme)
             .task {
+                agentBackgroundMonitoring.noteSceneActive(scenePhase == .active)
+                agentBackgroundMonitoring.prepare()
                 await initializeConnectionManager()
                 setupConnectionManagerHandlers()
                 await autoConnectIfNeeded()
             }
             .onChange(of: scenePhase) { _, newPhase in
                 handleScenePhaseChange(newPhase)
+            }
+            .onChange(of: settings.agentBackgroundMonitoringEnabled) { _, enabled in
+                if enabled {
+                    agentBackgroundMonitoring.startFromUserAction()
+                } else {
+                    agentBackgroundMonitoring.stopAll()
+                }
             }
         }
 
@@ -81,11 +92,15 @@
             pushService.setAppActive(phase == .active)
             switch phase {
             case .background:
-                // Only start background task if we have any active connections
+                agentBackgroundMonitoring.noteSceneActive(false)
+                // Bridge the foreground-to-background transition immediately.
+                // A continued-processing task may launch later and therefore
+                // cannot replace this short lease for fast Agent completions.
                 if connectionManager?.anyHostConnected == true {
                     backgroundTaskService.startBackgroundTask()
                 }
             case .active:
+                agentBackgroundMonitoring.noteSceneActive(true)
                 // End background task when returning to foreground
                 backgroundTaskService.endBackgroundTask()
 
@@ -110,12 +125,28 @@
             // answers — issue #710) reuse the app's live sockets instead of
             // spinning up their own connection.
             NotificationActionService.shared.connectionManager = connectionManager
+            agentBackgroundMonitoring.connectionManager = connectionManager
 
             // High-frequency per-session state updates drive the sidebar badges.
             // The `AgentState` carries the open response form (no separate channel).
-            connectionManager.onAgentSessionStatus = { [sessionStore] status in
+            connectionManager.onAgentSessionStatus = {
+                [pushService, sessionStore, agentBackgroundMonitoring] status in
                 Task { @MainActor in
                     sessionStore.handleAgentStatus(status)
+                    agentBackgroundMonitoring.handle(status) { notification in
+                        guard agentBackgroundMonitoring.reserveNotificationDelivery(
+                            for: notification
+                        ) else { return }
+                        pushService.scheduleLocalNotification(
+                            title: notification.title,
+                            subtitle: notification.subtitle,
+                            body: notification.body,
+                            paneId: notification.paneId,
+                            hostId: notification.hostId,
+                            delay: 1,
+                            backgroundOnly: true
+                        )
+                    }
                 }
             }
 
@@ -132,42 +163,75 @@
             // the in-app UI already reflects the event, so we suppress it.
             // Notifications carrying an open-form action context become
             // actionable local notifications, mirroring the NSE's push path.
-            connectionManager.onAgentNotification = { [pushService] notification in
+            connectionManager.onAgentNotification = {
+                [pushService, sessionStore, agentBackgroundMonitoring] notification in
                 Task { @MainActor in
+                    agentBackgroundMonitoring.noteNotificationReceived(notification)
+                    let paneState = notification.sessionId.flatMap {
+                        sessionStore.paneStates[PaneKey(pairId: notification.pairId, paneId: $0)]
+                    }
+                    let presentation = AgentNotificationPresentation(
+                        title: notification.title,
+                        subtitle: notification.subtitle,
+                        body: notification.body,
+                        paneState: paneState
+                    )
                     // Record actionable notifications even while active — the
                     // E2E harness simulates action-button taps off this record
                     // (the notification UI itself lives in SpringBoard).
                     if let action = notification.action {
                         NotificationActionService.shared.noteIncomingAgentNotification(
-                            title: notification.title,
+                            title: presentation.title,
+                            subtitle: presentation.subtitle,
                             pairId: notification.pairId,
                             paneId: notification.sessionId,
                             action: action
                         )
                     }
                     guard !pushService.isAppActive else { return }
+                    guard agentBackgroundMonitoring.reserveNotificationDelivery(
+                        for: notification
+                    ) else { return }
                     if let action = notification.action {
                         await NotificationActionService.shared.scheduleActionableLocalNotification(
-                            title: notification.title,
-                            body: notification.body,
+                            title: presentation.title,
+                            subtitle: presentation.subtitle,
+                            body: presentation.body,
                             paneId: notification.sessionId,
                             hostId: notification.pairId,
                             action: action
                         )
                     } else {
                         pushService.scheduleLocalNotification(
-                            title: notification.title,
-                            body: notification.body,
+                            title: presentation.title,
+                            subtitle: presentation.subtitle,
+                            body: presentation.body,
                             paneId: notification.sessionId,
                             hostId: notification.pairId
                         )
                     }
+                    agentBackgroundMonitoring.noteLocalNotificationScheduled(notification)
                 }
             }
 
-            connectionManager.onSessionState = { [sessionStore] state in
+            connectionManager.onSessionState = {
+                [pushService, sessionStore, agentBackgroundMonitoring] state in
                 Task { @MainActor in
                     sessionStore.handleStateUpdate(state)
+                    agentBackgroundMonitoring.handle(state) { notification in
+                        guard agentBackgroundMonitoring.reserveNotificationDelivery(
+                            for: notification
+                        ) else { return }
+                        pushService.scheduleLocalNotification(
+                            title: notification.title,
+                            subtitle: notification.subtitle,
+                            body: notification.body,
+                            paneId: notification.paneId,
+                            hostId: notification.hostId,
+                            delay: 1,
+                            backgroundOnly: true
+                        )
+                    }
                 }
             }
 
@@ -186,11 +250,21 @@
                 }
             }
 
-            connectionManager.onHostDisconnected = { [sessionStore] hostId in
+            connectionManager.onHostDisconnected = { [sessionStore, agentBackgroundMonitoring] hostId in
+                agentBackgroundMonitoring.removeHost(hostId)
                 sessionStore.clearSessions(for: hostId)
             }
 
-            connectionManager.onUnpaired = { [settings] hostId in
+            connectionManager.onTransportInterrupted = { [sessionStore] hostId in
+                // The Host may still be running. Clear stale UI state, but leave
+                // the finite Agent monitor alive so it can drive reconnection.
+                sessionStore.clearSessions(for: hostId)
+            }
+
+            connectionManager.onUnpaired = {
+                [settings, sessionStore, agentBackgroundMonitoring] hostId in
+                agentBackgroundMonitoring.removeHost(hostId)
+                sessionStore.clearSessions(for: hostId)
                 settings.removePairing(id: hostId)
             }
         }
@@ -413,6 +487,7 @@
     struct SettingsView: View {
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
+        @Environment(AgentBackgroundMonitoringService.self) private var backgroundMonitoring
 
         /// In-flight edit buffer for the device name field. Synced to/from
         /// `settings.deviceName` so the field shows the system name when no
@@ -531,6 +606,9 @@
                     }
                     .pickerStyle(.segmented)
 
+                    Toggle("Show Keyboard on Entry", isOn: $settings.showTerminalKeyboardOnEntry)
+                        .accessibilityIdentifier("terminal-keyboard-on-entry-toggle")
+
                     Picker("Font", selection: $settings.terminalFontName) {
                         ForEach(Self.availableFonts, id: \.self) { font in
                             Text(font).tag(font)
@@ -552,17 +630,64 @@
                 } header: {
                     Text("Terminal")
                 } footer: {
-                    Text("Choose where the keyboard control appears and customize the terminal font.")
+                    Text("Choose the keyboard's initial state and control position, and customize the terminal font.")
                 }
 
                 Section {
                     @Bindable var settings = settings
 
                     Toggle("Agent Quick Input", isOn: $settings.agentQuickInputEnabled)
+
+                    if #available(iOS 26.0, *) {
+                        Toggle(
+                            "Background Agent Monitoring",
+                            isOn: $settings.agentBackgroundMonitoringEnabled
+                        )
+                        .accessibilityIdentifier("agent-background-monitoring-toggle")
+
+                        switch backgroundMonitoring.monitoringStatus {
+                        case .inactive:
+                            if let failure = backgroundMonitoring.lastStartFailure {
+                                Text("Could not start: \(failure)")
+                                    .font(.caption)
+                                    .foregroundStyle(.red)
+                                    .textSelection(.enabled)
+                            } else if settings.agentBackgroundMonitoringEnabled {
+                                LabeledContent("Monitoring Status") {
+                                    Text("Ready")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                        case .starting:
+                            LabeledContent("Monitoring Status") {
+                                Text("Starting")
+                                    .foregroundStyle(.secondary)
+                            }
+
+                        case .active:
+                            LabeledContent("Monitoring Status") {
+                                Text("Active")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        LabeledContent("Background Agent Monitoring") {
+                            Text("Requires iOS 26")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 } header: {
                     Text("Agent Input")
                 } footer: {
-                    Text("Shows a reply field above agent terminals. When off, use the keyboard button when you want to type.")
+                    Text(
+                        "Quick Input shows a reply field above agent terminals. "
+                            + "Background monitoring keeps one finite notification session active "
+                            + "for up to two hours across Agent turns and connected Macs. "
+                            + "iOS shows no permission prompt. If a system session expires, the "
+                            + "next Agent input starts a new one; iOS does not allow silent "
+                            + "background renewal without a foreground user action."
+                    )
                 }
 
                 // New Session Section
@@ -620,33 +745,33 @@
                     }
                 }
 
-                // Why Gallager Section
+                // Distribution provenance
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Gallager is named after Robert G. Gallager, a pioneering information theorist and close colleague of Claude Shannon, after whom Anthropic's Claude AI is named.")
+                        Text("CtrlX is an independent distribution based on Gallager and licensed under GNU AGPL-3.0. It is not affiliated with or endorsed by the Gallager project.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
 
-                    Link(destination: AboutLinks.gallagerWikipedia) {
+                    Link(destination: AppBuildInfo.current.correspondingSourceURL) {
                         HStack {
-                            Text("Robert G. Gallager")
+                            Text("CtrlX Source")
                             Spacer()
-                            Text("Wikipedia")
+                            Text("GitHub")
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                    Link(destination: AboutLinks.shannonWikipedia) {
+                    Link(destination: ProductIdentity.upstreamURL) {
                         HStack {
-                            Text("Claude Shannon")
+                            Text("Gallager Upstream")
                             Spacer()
-                            Text("Wikipedia")
+                            Text("GitHub")
                                 .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
-                    Text("Why \"Gallager\"?")
+                    Text("Origin and License")
                 }
 
                 // Licenses Section

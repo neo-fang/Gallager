@@ -46,10 +46,10 @@ public enum FileDropRemoteScenario {
         // under /tmp is reachable from either side. The bytes still
         // round-trip through the relay because the viewer reads them,
         // ships them via SendDroppedFiles, and the host writes a
-        // *fresh* copy under `gallager-drop-<UUID>/`.
+        // *fresh* copy under `ctrlx-drop-<UUID>/`.
         TestStep.tmuxCommand(arguments: [
             "run-shell",
-            "printf 'hello-from-viewer\\n' > /tmp/gallager-drop-viewer-source.txt",
+            "printf 'hello-from-viewer\\n' > /tmp/ctrlx-drop-viewer-source.txt",
         ])
         TestStep.wait(seconds: 1)
 
@@ -70,11 +70,11 @@ public enum FileDropRemoteScenario {
 
         // Drop the staged file on the *viewer*. The viewer reads the
         // bytes, ships them as SendDroppedFiles, the host writes a copy
-        // to a private `gallager-drop-<UUID>` subdir, and pastes that
+        // to a private `ctrlx-drop-<UUID>` subdir, and pastes that
         // resolved path into the host's tmux pane.
         TestStep.macDropFilesOnPane(
             paneId: "%0",
-            paths: ["/tmp/gallager-drop-viewer-source.txt"],
+            paths: ["/tmp/ctrlx-drop-viewer-source.txt"],
             instance: 1
         )
 
@@ -86,7 +86,7 @@ public enum FileDropRemoteScenario {
             target: "drop-remote:0",
             storeAs: "drop.remoteBracketed"
         )
-        // The host saves into a `gallager-drop-<UUID>` directory and
+        // The host saves into a `ctrlx-drop-<UUID>` directory and
         // preserves the original filename, so the listener's payload
         // should mention both the directory prefix and the filename.
         TestStep.assertStoredContains(
@@ -95,11 +95,11 @@ public enum FileDropRemoteScenario {
         )
         TestStep.assertStoredContains(
             key: "drop.remoteBracketed",
-            substring: "gallager-drop-"
+            substring: "ctrlx-drop-"
         )
         TestStep.assertStoredContains(
             key: "drop.remoteBracketed",
-            substring: "gallager-drop-viewer-source.txt"
+            substring: "ctrlx-drop-viewer-source.txt"
         )
         TestStep.assertStoredNotContains(
             key: "drop.remoteBracketed",
@@ -113,7 +113,7 @@ public enum FileDropRemoteScenario {
         TestStep.wait(seconds: 1)
         TestStep.macDropFilesOnPane(
             paneId: "%0",
-            paths: ["/tmp/gallager-drop-viewer-source.txt"],
+            paths: ["/tmp/ctrlx-drop-viewer-source.txt"],
             instance: 1
         )
         TestStep.wait(seconds: 4)
@@ -124,7 +124,7 @@ public enum FileDropRemoteScenario {
         )
         TestStep.assertStoredContains(
             key: "drop.remoteUnbracketed",
-            substring: "gallager-drop-viewer-source.txt"
+            substring: "ctrlx-drop-viewer-source.txt"
         )
         TestStep.assertStoredNotContains(
             key: "drop.remoteUnbracketed",

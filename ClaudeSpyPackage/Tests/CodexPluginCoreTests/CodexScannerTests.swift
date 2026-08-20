@@ -14,7 +14,7 @@ struct CodexScannerTests {
     /// Creates a throwaway sessions root and returns its URL.
     private func makeTempSessions() throws -> URL {
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-scan-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-scan-\(UUID().uuidString)")
             .appendingPathComponent("sessions")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         return root
@@ -51,7 +51,7 @@ struct CodexScannerTests {
 
         // A real project directory the rollout points at.
         let projDir = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
             .appendingPathComponent("AlphaCodex")
         try fileManager.createDirectory(at: projDir, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: projDir.deletingLastPathComponent()) }
@@ -85,7 +85,7 @@ struct CodexScannerTests {
         defer { try? fileManager.removeItem(at: sessions.deletingLastPathComponent()) }
 
         let home = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-home-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-home-\(UUID().uuidString)")
         try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: home) }
 
@@ -101,7 +101,7 @@ struct CodexScannerTests {
         defer { try? fileManager.removeItem(at: sessions.deletingLastPathComponent()) }
 
         let projDir = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
             .appendingPathComponent("BetaCodex")
         try fileManager.createDirectory(at: projDir, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: projDir.deletingLastPathComponent()) }
@@ -121,7 +121,7 @@ struct CodexScannerTests {
         defer { try? fileManager.removeItem(at: sessions.deletingLastPathComponent()) }
 
         let base = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
         let older = base.appendingPathComponent("Older")
         let newer = base.appendingPathComponent("Newer")
         try fileManager.createDirectory(at: older, withIntermediateDirectories: true)
@@ -140,7 +140,7 @@ struct CodexScannerTests {
     @Test("a missing sessions directory yields an empty list")
     func missingSessions() {
         let ghost = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-ghost-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-ghost-\(UUID().uuidString)")
             .appendingPathComponent("sessions")
         #expect(CodexScanner().scan(sessionsRoot: ghost).isEmpty)
     }
@@ -183,7 +183,7 @@ struct CodexScannerTests {
         defer { try? fileManager.removeItem(at: sessions.deletingLastPathComponent()) }
 
         let projDir = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
             .appendingPathComponent("FlatLayout")
         try fileManager.createDirectory(at: projDir, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: projDir.deletingLastPathComponent()) }
@@ -201,7 +201,7 @@ struct CodexScannerTests {
     /// Creates a temp CODEX_HOME root (the parent of `sessions/`).
     private func makeTempCodexHome() throws -> URL {
         let root = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-home-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-home-\(UUID().uuidString)")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         return root
     }
@@ -230,7 +230,7 @@ struct CodexScannerTests {
 
         // Two distinct project dirs — one per root.
         let base = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
         let projAlpha = base.appendingPathComponent("AlphaMulti")
         let projBeta = base.appendingPathComponent("BetaMulti")
         try fileManager.createDirectory(at: projAlpha, withIntermediateDirectories: true)
@@ -258,7 +258,7 @@ struct CodexScannerTests {
         }
 
         let projDir = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
             .appendingPathComponent("SharedProject")
         try fileManager.createDirectory(at: projDir, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: projDir.deletingLastPathComponent()) }
@@ -285,7 +285,7 @@ struct CodexScannerTests {
         }
 
         let base = fileManager.temporaryDirectory
-            .appendingPathComponent("gallager-cx-proj-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-proj-\(UUID().uuidString)")
         let older = base.appendingPathComponent("OlderMulti")
         let newer = base.appendingPathComponent("NewerMulti")
         try fileManager.createDirectory(at: older, withIntermediateDirectories: true)

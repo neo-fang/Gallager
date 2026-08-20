@@ -1,0 +1,15 @@
+# Required Caddy environment: CTRLX_STAGING_RELAY_HOST
+{$CTRLX_STAGING_RELAY_HOST} {
+    reverse_proxy {$CTRLX_STAGING_RELAY_UPSTREAM:127.0.0.1:8081}
+    encode gzip
+
+    log {
+        output file /var/log/caddy/ctrlx-staging-access.log
+        format json
+    }
+
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+    }
+}

@@ -1,7 +1,7 @@
 apiVersion: grizzly.grafana.com/v1alpha1
 kind: AlertRuleGroup
 metadata:
-  folder: ClaudeSpy
+  folder: CtrlX
   name: relay-disk
 spec:
   title: relay-disk
@@ -17,9 +17,9 @@ spec:
           model:
             expr: |
               100 * (1 - (
-                node_filesystem_avail_bytes{instance="hetzner-1",mountpoint="/"}
+                node_filesystem_avail_bytes{instance="ctrlx-relay-host",mountpoint="/"}
                 /
-                node_filesystem_size_bytes{instance="hetzner-1",mountpoint="/"}
+                node_filesystem_size_bytes{instance="ctrlx-relay-host",mountpoint="/"}
               ))
             instant: true
             refId: A

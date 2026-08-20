@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate ``EmojiData.swift`` for the ``GallagerEmoji`` target.
 
-The Mac/iOS emoji picker and the ``gallager find-emoji`` / ``set-emoji`` CLI
+The Mac/iOS emoji picker and the ``ctrlx find-emoji`` / ``set-emoji`` CLI
 commands both need to resolve an emoji from a free-form query like ``trash``,
 ``bin``, or ``garbage``. Foundation only exposes an emoji's *formal* Unicode
 name (``WASTEBASKET`` for 🗑️), which is why searching for "trash" used to find

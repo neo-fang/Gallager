@@ -4,13 +4,13 @@ import Hero from "../components/Hero.astro";
 ---
 
 <Base
-  title="Pricing — Gallager"
-  description="Gallager's Mac and iOS apps are open source and free forever — you only pay if you want us to run the relay server for you."
+  title="Pricing — CtrlX"
+  description="CtrlX's Mac app, iOS app and relay are open source under AGPL-3.0."
 >
   <Hero
     eyebrow="Pricing"
     title="The software is free. The relay is a choice."
-    lede="Both apps are open source and free forever. You only pay if you want us to run the relay server for you."
+    lede="The Mac app, iOS app and relay are open source under AGPL-3.0."
     ledeMaxWidth="620px"
   />
 
@@ -60,43 +60,37 @@ import Hero from "../components/Hero.astro";
       style="padding:var(--space-6);gap:0;border:2px solid var(--color-accent);background:var(--color-bg);"
     >
       <div class="card-kicker" style="margin-bottom:var(--space-3);">
-        Hosted relay — zero setup
+        Hosted relay
       </div>
       <div
         style="font-family:var(--font-heading);font-weight:var(--font-heading-weight);font-size:44px;"
       >
-        $5<span
-          style="font-size:16px;font-weight:400;color:var(--color-neutral-600);"
-        > / month</span
-        >
+        Not offered
       </div>
       <div class="text-muted" style="font-size:13.5px;margin-bottom:var(--space-6);">
-        or $50/year · 7-day free trial
+        no checkout · no production service implied
       </div>
       <ul
         style="list-style:none;margin:0 0 var(--space-6);padding:0;display:grid;gap:var(--space-3);font-size:14.5px;flex:1;"
       >
         <li style="display:flex;gap:var(--space-2);">
-          <span style="color:var(--color-accent);">—</span>Everything in self-hosted
+          <span style="color:var(--color-accent);">—</span>CtrlX currently ships for self-hosting
         </li>
         <li style="display:flex;gap:var(--space-2);">
-          <span style="color:var(--color-accent);">—</span>We run and monitor the relay 24/7
+          <span style="color:var(--color-accent);">—</span>No inherited upstream account or license service
         </li>
         <li style="display:flex;gap:var(--space-2);">
-          <span style="color:var(--color-accent);">—</span>Push notifications, no Apple developer
-          account needed
+          <span style="color:var(--color-accent);">—</span>Push requires your own Apple credentials
         </li>
         <li style="display:flex;gap:var(--space-2);">
-          <span style="color:var(--color-accent);">—</span>Still end-to-end encrypted — we can't read
-          your traffic
+          <span style="color:var(--color-accent);">—</span>A hosted offering needs separate security review
         </li>
         <li style="display:flex;gap:var(--space-2);">
-          <span style="color:var(--color-accent);">—</span>Support the project's development
+          <span style="color:var(--color-accent);">—</span>No purchase link until that service exists
         </li>
       </ul>
-      <a
-        href="https://gallager.lemonsqueezy.com/checkout/buy/8138d147-0adc-4f9c-83cc-407cbf7c6ab0"
-        class="btn btn-primary btn-block">Get a license</a
+      <a href="https://github.com/jicezeng/CtrlX" class="btn btn-secondary btn-block"
+        >View source</a
       >
     </div>
   </div>
@@ -108,9 +102,9 @@ import Hero from "../components/Hero.astro";
       <strong style="font-family:var(--font-heading);">Why is there a hosted option at all?</strong
       ><br />
       <span class="text-muted"
-        >Because the relay needs a public address, TLS, and an APNs key to deliver push
-        notifications. Some people enjoy running that; most don't. Either way the relay only ever
-        forwards ciphertext — see the <a href="/security/">security model</a>.</span
+        >A managed relay changes the operational, privacy and support boundary. CtrlX does not
+        advertise one until the infrastructure and policies actually exist. The self-hosted relay
+        only forwards ciphertext — see the <a href="/security/">security model</a>.</span
       >
     </div>
   </div>

@@ -1,15 +1,15 @@
 #if os(macOS)
     import Foundation
 
-    /// The on-disk `~/.gallager/` layout for the in-process plugin runtime (spec §9).
+    /// The on-disk `~/.ctrlx/` layout for the in-process plugin runtime (spec §9).
     ///
     /// All paths derive from a single root so E2E runs can redirect the whole tree
-    /// to a temp directory via an override (mirrors the `--gallager-state-root`
+    /// to a temp directory via an override (mirrors the `--ctrlx-state-root`
     /// launch flag). Directory creation is best-effort and trap-free: callers ask
     /// for a path and the matching parent directory is materialized on demand.
     ///
     /// ```text
-    /// ~/.gallager/
+    /// ~/.ctrlx/
     ///   registry.json                  ← canonical installed-plugin list
     ///   state/
     ///     ingress.sock                 ← THE app-owned ingress socket (one, not per-plugin)
@@ -19,39 +19,39 @@
     ///       cache/  db/                ← per-plugin scratch
     /// ```
     public struct GallagerPaths: Sendable {
-        /// The `~/.gallager` root. `registry.json` lives directly under it; the
+        /// The `~/.ctrlx` root. `registry.json` lives directly under it; the
         /// writable plugin state lives under `state/`.
-        public let gallagerRoot: URL
+        public let ctrlxRoot: URL
 
-        /// `<gallagerRoot>/state` (overridable for E2E isolation). When an explicit
-        /// state-root override is supplied, `gallagerRoot` becomes its parent so the
+        /// `<ctrlxRoot>/state` (overridable for E2E isolation). When an explicit
+        /// state-root override is supplied, `ctrlxRoot` becomes its parent so the
         /// whole tree (including `registry.json`) stays under the override.
         public let stateRoot: URL
 
         // MARK: - Initialization
 
         /// - Parameter stateRootOverride: When non-`nil`, used verbatim as
-        ///   `stateRoot` (the E2E `--gallager-state-root` case). `gallagerRoot`
+        ///   `stateRoot` (the E2E `--ctrlx-state-root` case). `ctrlxRoot`
         ///   becomes its parent directory so `registry.json` stays adjacent to the
-        ///   redirected `state/`. When `nil`, the default `~/.gallager/state` layout
+        ///   redirected `state/`. When `nil`, the default `~/.ctrlx/state` layout
         ///   is used.
         public init(stateRootOverride: URL? = nil) {
             if let stateRootOverride {
                 self.stateRoot = stateRootOverride.standardizedFileURL
-                self.gallagerRoot = stateRootOverride.deletingLastPathComponent().standardizedFileURL
+                self.ctrlxRoot = stateRootOverride.deletingLastPathComponent().standardizedFileURL
             } else {
                 let home = FileManager.default.homeDirectoryForCurrentUser
-                let root = home.appendingPathComponent(".gallager", isDirectory: true)
-                self.gallagerRoot = root.standardizedFileURL
+                let root = home.appendingPathComponent(".ctrlx", isDirectory: true)
+                self.ctrlxRoot = root.standardizedFileURL
                 self.stateRoot = root.appendingPathComponent("state", isDirectory: true).standardizedFileURL
             }
         }
 
         // MARK: - Top-level paths
 
-        /// `~/.gallager/registry.json` — canonical installed-plugin list (spec §9).
+        /// `~/.ctrlx/registry.json` — canonical installed-plugin list (spec §9).
         public var registryPath: URL {
-            gallagerRoot.appendingPathComponent("registry.json")
+            ctrlxRoot.appendingPathComponent("registry.json")
         }
 
         /// `<stateRoot>/ingress.sock` — THE one app-owned ingress socket (spec §8).
@@ -64,31 +64,31 @@
             stateRoot.appendingPathComponent("plugins", isDirectory: true)
         }
 
-        /// `<gallagerRoot>/plugins` — where folder-dropped sidecar bundles live
+        /// `<ctrlxRoot>/plugins` — where folder-dropped sidecar bundles live
         /// (spec §9). Each immediate subdirectory is a self-contained plugin tree
         /// whose directory name must equal the plugin's sanitized id.
         public var pluginsDir: URL {
-            gallagerRoot.appendingPathComponent("plugins", isDirectory: true)
+            ctrlxRoot.appendingPathComponent("plugins", isDirectory: true)
         }
 
-        /// Ensure `<gallagerRoot>/plugins/` exists. Best-effort; never traps.
+        /// Ensure `<ctrlxRoot>/plugins/` exists. Best-effort; never traps.
         @discardableResult
         public func ensurePluginsDir() -> Bool {
             createDirectory(pluginsDir)
         }
 
-        /// `<gallagerRoot>/plugins/<id>` — the installed plugin bundle directory.
+        /// `<ctrlxRoot>/plugins/<id>` — the installed plugin bundle directory.
         public func pluginInstallDir(_ id: String) -> URL {
             pluginsDir.appendingPathComponent(Self.safeComponent(id), isDirectory: true)
         }
 
-        /// `<gallagerRoot>/plugins/<id>.installing` — staging directory used during
+        /// `<ctrlxRoot>/plugins/<id>.installing` — staging directory used during
         /// URL-install before the atomic commit step.
         public func pluginStagingDir(_ id: String) -> URL {
             pluginsDir.appendingPathComponent(Self.safeComponent(id) + ".installing", isDirectory: true)
         }
 
-        /// `<gallagerRoot>/plugins/<id>.replacing` — temporary hold for the old
+        /// `<ctrlxRoot>/plugins/<id>.replacing` — temporary hold for the old
         /// install during an atomic overwrite. Matches the suffix used by
         /// `PluginInstaller.commitInstall`.
         public func pluginReplacingDir(_ id: String) -> URL {
@@ -133,12 +133,12 @@
 
         // MARK: - Directory materialization (best-effort, trap-free)
 
-        /// Ensure `gallagerRoot` and `stateRoot` exist. Failures are swallowed —
+        /// Ensure `ctrlxRoot` and `stateRoot` exist. Failures are swallowed —
         /// callers that need a path should not crash if the disk is unwritable; the
         /// subsequent file op surfaces the real error.
         @discardableResult
         public func ensureBaseDirectories() -> Bool {
-            createDirectory(gallagerRoot) && createDirectory(stateRoot)
+            createDirectory(ctrlxRoot) && createDirectory(stateRoot)
         }
 
         /// Ensure `<stateRoot>/plugins/<id>/` (and `logs/`) exist, returning the

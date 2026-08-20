@@ -291,7 +291,7 @@ class RelayClient(
             return
         }
         if (compareVersions(hostVersion, GallagerProtocol.MIN_HOST_VERSION) < 0) {
-            failTerminal("Mac Gallager $hostVersion is too old; version ${GallagerProtocol.MIN_HOST_VERSION}+ is required")
+            failTerminal("Mac CtrlX $hostVersion is too old; version ${GallagerProtocol.MIN_HOST_VERSION}+ is required")
             return
         }
         _snapshot.value = _snapshot.value.copy(

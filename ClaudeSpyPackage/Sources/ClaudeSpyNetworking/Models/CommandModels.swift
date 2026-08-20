@@ -641,7 +641,7 @@ public struct SetSessionDescription: CommandSpec, Equatable {
 }
 
 /// Set a custom color for a tmux session. Returns success/failure.
-/// Persisted as the tmux `@gallager-color` user option so the dot in the
+/// Persisted as the tmux `@ctrlx-color` user option so the dot in the
 /// sidebar comes back after restarting the host app.
 public struct SetSessionColor: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -663,7 +663,7 @@ public struct SetSessionColor: CommandSpec, Equatable {
 }
 
 /// Set a custom emoji icon for a tmux session. Returns success/failure.
-/// Persisted as the tmux `@gallager-emoji` user option so the icon in the
+/// Persisted as the tmux `@ctrlx-emoji` user option so the icon in the
 /// sidebar comes back after restarting the host app.
 public struct SetSessionEmoji: CommandSpec, Equatable {
     public typealias Response = CommandResponseMessage
@@ -877,7 +877,7 @@ public struct DroppedFile: Codable, Sendable, Equatable {
 }
 
 /// Forward a Finder file drop from a Mac viewer to a remote Mac host. The
-/// host saves each file to `$TMPDIR/gallager-drop-<UUID>/<name>`, joins the
+/// host saves each file to `$TMPDIR/ctrlx-drop-<UUID>/<name>`, joins the
 /// resolved paths into a shell-escaped string, and pastes the result into
 /// the target tmux pane via `tmux load-buffer` + `paste-buffer -p` so apps
 /// that have enabled bracketed-paste mode see it as a paste event.

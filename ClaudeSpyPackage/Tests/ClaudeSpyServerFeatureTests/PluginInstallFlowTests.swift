@@ -49,9 +49,9 @@
     // MARK: - Helpers
 
     private func makeTempPaths() throws -> (GallagerPaths, URL) {
-        // Use a two-level structure so each test gets its own isolated gallagerRoot:
+        // Use a two-level structure so each test gets its own isolated ctrlxRoot:
         //   NSTemporaryDirectory()/PluginInstallFlowTests-<UUID>/state/
-        // gallagerRoot → NSTemporaryDirectory()/PluginInstallFlowTests-<UUID>/
+        // ctrlxRoot → NSTemporaryDirectory()/PluginInstallFlowTests-<UUID>/
         // stateRoot    → NSTemporaryDirectory()/PluginInstallFlowTests-<UUID>/state/
         // This prevents registry.json stomping when the full suite runs in parallel.
         let testRoot = URL(fileURLWithPath: NSTemporaryDirectory())

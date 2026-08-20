@@ -1,0 +1,24 @@
+{
+  "name": "ctrlx",
+  "version": "1.1.0",
+  "description": "Forward Codex CLI lifecycle events to the local CtrlX monitoring app.",
+  "author": {
+    "name": "JarvisZeng",
+    "email": "jicezeng@gmail.com",
+    "url": "https://github.com/jicezeng"
+  },
+  "homepage": "https://github.com/jicezeng/CtrlX",
+  "repository": "https://github.com/jicezeng/CtrlX",
+  "license": "AGPL-3.0",
+  "keywords": ["codex", "tmux", "monitoring", "ctrlx"],
+  "interface": {
+    "displayName": "CtrlX",
+    "shortDescription": "Forward Codex events to the CtrlX monitoring app.",
+    "longDescription": "Bridges Codex CLI lifecycle hooks to the locally-running CtrlX app, which mirrors tmux panes and surfaces session activity on macOS and iOS.",
+    "developerName": "JarvisZeng",
+    "category": "Productivity",
+    "capabilities": ["Interactive"],
+    "websiteURL": "https://github.com/jicezeng/CtrlX",
+    "brandColor": "#3B82F6"
+  }
+}

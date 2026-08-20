@@ -344,18 +344,9 @@
       }
     },
     {
-      "identity" : "swiftformat",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/nicklockwood/SwiftFormat",
-      "state" : {
-        "revision" : "2226e9d89bf05a604cc985bab3dccb44ff7c8ee3",
-        "version" : "0.62.1"
-      }
-    },
-    {
       "identity" : "swiftterm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/jarviszeng-zjc/SwiftTerm.git",
+      "location" : "https://github.com/jicezeng/SwiftTerm.git",
       "state" : {
         "revision" : "0a664be86b78d0d16bb1dbd5ae5020f6e353070c"
       }

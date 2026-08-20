@@ -165,7 +165,7 @@ public struct RemoteHostsSettingsView: View {
                 Text("No hosts paired")
                     .foregroundStyle(.secondary)
 
-                Text("Get a pairing code from another host running Gallager to connect.")
+                Text("Get a pairing code from another host running CtrlX to connect.")
                     .foregroundStyle(.secondary)
                     .font(.caption)
 

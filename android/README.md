@@ -1,6 +1,6 @@
-# Gallager for Android
+# CtrlX for Android
 
-This directory contains the native Android companion for Gallager. It speaks the
+This directory contains the native Android companion for CtrlX. It speaks the
 same relay, pairing, WebSocket, and end-to-end-encryption protocol as the existing
 Mac and iOS apps; the relay and Mac host do not require Android-specific changes.
 
@@ -15,6 +15,8 @@ Mac and iOS apps; the relay and Mac host do not require Android-specific changes
 - project-aware session creation using the Mac-reported path, plugin, and config directory;
 - live ANSI/VT terminal stream with colors, text styles, CJK/emoji width handling,
   scroll regions, and host dimension changes;
+- pull-at-top history loading that requests progressively deeper host snapshots,
+  up to 10,000 scrollback lines, without moving the current reading position;
 - remote UTF-8 input plus Escape, Ctrl-C, Tab, arrows, Backspace, and Enter;
 - create tmux sessions, create windows, split panes, and close windows/sessions;
 - local unpairing plus relay-side pair deletion.
@@ -30,7 +32,7 @@ without them.
 - Android 8.0 (API 26) or newer;
 - JDK 17;
 - Android SDK Platform 35 and Build Tools 35.0.0;
-- a Mac running Gallager 2.0 or newer.
+- a Mac running CtrlX 3.0 or newer.
 
 ## Build
 
@@ -55,8 +57,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## Pair with a Mac
 
-1. On the Mac, open Gallager **Settings → Remote Access** and generate a code.
-2. Open Gallager on Android and enter the six-letter code.
+1. On the Mac, open CtrlX **Settings → Remote Access** and generate a code.
+2. Open CtrlX on Android and enter the six-letter code.
 3. Keep the default `wss://relay.gallager.app`, or enter the same self-hosted
    relay URL configured on the Mac.
 4. Select a session to start its encrypted terminal stream.
@@ -70,5 +72,5 @@ sees the outer `encrypted` envelope.
 Android unit tests cover key agreement, encryption, protocol JSON, terminal enum
 decoding, and transcript handling. The Swift networking test target also contains
 `AndroidProtocolCompatibilityTests.swift`, which decodes representative Android
-pairing, registration, encrypted, and command frames with Gallager's production
+pairing, registration, encrypted, and command frames with CtrlX's production
 Swift models.

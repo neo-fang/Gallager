@@ -16,6 +16,7 @@
         let settings: IOSSettings
 
         @Environment(SessionStore.self) private var sessionStore
+        @Environment(AgentBackgroundMonitoringService.self) private var backgroundMonitoring
         @Environment(\.dismiss) private var dismiss
 
         /// The currently selected window within the session
@@ -25,7 +26,7 @@
         @State private var activePaneId: String?
 
         /// Whether keyboard input is active on the selected pane
-        @State private var isKeyboardActive = false
+        @State private var isKeyboardActive: Bool
 
         /// Tracks keyboard visibility for the bottom input control
         @State private var keyboardVisible = false
@@ -77,6 +78,19 @@
 
         /// Text bound to the rename-window alert field.
         @State private var renameWindowText = ""
+
+        init(
+            sessionName: String,
+            hostId: String,
+            relayClient: ViewerRelayClient,
+            settings: IOSSettings
+        ) {
+            self.sessionName = sessionName
+            self.hostId = hostId
+            self.relayClient = relayClient
+            self.settings = settings
+            self._isKeyboardActive = State(initialValue: settings.showTerminalKeyboardOnEntry)
+        }
 
         /// All windows in this session
         private var sessionWindows: [TmuxWindow] {
@@ -260,6 +274,13 @@
                     }
                 }
 
+                ToolbarItem(placement: .topBarTrailing) {
+                    ImageUploadToolbarButton(
+                        paneId: activePaneId,
+                        relayClient: relayClient
+                    )
+                }
+
                 if let activeService, activeService.session != nil {
                     ToolbarItem(placement: .topBarTrailing) {
                         Menu {
@@ -426,11 +447,28 @@
                     responseState.request.responseView(
                         isConnected: relayClient.isHostConnected,
                         submit: { response in
-                            await activeService.submitResponse(
+                            let shouldMonitor = settings.agentBackgroundMonitoringEnabled
+                                && AgentBackgroundMonitoringPolicy.shouldStart(for: response)
+                            if shouldMonitor {
+                                backgroundMonitoring.startIfNeeded(
+                                    for: response,
+                                    hostId: hostId,
+                                    paneId: activeService.paneId,
+                                    sessionName: sessionName,
+                                    windowName: window.windowName
+                                )
+                            }
+                            let succeeded = await activeService.submitResponse(
                                 response,
                                 pluginID: responseState.pluginID,
                                 requestID: responseState.requestID
                             )
+                            if !succeeded, shouldMonitor {
+                                backgroundMonitoring.removePane(
+                                    hostId: hostId,
+                                    paneId: activeService.paneId
+                                )
+                            }
                         },
                         state: responseState
                     )
@@ -452,7 +490,7 @@
                     // Fallback: list panes vertically if layout parsing fails
                     VStack(spacing: 1) {
                         ForEach(window.panes) { pane in
-                            paneTerminal(pane: pane)
+                            paneTerminal(pane: pane, windowName: window.windowName)
                         }
                     }
                 }
@@ -475,7 +513,7 @@
             return ProportionalTileLayout(rects: positioned.map(\.rect)) {
                 ForEach(positioned) { pane in
                     let isSelected = pane.id == activePaneId
-                    paneTerminal(pane: pane.paneState)
+                    paneTerminal(pane: pane.paneState, windowName: window.windowName)
                         .overlay {
                             if isMultiPane {
                                 // Border: accent for selected, subtle for others
@@ -549,7 +587,7 @@
 
         // MARK: - Pane Terminal
 
-        private func paneTerminal(pane: PaneState) -> some View {
+        private func paneTerminal(pane: PaneState, windowName: String) -> some View {
             LiveTerminalView(
                 paneId: pane.paneId,
                 responseState: .constant(nil),
@@ -570,9 +608,42 @@
                 telemetry: pane.telemetry,
                 // Tiled panes pass `responseState: .constant(nil)`, so no response
                 // form is shown here and the submit closure is never invoked.
-                submitResponse: { _ in }
+                submitResponse: { _ in },
+                onTerminalInput: { keys in
+                    observeTerminalInput(
+                        keys,
+                        paneId: pane.paneId,
+                        windowName: windowName
+                    )
+                }
             )
             .environment(relayClient)
+        }
+
+        private func observeTerminalInput(
+            _ keys: [TmuxKey],
+            paneId: String,
+            windowName: String
+        ) {
+            guard
+                settings.agentBackgroundMonitoringEnabled,
+                relayClient.isHostConnected
+            else {
+                backgroundMonitoring.resetTerminalInput(
+                    hostId: hostId,
+                    paneId: paneId
+                )
+                return
+            }
+
+            backgroundMonitoring.handleTerminalInput(
+                keys,
+                hostId: hostId,
+                paneId: paneId,
+                sessionName: sessionName,
+                windowName: windowName,
+                currentState: sessionStore.session(for: paneId, hostId: hostId)?.state
+            )
         }
 
         // MARK: - Status Bar

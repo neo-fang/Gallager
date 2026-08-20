@@ -18,7 +18,7 @@ extension EnvSerializedSuites {
             _ test: (Application) async throws -> Void
         ) async throws {
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-license-endpoint-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
             // Config is injected (never setenv — see `configure(_:env:)`): the
@@ -44,7 +44,7 @@ extension EnvSerializedSuites {
             _ test: (Application) async throws -> Void
         ) async throws {
             let tempDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("claudespy-license-endpoint-tests-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-license-endpoint-tests-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: tempDir) }
             try await withApp(configure: { app in

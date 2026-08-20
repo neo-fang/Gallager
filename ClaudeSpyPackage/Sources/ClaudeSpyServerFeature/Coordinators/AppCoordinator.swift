@@ -104,13 +104,13 @@
         // MARK: - In-Process Plugin Runtime (additive; coexists with HookServerService)
 
         /// On-disk layout for the in-process plugin runtime. Built in
-        /// `setupAllServices()` from `--gallager-state-root` (E2E isolation) or
-        /// the default `~/.gallager` tree.
+        /// `setupAllServices()` from `--ctrlx-state-root` (E2E isolation) or
+        /// the default `~/.ctrlx` tree.
         ///
         /// `internal` (not `private`) so `@testable import` tests can inject a
         /// temp-dir `GallagerPaths` without calling `setupAllServices()`.
         @ObservationIgnored
-        var gallagerPaths: GallagerPaths?
+        var ctrlxPaths: GallagerPaths?
 
         /// Owns the plugin factory table + enabled-core lifecycle.
         ///
@@ -154,7 +154,7 @@
         private var otlpReceiver: OTLPReceiver?
 
         /// Durable cross-session cost/usage aggregation (issue #598). Persists
-        /// per-(project, day) totals under the gallager state tree so they outlive
+        /// per-(project, day) totals under the ctrlx state tree so they outlive
         /// session end and app restarts. Fed from telemetry updates; finalized on
         /// session end.
         @ObservationIgnored
@@ -240,7 +240,7 @@
         @ObservationIgnored
         @Dependency(DeviceNameClient.self) private var deviceNameClient
 
-        private let logger = Logger(label: "com.claudespy.coordinator")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.coordinator")
 
         // MARK: - Initialization
 
@@ -376,7 +376,7 @@
             // Clean up any stale pipe-pane FIFOs from previous crashes
             PipePaneReader.cleanupStaleFifos()
 
-            // Sweep any leftover `gallager-drop-*` directories from prior
+            // Sweep any leftover `ctrlx-drop-*` directories from prior
             // sessions. Each remote drop drops a per-UUID subdir under
             // `$TMPDIR`, normally short-lived: the inner pane app reads
             // the file before the user moves on. macOS does its own lazy
@@ -596,7 +596,7 @@
         private func setupPluginRuntime() async {
             let paths = GallagerPaths(stateRootOverride: Self.parseGallagerStateRoot())
             paths.ensureBaseDirectories()
-            gallagerPaths = paths
+            ctrlxPaths = paths
 
             // One-shot migration of legacy per-agent settings → per-plugin
             // settings.json, before cores read them via PluginEnv.settings (§11).
@@ -692,7 +692,7 @@
             // are not downgraded to folder-source on restart.
             let loadedRegistry = PluginRegistryStore.load(paths.registryPath)
 
-            // Discover folder-dropped sidecar plugins under ~/.gallager/plugins/.
+            // Discover folder-dropped sidecar plugins under ~/.ctrlx/plugins/.
             // Each valid sidecar is registered, its state dir is materialized, and
             // it is enabled. Failures are non-fatal: a bad sidecar is logged and
             // skipped so it never blocks startup.
@@ -744,7 +744,7 @@
             let updateManager = PluginUpdateManager(
                 callbacks: PluginUpdateManager.Callbacks(
                     loadRegistry: { [weak self] in
-                        guard let self, let paths = gallagerPaths else {
+                        guard let self, let paths = ctrlxPaths else {
                             return PluginRegistryFile(schemaVersion: 1, plugins: [])
                         }
                         let file = PluginRegistryStore.load(paths.registryPath)
@@ -752,7 +752,7 @@
                         return Self.e2eUpdatableRegistry(file)
                     },
                     saveRegistry: { [weak self] file in
-                        guard let paths = self?.gallagerPaths else { return }
+                        guard let paths = self?.ctrlxPaths else { return }
                         try? PluginRegistryStore.save(file, to: paths.registryPath)
                     },
                     checkUpdates: { [weak self] entries in
@@ -985,7 +985,7 @@
             guard
                 let registry = pluginRegistry,
                 let dispatcher = pluginDispatcher,
-                let paths = gallagerPaths
+                let paths = ctrlxPaths
             else {
                 return nil
             }
@@ -1043,7 +1043,7 @@
             postInstall: Bool = true
         ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
             guard
-                let registry = pluginRegistry, let paths = gallagerPaths,
+                let registry = pluginRegistry, let paths = ctrlxPaths,
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
@@ -1102,7 +1102,7 @@
             trustConfirmed: Bool
         ) async -> Result<PluginInstaller.InstallOutcome, InstallError> {
             guard
-                let registry = pluginRegistry, let paths = gallagerPaths,
+                let registry = pluginRegistry, let paths = ctrlxPaths,
                 let dispatcher = pluginDispatcher else {
                 return .failure(.invalidSchema)
             }
@@ -1149,7 +1149,7 @@
             id: String,
             deleteState: Bool
         ) async -> Result<Void, InstallError> {
-            guard let registry = pluginRegistry, let paths = gallagerPaths else {
+            guard let registry = pluginRegistry, let paths = ctrlxPaths else {
                 return .failure(.notInstalled)
             }
             let result = await PluginInstaller.remove(
@@ -1171,7 +1171,7 @@
         /// Thin wrapper: reads the registry file from disk and delegates to
         /// `PluginUpdateChecker.check`. Not unit-tested directly.
         public func checkPluginUpdates() async -> [PluginUpdate] {
-            guard let paths = gallagerPaths else { return [] }
+            guard let paths = ctrlxPaths else { return [] }
             let registryFile = PluginRegistryStore.load(paths.registryPath)
             return await PluginUpdateChecker.check(registryFile.plugins, session: URLSession.shared)
         }
@@ -1181,8 +1181,8 @@
         func pluginInfoViaCLI(_ id: String) async -> [String: JSONValue]? {
             guard let registry = pluginRegistry, registry.isRegistered(id) else { return nil }
             let manifest = registry.manifest(id)
-            let logPath = gallagerPaths?.pluginLogPath(id).path ?? ""
-            let stateBytes = gallagerPaths.map { Self.directorySize($0.pluginStateDir(id)) } ?? 0
+            let logPath = ctrlxPaths?.pluginLogPath(id).path ?? ""
+            let stateBytes = ctrlxPaths.map { Self.directorySize($0.pluginStateDir(id)) } ?? 0
 
             var result: [String: JSONValue] = [
                 "id": .string(id),
@@ -1206,7 +1206,7 @@
         /// hasn't logged yet.
         func pluginLogsViaCLI(_ id: String, lines: Int?) async -> [String: JSONValue]? {
             guard let registry = pluginRegistry, registry.isRegistered(id) else { return nil }
-            guard let paths = gallagerPaths else {
+            guard let paths = ctrlxPaths else {
                 return ["logPath": .string(""), "lines": .array([])]
             }
             let logURL = paths.pluginLogPath(id)
@@ -1308,13 +1308,13 @@
             ])
         }
 
-        /// Parses the optional `--gallager-state-root <path>` launch argument
+        /// Parses the optional `--ctrlx-state-root <path>` launch argument
         /// (E2E state isolation). Returns the override URL, or `nil` for the
-        /// default `~/.gallager` layout.
+        /// default `~/.ctrlx` layout.
         private static func parseGallagerStateRoot() -> URL? {
             let args = CommandLine.arguments
             guard
-                let flagIndex = args.firstIndex(of: "--gallager-state-root"),
+                let flagIndex = args.firstIndex(of: "--ctrlx-state-root"),
                 flagIndex + 1 < args.count
             else {
                 return nil
@@ -1377,7 +1377,7 @@
 
         /// Raw settings.json bytes for a plugin (empty Data if none yet).
         public func pluginSettingsData(id: String) -> Data {
-            guard let paths = gallagerPaths else { return Data() }
+            guard let paths = ctrlxPaths else { return Data() }
             return (try? Data(contentsOf: paths.pluginSettingsPath(id))) ?? Data()
         }
 
@@ -1388,7 +1388,7 @@
         /// next launch).
         @discardableResult
         public func setPluginSettings(id: String, _ data: Data) async -> String? {
-            guard let paths = gallagerPaths else { return "Plugin state not initialised" }
+            guard let paths = ctrlxPaths else { return "Plugin state not initialised" }
             let url = paths.pluginSettingsPath(id)
             do {
                 try FileManager.default.createDirectory(
@@ -1631,11 +1631,19 @@
             )
             // Stamp the real pane id so tapping the banner navigates to the
             // originating session; fall back to "system" only when the event
-            // carries no pane (e.g. a gallager-cli notify with no target).
+            // carries no pane (e.g. a ctrlx-cli notify with no target).
             terminalNotificationService.showNotification(paneId ?? "system", macNotification, nil)
-            await connectedViewerManager?.sendCustomPushNotificationToAll(
+
+            let paneState = paneId.flatMap { windowManager.paneStates[$0] }
+            let pushPresentation = AgentNotificationPresentation(
                 title: notification.title,
                 body: notification.body,
+                paneState: paneState
+            )
+            await connectedViewerManager?.sendCustomPushNotificationToAll(
+                title: pushPresentation.title,
+                subtitle: pushPresentation.subtitle,
+                body: pushPresentation.body,
                 paneId: paneId,
                 action: action
             )
@@ -1647,9 +1655,9 @@
         /// content-free signals into the app: telemetry → stamp the joined pane,
         /// milestones → one-shot notifications, mode changes → stamp the pane.
         private func setupOTLPReceiver() async {
-            // Durable cross-session usage store (issue #598). Lives in the gallager
+            // Durable cross-session usage store (issue #598). Lives in the ctrlx
             // state tree so it shares the E2E redirect and survives restarts.
-            let stateRoot = (gallagerPaths ?? GallagerPaths()).stateRoot
+            let stateRoot = (ctrlxPaths ?? GallagerPaths()).stateRoot
             let store = UsageAggregationStore(
                 fileURL: stateRoot.appendingPathComponent("usage-aggregates.json")
             )
@@ -2795,7 +2803,7 @@
                         case let .applied(needsAppRestart):
                             row["applied"] = .bool(true)
                             if needsAppRestart {
-                                row["note"] = .string("restart Gallager to load the new sidecar")
+                                row["note"] = .string("restart CtrlX to load the new sidecar")
                             }
                         case .skippedSourceChanged:
                             row["applied"] = .bool(false)
@@ -2816,7 +2824,7 @@
 
             // Start the socket server (use separate path in E2E to avoid conflicts)
             let isE2E = CommandLine.arguments.contains("--e2e-test")
-            let socketPath = NSTemporaryDirectory() + (isE2E ? "gallager-e2e.sock" : "gallager.sock")
+            let socketPath = NSTemporaryDirectory() + (isE2E ? "ctrlx-e2e.sock" : "ctrlx.sock")
             do {
                 try await apiSocketServer.start(socketPath)
             } catch {
@@ -2826,12 +2834,12 @@
 
             // Set the VISUAL env var on TmuxService so new sessions use our CLI.
             // The CLI is expected to be in the app bundle's MacOS directory.
-            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "GallagerCLI") {
+            if let editorURL = Bundle.main.url(forAuxiliaryExecutable: "CtrlXCLI") {
                 tmuxService.editorCLIPath = editorURL.path
                 tmuxService.apiSocketPath = socketPath
-                logger.info("GallagerCLI path: \(editorURL.path)")
+                logger.info("CtrlXCLI path: \(editorURL.path)")
             } else {
-                logger.warning("GallagerCLI not found in app bundle")
+                logger.warning("CtrlXCLI not found in app bundle")
             }
         }
 
@@ -3445,7 +3453,7 @@
             }
         }
 
-        /// E2E only: observe `com.claudespy.e2e.reconnectViewers`, posted by
+        /// E2E only: observe `com.jicezeng.ctrlx.e2e.reconnectViewers`, posted by
         /// `TestAccessibilityServer` after a test-driven version-override change.
         /// Forwards to the host-role connection manager so the host can rejoin
         /// the relay after `handleVersionMismatch` closed its WebSocket.
@@ -3456,7 +3464,7 @@
         private func startE2EReconnectObserver() {
             e2eReconnectObserverTask = Task { [weak self] in
                 let notifications = NotificationCenter.default.notifications(
-                    named: .init("com.claudespy.e2e.reconnectViewers")
+                    named: .init("com.jicezeng.ctrlx.e2e.reconnectViewers")
                 )
                 for await _ in notifications {
                     guard !Task.isCancelled else { break }
@@ -3745,11 +3753,11 @@
             }
         }
 
-        /// Removes any `$TMPDIR/gallager-drop-*` directories left over
+        /// Removes any `$TMPDIR/ctrlx-drop-*` directories left over
         /// from a previous run. Called once at startup so the host doesn't
         /// accumulate per-drop landing directories indefinitely after
         /// crashes or unexpected shutdowns. Only matches our own
-        /// `gallager-drop-` prefix so unrelated `$TMPDIR` content is left
+        /// `ctrlx-drop-` prefix so unrelated `$TMPDIR` content is left
         /// alone. Failures are silent — best-effort cleanup.
         private func sweepStaleDropDirectories() {
             let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -3760,7 +3768,7 @@
                     includingPropertiesForKeys: nil
                 )
             else { return }
-            for entry in entries where entry.lastPathComponent.hasPrefix("gallager-drop-") {
+            for entry in entries where entry.lastPathComponent.hasPrefix("ctrlx-drop-") {
                 try? fm.removeItem(at: entry)
             }
         }
@@ -3769,7 +3777,7 @@
         /// `$TMPDIR`, builds the same shell-escaped path string the local
         /// drop path produces, then loads + pastes it into `command.paneId`
         /// via tmux's bracketed-paste buffer. The subdirectory is named
-        /// `gallager-drop-<UUID>` so concurrent drops can't clobber each
+        /// `ctrlx-drop-<UUID>` so concurrent drops can't clobber each
         /// other; the original filename is preserved inside so
         /// downstream readers (Claude Code, vim, etc.) see a useful name.
         private static func handleSendDroppedFiles(
@@ -3813,7 +3821,7 @@
             // Save each file under a dedicated subdirectory so duplicate
             // names across drops can't collide.
             let dropDir = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-drop-\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("ctrlx-drop-\(UUID().uuidString)", isDirectory: true)
             do {
                 try FileManager.default.createDirectory(
                     at: dropDir,
@@ -3869,7 +3877,7 @@
                 try await tmuxService.loadAndPasteBuffer(
                     target: command.paneId,
                     content: content,
-                    bufferName: "gallager-drop-\(UUID().uuidString.prefix(8))"
+                    bufferName: "ctrlx-drop-\(UUID().uuidString.prefix(8))"
                 )
                 return .success(for: command.id)
             } catch {
@@ -3978,6 +3986,13 @@
 
                 // Clear sessions when a remote host disconnects
                 manager.onHostDisconnected = { [weak store] hostId in
+                    store?.clearSessions(for: hostId)
+                }
+
+                // A viewer-side transport interruption has the same UI effect
+                // on macOS, but remains a distinct lifecycle signal so iOS can
+                // keep a finite Agent monitor alive while it reconnects.
+                manager.onTransportInterrupted = { [weak store] hostId in
                     store?.clearSessions(for: hostId)
                 }
 

@@ -3,8 +3,8 @@ import Guide from "../../layouts/Guide.astro";
 ---
 
 <Guide
-  title="Push notifications — Gallager"
-  description="When Gallager notifies you, how notification content stays end-to-end encrypted, and how badges stay accurate."
+  title="Push notifications — CtrlX"
+  description="When CtrlX notifies you, how notification content stays end-to-end encrypted, and how badges stay accurate."
   heroTitle="Push notifications"
   lede="Pings only when an agent actually needs you — and the relay can't read a single one of them."
 >
@@ -40,7 +40,7 @@ import Guide from "../../layouts/Guide.astro";
 
   <h2>Connected vs. away</h2>
   <p>
-    Pushes exist for when the app isn't actively connected. With Gallager open and
+    Pushes exist for when the app isn't actively connected. With CtrlX open and
     streaming, state changes show up live over the WebSocket; backgrounded but still
     connected, a local notification fills the same role without a round-trip through
     APNs.
@@ -48,8 +48,8 @@ import Guide from "../../layouts/Guide.astro";
 
   <h2>Self-hosting?</h2>
   <p>
-    The hosted relay delivers pushes out of the box. A self-hosted relay needs your own
-    APNs key — see <a href="/docs/self-hosting/">the self-hosting guide</a>. Without
+    A self-hosted relay needs your own APNs key — see
+    <a href="/docs/self-hosting/">the self-hosting guide</a>. Without
     one, everything else works; you just won't get pushes while the phone is away.
   </p>
 </Guide>

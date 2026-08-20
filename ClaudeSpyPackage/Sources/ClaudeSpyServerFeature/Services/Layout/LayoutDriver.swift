@@ -94,7 +94,7 @@
             colorApplier: @escaping ColorApplier,
             progressApplier: @escaping ProgressApplier,
             processRunner: ProcessRunner = .liveValue,
-            logger: Logger = Logger(label: "com.claudespy.layoutdriver")
+            logger: Logger = Logger(label: "com.jicezeng.ctrlx.layoutdriver")
         ) {
             self.tmuxAccessor = tmuxAccessor
             self.descriptionApplier = descriptionApplier
@@ -143,7 +143,7 @@
                 planned.append("session '\(config.sessionName)' exists — re-applying description/color, running on_apply hooks, selecting")
                 if !dryRun {
                     // Re-apply description + color on warm-attach so editing
-                    // the YAML and re-running `gallager apply` updates the
+                    // the YAML and re-running `ctrlx apply` updates the
                     // sidebar without forcing the user into `--rebuild`.
                     // Environment + tmux options are intentionally left
                     // alone — they only affect new shells, and re-running

@@ -13,7 +13,7 @@
         @Environment(IOSSettings.self) private var settings
         @Environment(ViewerConnectionManager.self) private var connectionManager
 
-        private let logger = Logger(label: "com.claudespy.managehosts")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.managehosts")
 
         @State private var showPairingSheet = false
         @State private var hostToDelete: PairedHost?
@@ -51,11 +51,12 @@
                                 showDeleteConfirmation = true
                             }
                         }
+                        .onMove(perform: moveHosts)
                     }
                 } header: {
                     Text("Paired Hosts")
                 } footer: {
-                    Text("Tap to edit name. Swipe left to remove.")
+                    Text("Tap to edit name. Use Edit to reorder or remove hosts.")
                 }
 
                 // Add host section
@@ -68,6 +69,12 @@
                 }
             }
             .navigationTitle("Manage Hosts")
+            .toolbar {
+                if settings.pairedHosts.count > 1 {
+                    EditButton()
+                        .accessibilityIdentifier("remote-host-order-edit-button")
+                }
+            }
             .sheet(isPresented: $showPairingSheet) {
                 AddHostSheet()
             }
@@ -90,6 +97,10 @@
             } message: { host in
                 Text("This will remove the pairing with \(host.displayName). You can pair again using a new code from the host app.")
             }
+        }
+
+        private func moveHosts(fromOffsets source: IndexSet, toOffset destination: Int) {
+            settings.moveHostPairings(fromOffsets: source, toOffset: destination)
         }
 
         private func removeHost(_ host: PairedHost) async {

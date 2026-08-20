@@ -46,6 +46,12 @@ public struct MainView: View {
     /// ID to scroll to in the sidebar when a window moves between sections
     @State private var scrollToWindowId: String?
 
+    /// Global frames let the remote Host drag handle resolve a destination
+    /// without relying on data-drop support from `List` section headers.
+    @State private var remoteHostHeaderFrames: [String: CGRect] = [:]
+    @State private var remoteHostDragSourceID: String?
+    @State private var remoteHostDropTargetID: String?
+
     /// Per-session auto-resize state (keyed by pane target for local, "remote-hostId-paneId" for remote)
     @State private var autoResizeEnabled: Set<String> = []
     /// Per-session auto-resize opt-out when global setting is on
@@ -147,7 +153,7 @@ public struct MainView: View {
         .containerBackground(settings.theme.workspaceBackgroundColor, for: .window)
         .toolbarBackground(settings.theme.chromeBackgroundColor, for: .windowToolbar)
         .preferredColorScheme(settings.theme.workspaceColorScheme)
-        .navigationTitle(selectedSessionTitle ?? "Gallager")
+        .navigationTitle(selectedSessionTitle ?? "CtrlX")
         .toolbar {
             toolbarContent
         }
@@ -383,6 +389,14 @@ public struct MainView: View {
             onPrune: pruneStaleRemoteRightSideEntries
         ))
         .onChange(of: settings.pairedHosts.map(\.id)) { _, currentHostIds in
+            remoteHostHeaderFrames = remoteHostHeaderFrames.filter { currentHostIds.contains($0.key) }
+            if let targetID = remoteHostDropTargetID, !currentHostIds.contains(targetID) {
+                remoteHostDropTargetID = nil
+            }
+            if let sourceID = remoteHostDragSourceID, !currentHostIds.contains(sourceID) {
+                remoteHostDragSourceID = nil
+            }
+
             // Drop browser-tab state for hosts that are no longer paired so
             // the live `WKWebView` instances in `browserStates` aren't held
             // forever. Per-session cleanup for sessions killed on a still-
@@ -633,6 +647,30 @@ public struct MainView: View {
                     sessionStore: sessionStore,
                     creatingSelection: creatingSelection,
                     selectedRemoteSession: $selectedRemoteSession,
+                    isHostDragging: remoteHostDragSourceID == host.id,
+                    isHostDropTargeted: remoteHostDropTargetID == host.id,
+                    onHeaderFrameChange: { frame in
+                        if let frame {
+                            remoteHostHeaderFrames[host.id] = frame
+                        } else {
+                            remoteHostHeaderFrames.removeValue(forKey: host.id)
+                        }
+                    },
+                    onHostDragChanged: { location in
+                        remoteHostDragSourceID = host.id
+                        remoteHostDropTargetID = remoteHostTarget(
+                            for: host.id,
+                            at: location
+                        )
+                    },
+                    onHostDragEnded: { location in
+                        defer {
+                            remoteHostDragSourceID = nil
+                            remoteHostDropTargetID = nil
+                        }
+                        guard let targetID = remoteHostTarget(for: host.id, at: location) else { return }
+                        settings.moveHostPairing(sourceID: host.id, targetID: targetID)
+                    },
                     onSelect: { selection in
                         selectedRemoteSession = selection
                         selectedRemoteWindowId = nil
@@ -690,6 +728,15 @@ public struct MainView: View {
                 )
             }
         }
+    }
+
+    private func remoteHostTarget(for sourceID: String, at location: CGPoint) -> String? {
+        RemoteHostDropTarget.hostID(
+            at: location,
+            orderedHostIDs: settings.pairedHosts.map(\.id),
+            headerFrames: remoteHostHeaderFrames,
+            excluding: sourceID
+        )
     }
 
     private func sessionButton(session: LocalTmuxSession, help: String? = nil) -> some View {
@@ -1057,7 +1104,7 @@ public struct MainView: View {
             let isAnyFileViewActive = isFileBrowserActive || isGitActive
                 || selectedFileTab != nil || selectedBrowserTab != nil
             VStack(spacing: 0) {
-                if let session {
+                if let session, let sessionTabs {
                     WindowTabBar(
                         session: session,
                         selectedWindow: window,
@@ -2940,7 +2987,8 @@ public struct MainView: View {
                     mode: settings.sidebarSortMode,
                     sidebarFields: settings.sidebarFields,
                     sidebarTerminalFields: settings.sidebarTerminalFields,
-                    homeDirectory: sessionStore.homeDirectoryByHost[host.id]
+                    homeDirectory: sessionStore.homeDirectoryByHost[host.id],
+                    preferredSessionNames: settings.remoteSessionOrder(for: host.id)
                 )
                 entries.append(contentsOf: sorted.map { session in
                     SidebarSessionEntry.remote(hostId: host.id, hostName: host.displayName, session: session)
@@ -4649,6 +4697,7 @@ public struct MainView: View {
             )
             switch result {
             case .success:
+                settings.replaceRemoteSessionName(sessionName, with: newName, for: host.id)
                 migrateRemoteSessionState(
                     hostId: host.id,
                     from: sessionName,
@@ -4819,10 +4868,23 @@ private extension MainView {
     /// stale per-session record (plan §4.3).
     func seedLayoutIfNeeded() {
         guard let sessionName = selectedWindow?.sessionName else { return }
+
+        // A selected session always owns tab-strip state, even when it only
+        // contains terminals. Window drag/reorder mutates this model; treating
+        // it as optional made a pure-terminal drop look successful while the
+        // tmux reorder callback silently returned.
+        let tabs: SessionFileTabsState
+        if let existing = sessionFileTabsStates[sessionName] {
+            tabs = existing
+        } else {
+            tabs = SessionFileTabsState()
+            sessionFileTabsStates[sessionName] = tabs
+        }
+
         guard !seededSessions.contains(sessionName) else { return }
 
         // Don't seed a session the user has already populated.
-        if let existing = sessionFileTabsStates[sessionName], !isWorkbenchEmpty(existing) {
+        if !isWorkbenchEmpty(tabs) {
             seededSessions.insert(sessionName)
             return
         }
@@ -4840,12 +4902,10 @@ private extension MainView {
             // this session down. Don't resurrect a dead session's tabs state.
             guard tmuxService.sessions.contains(where: { $0.sessionName == sessionName }) else { return }
 
-            // Re-check freshness now that we've awaited the store.
-            let tabs = sessionFileTabsStates[sessionName] ?? {
-                let new = SessionFileTabsState()
-                sessionFileTabsStates[sessionName] = new
-                return new
-            }()
+            // Re-check freshness now that we've awaited the store. Cleanup may
+            // have removed the state while the read was suspended; never
+            // resurrect a dead session from this task.
+            guard let tabs = sessionFileTabsStates[sessionName] else { return }
             guard isWorkbenchEmpty(tabs) else { return }
 
             let sessionWindows = windows(forSession: sessionName)

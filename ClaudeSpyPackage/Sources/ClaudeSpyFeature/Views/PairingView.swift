@@ -16,7 +16,7 @@
         /// Called when pairing is successful with the new PairedHost
         var onPaired: ((PairedHost) -> Void)?
 
-        private static let downloadURL = URL(staticString: "https://updates.gallager.app/Gallager.dmg")
+        private static let sourceURL = AppBuildInfo.current.correspondingSourceURL
 
         private let codeLength = 6
 
@@ -51,7 +51,7 @@
         }
 
         private var compactHeaderSection: some View {
-            Text("Enter the 6-character pairing code shown in the Gallager host app")
+            Text("Enter the 6-character pairing code shown in the CtrlX host app")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -79,7 +79,7 @@
                     }
 
                 if isValid {
-                    Text("Use the same WSS address configured in the Gallager host app.")
+                    Text("Use the same WSS address configured in the CtrlX host app.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -195,7 +195,7 @@
                     .font(.headline)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    instructionRow(number: 1, text: "Open Gallager on your mac")
+                    instructionRow(number: 1, text: "Open CtrlX on your Mac")
                     instructionRow(number: 2, text: "Go to Settings > Remote Access")
                     instructionRow(number: 3, text: "Click \"Generate Pairing Code\"")
                     instructionRow(number: 4, text: "Enter the code above")
@@ -218,13 +218,13 @@
                 VStack(alignment: .leading, spacing: 8) {
                     instructionRow(number: 1, text: "Send yourself the download link below")
                     instructionRow(number: 2, text: "Open the DMG and drag to Applications")
-                    instructionRow(number: 3, text: "Launch Gallager and complete setup")
+                    instructionRow(number: 3, text: "Build or install CtrlX and complete setup")
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-                ShareLink(item: Self.downloadURL) {
-                    Label("Send Download Link", symbol: .squareAndArrowUp)
+                ShareLink(item: Self.sourceURL) {
+                    Label("Open Source Repository", symbol: .squareAndArrowUp)
                 }
                 .buttonStyle(.bordered)
             }

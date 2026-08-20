@@ -1,11 +1,11 @@
 import Foundation
 
 /// E2E: installing a sidecar plugin from a local `.zip` (via
-/// `gallager plugin install --zip`) makes it appear in the Agents picker **and**
+/// `ctrlx plugin install --zip`) makes it appear in the Agents picker **and**
 /// auto-selects it — live, no app restart.
 ///
 /// Guards two pieces of the local-zip install feature:
-///   1. The new `gallager plugin install --zip <path>` CLI verb → router `path`
+///   1. The new `ctrlx plugin install --zip <path>` CLI verb → router `path`
 ///      branch → `AppCoordinator.installPluginFromZip`.
 ///   2. The picker refresh (`pluginCatalogRevision`) + auto-select
 ///      (`lastInstalledPluginID` → `onChange` → `selectedAgentID`) that fire on a
@@ -17,7 +17,7 @@ import Foundation
 /// `EchoPluginSidecar` binary so the install actually enables (a successful
 /// install — not enableFailed — is what sets `lastInstalledPluginID`).
 ///
-/// Finally the scenario removes the plugin again over the CLI (`gallager plugin
+/// Finally the scenario removes the plugin again over the CLI (`ctrlx plugin
 /// remove`), which both keeps its installed plugin from leaking into later
 /// scenarios' pickers (issue #690) and covers the CLI-remove path + the live
 /// picker refresh on removal.
@@ -37,16 +37,16 @@ public enum AgentsInstallZipAutoSelectScenario {
 
         Shortcut.macOnlySetup
 
-        // 2. Wire the `gallager` CLI helper in the pane (talks to the running app
+        // 2. Wire the `ctrlx` CLI helper in the pane (talks to the running app
         //    over its Unix socket — same setup as PluginEnableDisableScenario).
         Shortcut.tmuxClearAndSetPrompt(target: "zip-install:0")
         Shortcut.tmuxRunCommand(
             target: "zip-install:0",
-            command: #"export GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock""#
+            command: #"export CTRLX_SOCKET="$TMPDIR/ctrlx-e2e.sock""#
         )
         Shortcut.tmuxRunCommand(
             target: "zip-install:0",
-            command: #"gallager() { "${macOSAppPath}/Contents/MacOS/GallagerCLI" "$@"; }"#
+            command: #"ctrlx() { "${macOSAppPath}/Contents/MacOS/CtrlXCLI" "$@"; }"#
         )
 
         // 3. Open Settings → Agents. Only the bundled agents exist so far.
@@ -59,7 +59,7 @@ public enum AgentsInstallZipAutoSelectScenario {
         //    open, so the install must update it live.
         Shortcut.tmuxRunCommand(
             target: "zip-install:0",
-            command: #"gallager plugin install --zip "${zipPath}" --yes > /tmp/e2e-zip-install.txt 2>&1"#
+            command: #"ctrlx plugin install --zip "${zipPath}" --yes > /tmp/e2e-zip-install.txt 2>&1"#
         )
 
         // 5. The CLI reports a successful install (id echoed back).
@@ -81,7 +81,7 @@ public enum AgentsInstallZipAutoSelectScenario {
         // 7. Clean up: remove the just-installed plugin over the CLI. The
         //    orchestrator now also wipes shared plugin state between scenarios
         //    (issue #690), so this is belt-and-suspenders for the leak — but it
-        //    also earns its keep as coverage: it gives `gallager plugin remove`
+        //    also earns its keep as coverage: it gives `ctrlx plugin remove`
         //    (CLI → `plugin.remove` RPC) its own e2e exercise and proves the picker
         //    refreshes live on removal, the "Zip Install Test" segment vanishing
         //    with no app restart (mirroring the in-form button path in
@@ -89,7 +89,7 @@ public enum AgentsInstallZipAutoSelectScenario {
         TestStep.removeFile(path: "/tmp/e2e-zip-remove.txt")
         Shortcut.tmuxRunCommand(
             target: "zip-install:0",
-            command: #"gallager plugin remove ziptest-sidecar --delete-state > /tmp/e2e-zip-remove.txt 2>&1"#
+            command: #"ctrlx plugin remove ziptest-sidecar --delete-state > /tmp/e2e-zip-remove.txt 2>&1"#
         )
         TestStep.waitForFileContains(
             path: "/tmp/e2e-zip-remove.txt",

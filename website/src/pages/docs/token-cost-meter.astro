@@ -3,7 +3,7 @@ import Guide from "../../layouts/Guide.astro";
 ---
 
 <Guide
-  title="Token & cost meter — Gallager"
+  title="Token & cost meter — CtrlX"
   description="A live per-session meter of tokens, cost and latency, fed by each agent's telemetry — on the Mac and on your phone."
   heroTitle="Token & cost meter"
   lede="Every session wears its price tag: live tokens, dollars and latency, straight from the agent's own telemetry."
@@ -20,7 +20,7 @@ import Guide from "../../layouts/Guide.astro";
 
   <h2>Setup per agent</h2>
   <ul>
-    <li><strong>Claude Code</strong> — automatic. Gallager configures OpenTelemetry in
+    <li><strong>Claude Code</strong> — automatic. CtrlX configures OpenTelemetry in
       the sessions it launches; you get tokens, cost, latency and model with zero
       setup. The telemetry is content-free — usage numbers, never your prompts.</li>
     <li><strong>Codex CLI</strong> — on by default, with an "Export telemetry" opt-out
@@ -45,7 +45,7 @@ import Guide from "../../layouts/Guide.astro";
   <ul>
     <li>Everything flows over a local loopback receiver on your Mac — telemetry never
       leaves the machine except encrypted to your own paired devices.</li>
-    <li>Only sessions Gallager launches are instrumented; a <code>claude</code> you
+    <li>Only sessions CtrlX launches are instrumented; a <code>claude</code> you
       start in some other terminal won't report here.</li>
     <li>The live meter resets with its session. Longer-horizon per-project usage is
       aggregated separately and survives restarts.</li>

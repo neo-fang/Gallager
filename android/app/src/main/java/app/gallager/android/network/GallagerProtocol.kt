@@ -25,8 +25,8 @@ import java.util.Base64
 import java.util.UUID
 
 object GallagerProtocol {
-    const val APP_VERSION = "2.2.2"
-    const val MIN_HOST_VERSION = "2.0"
+    const val APP_VERSION = "3.0.0"
+    const val MIN_HOST_VERSION = "3.0"
 
     val json = Json {
         ignoreUnknownKeys = true

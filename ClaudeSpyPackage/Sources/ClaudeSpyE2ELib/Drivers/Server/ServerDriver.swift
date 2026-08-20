@@ -276,7 +276,7 @@ public actor ServerDriver {
 
     /// Filesystem path where `APNsService` records outgoing pushes in E2E mode.
     public static let defaultAPNSLogPath: String =
-        NSTemporaryDirectory() + "claudespy-e2e-apns.log"
+        NSTemporaryDirectory() + "ctrlx-e2e-apns.log"
 
     /// Decode the JSON-lines push log written by the relay's `APNsService` in
     /// E2E mode. Returns one entry per outgoing push, in the order recorded.

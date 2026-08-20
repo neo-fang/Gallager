@@ -9,13 +9,13 @@
 	<!-- App Groups - enables sharing data between main app and extensions -->
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.br.eng.gustavo.claudespy</string>
+		<string>group.com.jicezeng.ctrlx</string>
 	</array>
 
 	<!-- Keychain Sharing - enables sharing Keychain items with extensions -->
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)br.eng.gustavo.claudespy.shared</string>
+		<string>$(AppIdentifierPrefix)com.jicezeng.ctrlx.shared</string>
 	</array>
 </dict>
 </plist>

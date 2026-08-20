@@ -455,6 +455,7 @@ struct NotificationActionWireTests {
         )
         #expect(content.action == nil)
         #expect(content.title == "T")
+        #expect(content.subtitle == nil)
     }
 
     @Test("AgentNotificationMessage decodes legacy JSON and round-trips the action")
@@ -467,6 +468,7 @@ struct NotificationActionWireTests {
             from: Data(legacy.utf8)
         )
         #expect(decoded.action == nil)
+        #expect(decoded.subtitle == nil)
 
         let context = NotificationActionContext(
             sessionId: "%1",
@@ -478,6 +480,7 @@ struct NotificationActionWireTests {
             pairId: "pair1",
             sessionId: "%1",
             title: "T",
+            subtitle: "Needs input",
             body: "B",
             timestamp: Date(timeIntervalSince1970: 1),
             action: context
@@ -487,7 +490,24 @@ struct NotificationActionWireTests {
             from: JSONEncoder().encode(message)
         )
         #expect(roundTripped == message)
+        #expect(roundTripped.subtitle == "Needs input")
         #expect(roundTripped.withPairId("pair2").action == context)
+    }
+
+    @Test("Agent notifications ignore obsolete lifecycle metadata")
+    func agentNotificationIgnoresLifecycleMetadata() throws {
+        let legacy = """
+        {"pairId":"pair1","sessionId":"%1","title":"T","body":"B",
+         "timestamp":740000000,"turnOutcome":"completed"}
+        """
+        let decoded = try JSONDecoder().decode(
+            AgentNotificationMessage.self,
+            from: Data(legacy.utf8)
+        )
+
+        #expect(decoded.pairId == "pair1")
+        #expect(decoded.sessionId == "%1")
+        #expect(decoded.title == "T")
     }
 
     @Test("a present-but-undecodable action degrades to nil, not a decode failure")
@@ -558,7 +578,14 @@ struct NotificationActionWireTests {
         // Worst-case surrounding content: long title/body (Stop summaries are
         // truncated at 256; question bodies carry the question text).
         let content = NotificationContent(
-            title: String(repeating: "t", count: 300),
+            title: String(
+                repeating: "t",
+                count: NotificationContent.maximumContextTitleBytes
+            ),
+            subtitle: String(
+                repeating: "s",
+                count: NotificationContent.maximumContextSubtitleBytes
+            ),
             body: String(repeating: "b", count: 300),
             eventType: "PermissionRequest",
             pairId: UUID().uuidString,

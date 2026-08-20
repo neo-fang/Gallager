@@ -6,8 +6,8 @@ struct RelayServerURLTests {
     @Test("Accepts secure relay URLs with ports")
     func acceptsSecureURL() {
         #expect(
-            RelayServerURL.normalized("wss://gallager.example.com:7001")
-                == "wss://gallager.example.com:7001"
+            RelayServerURL.normalized("wss://ctrlx.example.com:7001")
+                == "wss://ctrlx.example.com:7001"
         )
     }
 

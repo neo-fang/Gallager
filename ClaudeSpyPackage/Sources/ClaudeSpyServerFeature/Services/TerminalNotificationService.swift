@@ -74,7 +74,7 @@
 
     /// Actor that manages UNUserNotificationCenter permission and delivery.
     private actor LiveNotificationHandler {
-        private let logger = Logger(label: "com.claudespy.terminalnotification")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.terminalnotification")
         private var isAuthorized = false
         private var hasRequestedPermission = false
         private var hasInstalledDelegate = false

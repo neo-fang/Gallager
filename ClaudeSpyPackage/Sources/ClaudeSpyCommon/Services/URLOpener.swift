@@ -41,7 +41,7 @@ public extension URLOpener {
 
 final private class URLOpenerLog: Sendable {
     private static let logger = Logger(
-        subsystem: "com.claudespy",
+        subsystem: "com.jicezeng.ctrlx",
         category: "URLOpenerLog"
     )
 

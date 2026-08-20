@@ -1,7 +1,7 @@
 apiVersion: grizzly.grafana.com/v1alpha1
 kind: AlertRuleGroup
 metadata:
-  folder: ClaudeSpy
+  folder: CtrlX
   name: host-oom-kill
 spec:
   title: host-oom-kill
@@ -17,7 +17,7 @@ spec:
           model:
             # Counts OOM kills in the last 5 minutes. node_vmstat_oom_kill is a
             # monotonic counter, so increase() returns the delta.
-            expr: increase(node_vmstat_oom_kill{instance="hetzner-1"}[5m])
+            expr: increase(node_vmstat_oom_kill{instance="ctrlx-relay-host"}[5m])
             instant: true
             refId: A
         - refId: B

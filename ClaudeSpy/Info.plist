@@ -2,15 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>GallagerBuildStamp</key>
-	<string>$(GALLAGER_BUILD_STAMP)</string>
-	<key>GallagerSourceRevision</key>
-	<string>$(GALLAGER_SOURCE_REVISION)</string>
+	<key>CtrlXBuildStamp</key>
+	<string>$(CTRLX_BUILD_STAMP)</string>
+	<key>CtrlXSourceRevision</key>
+	<string>$(CTRLX_SOURCE_REVISION)</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>br.eng.gustavo.claudespy.refresh</string>
+		<string>com.jicezeng.ctrlx.refresh</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).agent-monitor.*</string>
 	</array>
 	<key>UIBackgroundModes</key>
 	<array>

@@ -3,7 +3,7 @@ import Foundation
 /// A single searchable emoji, backed by the CLDR annotation data baked into
 /// ``EmojiData`` at build time.
 ///
-/// Both the Mac/iOS picker and the `gallager find-emoji` / `set-emoji` CLI
+/// Both the Mac/iOS picker and the `ctrlx find-emoji` / `set-emoji` CLI
 /// resolve queries through the same ``Emoji`` values, so "trash", "bin", and
 /// "garbage" all surface 🗑️ regardless of surface — the whole point of
 /// issue #630. `keywords` carries the synonyms Foundation's formal Unicode

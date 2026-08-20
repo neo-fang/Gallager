@@ -22,14 +22,14 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 WORKSPACE="$PROJECT_ROOT/ClaudeSpy.xcworkspace"
-_E2E_DD_DEFAULT="${TMPDIR:-/tmp}/claudespy-e2e-derived-data"
+_E2E_DD_DEFAULT="${TMPDIR:-/tmp}/ctrlx-e2e-derived-data"
 DERIVED_DATA="${REPORT_DERIVED_DATA:-${SANDBOX_DERIVED_DATA:-$_E2E_DD_DEFAULT}}"
 SIM_NAME="iPhone 17 Pro"
-E2E_TMPDIR="${TMPDIR:-/tmp}/claudespy-e2e"
+E2E_TMPDIR="${TMPDIR:-/tmp}/ctrlx-e2e"
 mkdir -p "$E2E_TMPDIR"
 SCREENSHOTS_DIR="$E2E_TMPDIR/e2e-screenshots"
 BASELINES_DIR="$PROJECT_ROOT/E2ETests"
-TMUX_SOCKET="$E2E_TMPDIR/claudespy-e2e.sock"
+TMUX_SOCKET="$E2E_TMPDIR/ctrlx-e2e.sock"
 SKIP_BUILD=false
 INTERACTIVE=false
 LIST_SCENARIOS=false
@@ -459,8 +459,8 @@ fi
 # =====================================================
 PRODUCTS_DEBUG="$DERIVED_DATA/Build/Products/Debug"
 PRODUCTS_SIM="$DERIVED_DATA/Build/Products/Debug-iphonesimulator"
-MACOS_APP="$PRODUCTS_DEBUG/Gallager.app"
-IOS_APP="$PRODUCTS_SIM/Gallager.app"
+MACOS_APP="$PRODUCTS_DEBUG/CtrlX.app"
+IOS_APP="$PRODUCTS_SIM/CtrlX.app"
 E2E_BIN="$PRODUCTS_DEBUG/ClaudeSpyE2E"
 E2E_HOST_APP="$PRODUCTS_SIM/ClaudeSpyE2EHost.app"
 
@@ -603,13 +603,13 @@ fi
 # =====================================================
 # CLEANUP STALE TEST PROCESSES
 # =====================================================
-# Kill any leftover Gallager processes from previous E2E runs.
+# Kill any leftover CtrlX processes from previous E2E runs.
 # Only kills E2E instances (launched with --e2e-test flag), not the user's
 # regular app. A stale test process holding port 18081
 # causes all macSetSidebarWidth calls to fail.
-stale_pids=$(ps -eo pid,command | grep "[G]allager" | grep "\-\-e2e-test" | awk '{print $1}' || true)
+stale_pids=$(ps -eo pid,command | grep "[C]trlX" | grep "\-\-e2e-test" | awk '{print $1}' || true)
 if [ -n "$stale_pids" ]; then
-    step "Killing stale test Gallager processes"
+    step "Killing stale test CtrlX processes"
     for pid in $stale_pids; do
         kill "$pid" 2>/dev/null || true
     done

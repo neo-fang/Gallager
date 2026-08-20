@@ -25,7 +25,7 @@ import Foundation
 ///      *clear* side.
 ///   6. Clears the remaining two so all three sessions end up bare.
 ///   7. Re-adds an emoji and restarts the host to verify it's persisted as
-///      the tmux `@gallager-emoji` user option (host only — viewer pairings
+///      the tmux `@ctrlx-emoji` user option (host only — viewer pairings
 ///      are in-memory under `--e2e-test`).
 ///
 /// All emoji mutations go through the right-click / long-press context menu
@@ -340,7 +340,7 @@ public enum SessionEmojiSyncScenario {
 
         // ── Phase 10: Re-add emoji and restart host to verify persistence ─
         //
-        // Emojis are stored as the tmux `@gallager-emoji` user option, so they
+        // Emojis are stored as the tmux `@ctrlx-emoji` user option, so they
         // should survive the host app being killed and relaunched. Viewers
         // are lost on restart (in-memory pairings under --e2e-test), so this
         // phase only checks the host side.

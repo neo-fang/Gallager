@@ -60,13 +60,16 @@
             case deviceId
             case customDeviceName
             case pairedHosts
+            case remoteSessionOrderByHost
             case externalServerURL
             case autoReconnect
             case appearanceMode
             case terminalFontName
             case terminalFontSize
             case terminalKeyboardControlPosition
+            case showTerminalKeyboardOnEntry
             case agentQuickInputEnabled
+            case agentBackgroundMonitoringEnabled
             case newSessionName
             case newSessionWidth
             case newSessionHeight
@@ -94,6 +97,11 @@
         /// All paired host servers
         public private(set) var pairedHosts: [PairedHost] = [] {
             didSet { savePairedHosts() }
+        }
+
+        /// Viewer-local session order, isolated by remote host pair ID.
+        public private(set) var remoteSessionOrderByHost: [String: [String]] = [:] {
+            didSet { saveRemoteSessionOrder() }
         }
 
         /// External relay server URL
@@ -132,10 +140,27 @@
             }
         }
 
+        /// Whether a newly opened terminal session starts with keyboard input active.
+        public var showTerminalKeyboardOnEntry = false {
+            didSet { preferences.setBool(showTerminalKeyboardOnEntry, Keys.showTerminalKeyboardOnEntry) }
+        }
+
         /// Whether agent panes use the optional response field above the terminal.
         /// When disabled, the keyboard remains a separate, explicit user action.
         public var agentQuickInputEnabled = false {
             didSet { preferences.setBool(agentQuickInputEnabled, Keys.agentQuickInputEnabled) }
+        }
+
+        /// Whether the user wants Agent monitoring to resume on the next
+        /// eligible foreground input. Runtime lease state is owned separately by
+        /// `AgentBackgroundMonitoringService` and may be inactive while this is on.
+        public var agentBackgroundMonitoringEnabled = false {
+            didSet {
+                preferences.setBool(
+                    agentBackgroundMonitoringEnabled,
+                    Keys.agentBackgroundMonitoringEnabled
+                )
+            }
         }
 
         /// Base name for new tmux sessions created from iOS
@@ -196,8 +221,7 @@
             self.customDeviceName = preferences.string(Keys.customDeviceName)
 
             // Load settings
-            self.externalServerURL = preferences.string(Keys.externalServerURL)
-                ?? "wss://relay.gallager.app"
+            self.externalServerURL = preferences.string(Keys.externalServerURL) ?? ""
             self.autoReconnect = preferences.optionalBool(Keys.autoReconnect) ?? false
             self.appearanceMode = AppearanceMode(rawValue: preferences.string(Keys.appearanceMode) ?? "") ?? .system
 
@@ -207,7 +231,11 @@
             self.terminalKeyboardControlPosition = TerminalKeyboardControlPosition(
                 storedValue: preferences.string(Keys.terminalKeyboardControlPosition)
             )
+            self.showTerminalKeyboardOnEntry = preferences.optionalBool(Keys.showTerminalKeyboardOnEntry) ?? false
             self.agentQuickInputEnabled = preferences.optionalBool(Keys.agentQuickInputEnabled) ?? false
+            self.agentBackgroundMonitoringEnabled = preferences.optionalBool(
+                Keys.agentBackgroundMonitoringEnabled
+            ) ?? false
 
             // New session settings
             self.newSessionName = preferences.string(Keys.newSessionName) ?? "claude"
@@ -216,6 +244,7 @@
 
             // Load paired hosts
             self.pairedHosts = loadPairedHosts()
+            self.remoteSessionOrderByHost = loadRemoteSessionOrder()
 
             // didSet doesn't fire during init, so refresh the App Group mirror
             // explicitly so the Notification Service Extension can label
@@ -247,6 +276,23 @@
             mirrorHostNamesToAppGroup()
         }
 
+        private func loadRemoteSessionOrder() -> [String: [String]] {
+            guard
+                let data = preferences.data(Keys.remoteSessionOrderByHost),
+                let decoded = try? JSONDecoder().decode([String: [String]].self, from: data)
+            else {
+                return [:]
+            }
+            return decoded.mapValues(RemoteSessionOrder.normalized)
+        }
+
+        private func saveRemoteSessionOrder() {
+            guard let data = try? JSONEncoder().encode(remoteSessionOrderByHost) else {
+                return
+            }
+            preferences.setData(data, Keys.remoteSessionOrderByHost)
+        }
+
         /// Mirror pairId → display-name into the shared App Group container so the
         /// Notification Service Extension can label notifications by host.
         private func mirrorHostNamesToAppGroup() {
@@ -265,14 +311,17 @@
 
         /// Add a new paired host
         public func addPairing(_ host: PairedHost) {
-            // Remove any existing pairing with same ID (update case)
-            pairedHosts.removeAll { $0.id == host.id }
-            pairedHosts.append(host)
+            if let index = pairedHosts.firstIndex(where: { $0.id == host.id }) {
+                pairedHosts[index] = host
+            } else {
+                pairedHosts.append(host)
+            }
         }
 
         /// Remove a paired host by ID
         public func removePairing(id: String) {
             pairedHosts.removeAll { $0.id == id }
+            remoteSessionOrderByHost.removeValue(forKey: id)
         }
 
         /// Get a paired host by ID
@@ -287,9 +336,39 @@
             }
         }
 
+        public func moveHostPairings(fromOffsets source: IndexSet, toOffset destination: Int) {
+            pairedHosts = RemoteHostOrder.moving(
+                pairedHosts,
+                fromOffsets: source,
+                toOffset: destination
+            )
+        }
+
         /// Clear all pairings
         public func clearAllPairings() {
             pairedHosts = []
+            remoteSessionOrderByHost = [:]
+        }
+
+        public func remoteSessionOrder(for hostId: String) -> [String] {
+            remoteSessionOrderByHost[hostId] ?? []
+        }
+
+        public func setRemoteSessionOrder(_ sessionNames: [String], for hostId: String) {
+            let normalized = RemoteSessionOrder.normalized(sessionNames)
+            if normalized.isEmpty {
+                remoteSessionOrderByHost.removeValue(forKey: hostId)
+            } else {
+                remoteSessionOrderByHost[hostId] = normalized
+            }
+        }
+
+        public func replaceRemoteSessionName(_ oldName: String, with newName: String, for hostId: String) {
+            guard let current = remoteSessionOrderByHost[hostId] else { return }
+            setRemoteSessionOrder(
+                RemoteSessionOrder.replacing(oldName, with: newName, in: current),
+                for: hostId
+            )
         }
 
         // MARK: - Display Helpers

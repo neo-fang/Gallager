@@ -175,7 +175,7 @@ struct CodexConfigReaderTests {
         last_updated = "2026-06-05T19:08:16Z"
         source = "/Users/x/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
-        [marketplaces.gallager]
+        [marketplaces.ctrlx]
         source_type = "git"
         """
         #expect(CodexConfigReader.approvalsReviewer(fromTOML: toml) == .autoReview)
@@ -277,7 +277,7 @@ struct CodexConfigReaderTests {
     @Test("reads the reviewer from <codexHome>/config.toml")
     func readsFromFile() throws {
         let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-config-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-config-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
@@ -290,7 +290,7 @@ struct CodexConfigReaderTests {
     @Test("a missing config.toml defaults to .user")
     func missingFile() {
         let home = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-noconfig-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-noconfig-\(UUID().uuidString)")
         #expect(CodexConfigReader().approvalsReviewer(codexHome: home) == .user)
     }
 

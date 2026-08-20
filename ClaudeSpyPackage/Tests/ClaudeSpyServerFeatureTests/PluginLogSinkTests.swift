@@ -8,7 +8,7 @@
     struct PluginLogSinkTests {
         private func makeTempLogURL() -> URL {
             URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-log-\(UUID().uuidString)")
+                .appendingPathComponent("ctrlx-log-\(UUID().uuidString)")
                 .appendingPathComponent("logs")
                 .appendingPathComponent("sidecar.log")
         }

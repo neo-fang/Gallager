@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Gallager sidecar plugin for pi (https://github.com/earendil-works/pi, the
+CtrlX sidecar plugin for pi (https://github.com/earendil-works/pi, the
 `@earendil-works/pi-coding-agent` npm CLI).
 
-A sidecar is a long-lived child process Gallager spawns once and talks to over
+A sidecar is a long-lived child process CtrlX spawns once and talks to over
 stdin/stdout using JSON-RPC with LSP-style `Content-Length` framing. This sidecar
-turns pi's extension-bus events (forwarded by the companion `gallager.ts` pi
-extension → Gallager's ingress socket → here as `translate_event` calls) into the
-agent-blind `PluginEvent` shape Gallager understands.
+turns pi's extension-bus events (forwarded by the companion `ctrlx.ts` pi
+extension → CtrlX's ingress socket → here as `translate_event` calls) into the
+agent-blind `PluginEvent` shape CtrlX understands.
 
 pi's event bus is unusually complete for this job: it fires real events at both
 ends of a session's life (`session_start` on launch and on /new//resume//fork;
@@ -33,8 +33,8 @@ import sys
 PLUGIN_VERSION = "0.1.0"
 
 # Marker the bridge file carries; install_status greps for it to tell an
-# installed Gallager bridge from any other extension the user may have.
-BRIDGE_MARKER = "GallagerPiBridge"
+# installed CtrlX bridge from any other extension the user may have.
+BRIDGE_MARKER = "CtrlXPiBridge"
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def read_message():
     while b"\r\n\r\n" not in header:
         ch = sys.stdin.buffer.read(1)
         if not ch:
-            return None  # stdin closed → Gallager is gone
+            return None  # stdin closed → CtrlX is gone
         header += ch
     length = 0
     for line in header.split(b"\r\n"):
@@ -112,9 +112,9 @@ def state_idle():
 # command_path, auto_run, log_level, additional_config_folders, close_pane_on_session_end.
 SETTINGS = {}
 
-# Gallager's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
+# CtrlX's loopback OTLP receiver endpoint (e.g. "http://127.0.0.1:24318"),
 # delivered on the initialize env (PluginEnvWire.otlpReceiverEndpoint). Baked
-# into the bridge at install so pi — which does not inherit Gallager's env — can
+# into the bridge at install so pi — which does not inherit CtrlX's env — can
 # POST telemetry to it (issue #617). Empty when the receiver failed to bind: the
 # install then bakes an empty endpoint and telemetry stays off.
 OTLP_ENDPOINT = ""
@@ -123,7 +123,7 @@ OTLP_ENDPOINT = ""
 # ---------------------------------------------------------------------------
 # pi bridge frame → PluginEvent mapping.
 # ---------------------------------------------------------------------------
-# session_shutdown reasons that DON'T end the Gallager session: pi replaces the
+# session_shutdown reasons that DON'T end the CtrlX session: pi replaces the
 # session runtime (a fresh session_start re-stamps the same pane immediately, so
 # ending here would flicker the sidebar row out and back). Everything else —
 # "quit" today, plus any signal-driven reason a future pi might name differently
@@ -185,7 +185,7 @@ def handle_translate_event(req_id, params):
 
     elif etype == "session_shutdown":
         # pi tears a session runtime down for quit AND for session replacement
-        # (/new, /resume, /fork, /reload). Only a real quit ends the Gallager
+        # (/new, /resume, /fork, /reload). Only a real quit ends the CtrlX
         # session — replacements are immediately followed by a session_start that
         # re-stamps the same pane with the new session id, and ending here would
         # make the sidebar row flicker out and back. Test the finite replacement
@@ -232,15 +232,15 @@ def _bridge_dest(config_root=None):
     `.pi/extensions/` so pi loads it there only (after the project is trusted).
     """
     if config_root:
-        return os.path.join(os.path.expanduser(config_root), ".pi", "extensions", "gallager.ts")
-    return os.path.join(_pi_agent_dir(), "extensions", "gallager.ts")
+        return os.path.join(os.path.expanduser(config_root), ".pi", "extensions", "ctrlx.ts")
+    return os.path.join(_pi_agent_dir(), "extensions", "ctrlx.ts")
 
 
 def handle_install(req_id, params):
-    sock = os.environ.get("GALLAGER_INGRESS_SOCK", "")
-    plugin_id = os.environ.get("GALLAGER_PLUGIN_ID", "pi")
-    plugin_root = os.environ.get("GALLAGER_PLUGIN_ROOT", os.getcwd())
-    template = os.path.join(plugin_root, "pi-bridge", "gallager.ts")
+    sock = os.environ.get("CTRLX_INGRESS_SOCK", "")
+    plugin_id = os.environ.get("CTRLX_PLUGIN_ID", "pi")
+    plugin_root = os.environ.get("CTRLX_PLUGIN_ROOT", os.getcwd())
+    template = os.path.join(plugin_root, "pi-bridge", "ctrlx.ts")
     dest = _bridge_dest((params or {}).get("configRoot"))
     try:
         with open(template, "r", encoding="utf-8") as f:
@@ -250,11 +250,11 @@ def handle_install(req_id, params):
         # can't break out of the TS string and make pi silently fail to load the
         # extension. Replace the QUOTED token and let json.dumps re-supply the
         # quotes: that keeps the repo template itself valid TS (its un-substituted
-        # `"__GALLAGER…"` literal is what the bridge's startsWith() smoke-test
+        # `"__CTRLX…"` literal is what the bridge's startsWith() smoke-test
         # fallback keys on).
-        content = content.replace('"__GALLAGER_INGRESS_SOCK__"', json.dumps(sock))
-        content = content.replace('"__GALLAGER_PLUGIN_ID__"', json.dumps(plugin_id))
-        content = content.replace('"__GALLAGER_OTLP_ENDPOINT__"', json.dumps(OTLP_ENDPOINT))
+        content = content.replace('"__CTRLX_INGRESS_SOCK__"', json.dumps(sock))
+        content = content.replace('"__CTRLX_PLUGIN_ID__"', json.dumps(plugin_id))
+        content = content.replace('"__CTRLX_OTLP_ENDPOINT__"', json.dumps(OTLP_ENDPOINT))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         tmp = dest + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -289,7 +289,7 @@ def handle_install_status(req_id, params):
 
 
 # ---------------------------------------------------------------------------
-# Project discovery — surface pi's known projects in Gallager's "+" sidebar
+# Project discovery — surface pi's known projects in CtrlX's "+" sidebar
 # menu, the same way Claude Code / Codex do. pi keeps per-project session
 # directories under ~/.pi/agent/sessions/; the directory name is a lossy
 # munging of the cwd, but every session file's FIRST line is a SessionHeader

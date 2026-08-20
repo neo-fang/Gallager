@@ -5,9 +5,9 @@ Subcommands, run in order:
   mine      harvest turn-final assistant messages from ~/.claude/projects
   prelabel  Claude pre-labels candidates via `claude -p`   (added in Task 5)
   review    emit contested rows for human labeling         (added in Task 5)
-  finalize  write ~/.gallager/eval/stop-finality-mined.json (added in Task 5)
+  finalize  write ~/.ctrlx/eval/stop-finality-mined.json (added in Task 5)
 
-All working files live under ~/.gallager/eval/ and are NEVER committed —
+All working files live under ~/.ctrlx/eval/ and are NEVER committed —
 they contain verbatim excerpts from real sessions.
 """
 
@@ -19,7 +19,7 @@ import re
 import sys
 from pathlib import Path
 
-EVAL_DIR = Path.home() / ".gallager" / "eval"
+EVAL_DIR = Path.home() / ".ctrlx" / "eval"
 CANDIDATES = EVAL_DIR / "stop-finality-candidates.jsonl"
 PROJECTS = Path.home() / ".claude" / "projects"
 

@@ -200,7 +200,7 @@ private fun PairingScreen(
         }
         Spacer(Modifier.height(20.dp))
         Text(
-            text = "Connect to Gallager",
+            text = "Connect to CtrlX",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.SemiBold,
         )
@@ -361,7 +361,7 @@ private fun SessionsScreen(
         AlertDialog(
             onDismissRequest = { showUnpairConfirmation = false },
             title = { Text("Unpair this device?") },
-            text = { Text("Gallager will remove this Android device from the relay. You will need a new code to connect again.") },
+            text = { Text("CtrlX will remove this Android device from the relay. You will need a new code to connect again.") },
             confirmButton = {
                 TextButton(
                     onClick = {

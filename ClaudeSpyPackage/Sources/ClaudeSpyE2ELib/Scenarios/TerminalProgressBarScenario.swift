@@ -264,7 +264,7 @@ public enum TerminalProgressBarScenario {
 
         // ── Phase 11: CLI override of an OSC-driven bar ──────────────────
         //
-        // The new `gallager set-progress` CLI writes to `PaneState.progress`
+        // The new `ctrlx set-progress` CLI writes to `PaneState.progress`
         // through the same `MirrorWindowManager.setPaneProgress` path that
         // the OSC 9;4 reader uses. Both the OSC sequence and the CLI call
         // therefore last-write-wins each other on the host's single
@@ -287,13 +287,13 @@ public enum TerminalProgressBarScenario {
         )
 
         TestStep.log("Phase 11a: CLI override — set-progress 90 on the same pane")
-        // The host's API socket is `gallager-e2e.sock` (set in AppCoordinator
+        // The host's API socket is `ctrlx-e2e.sock` (set in AppCoordinator
         // when running with `--e2e-test`). The CLI binary lives next to the
-        // app under `Contents/MacOS/GallagerCLI` — same path the
+        // app under `Contents/MacOS/CtrlXCLI` — same path the
         // GallagerCLIScenario uses to drive the CLI.
         Shortcut.tmuxRunCommand(
             target: "e2e-progress:0.0",
-            command: #"GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock" "${macOSAppPath}/Contents/MacOS/GallagerCLI" set-progress 90 > /tmp/e2e-progress-cli-override.txt 2>&1"#
+            command: #"CTRLX_SOCKET="$TMPDIR/ctrlx-e2e.sock" "${macOSAppPath}/Contents/MacOS/CtrlXCLI" set-progress 90 > /tmp/e2e-progress-cli-override.txt 2>&1"#
         )
         TestStep.wait(seconds: 2)
         TestStep.readFile(
@@ -362,7 +362,7 @@ public enum TerminalProgressBarScenario {
         TestStep.log("Phase 13: CLI set-progress clear — bar disappears everywhere")
         Shortcut.tmuxRunCommand(
             target: "e2e-progress:0.0",
-            command: #"GALLAGER_SOCKET="$TMPDIR/gallager-e2e.sock" "${macOSAppPath}/Contents/MacOS/GallagerCLI" set-progress clear"#
+            command: #"CTRLX_SOCKET="$TMPDIR/ctrlx-e2e.sock" "${macOSAppPath}/Contents/MacOS/CtrlXCLI" set-progress clear"#
         )
         TestStep.macWaitForElementToDisappear(titled: "Terminal progress", timeout: 5)
         TestStep.macScreenshot(label: "host-cli-clear-after-osc")

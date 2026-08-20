@@ -14,6 +14,15 @@
         /// Whether the user can check for updates (not currently checking)
         public private(set) var canCheckForUpdates = false
 
+        /// A fork must not inherit the upstream update channel. Both values are
+        /// supplied by the distribution's local build configuration.
+        public static var isConfigured: Bool {
+            let info = Bundle.main.infoDictionary
+            let feed = (info?["SUFeedURL"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = (info?["SUPublicEDKey"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return feed?.isEmpty == false && key?.isEmpty == false
+        }
+
         /// The date of the last update check, if any
         public var lastUpdateCheckDate: Date? {
             updaterController.updater.lastUpdateCheckDate
@@ -22,13 +31,14 @@
         /// - Parameter startUpdater: Pass `false` to skip starting the Sparkle updater
         ///   (e.g. during E2E tests where update dialogs would interfere).
         public init(startUpdater: Bool = true) {
+            let shouldStart = startUpdater && Self.isConfigured
             self.updaterController = SPUStandardUpdaterController(
-                startingUpdater: startUpdater,
+                startingUpdater: shouldStart,
                 updaterDelegate: nil,
                 userDriverDelegate: nil
             )
 
-            guard startUpdater else { return }
+            guard shouldStart else { return }
 
             // Use Combine's sink to observe canCheckForUpdates changes
             // This is the pattern recommended by Sparkle's documentation for SwiftUI
@@ -41,6 +51,7 @@
 
         /// Trigger a user-initiated update check
         public func checkForUpdates() {
+            guard Self.isConfigured else { return }
             updaterController.checkForUpdates(nil)
         }
 

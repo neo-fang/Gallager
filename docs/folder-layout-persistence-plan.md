@@ -38,7 +38,7 @@ pending. Last updated: 2026-06-19
 >   `openBrowserTabs` / `rightSide` all empty — `tabOrder` is ignored since the
 >   strip auto-populates window entries). No 40-site creation-funnel refactor.
 > - **Storage backend:** a single JSON file under the Gallager **state root**
->   (`~/.gallager/state/Layouts/layouts.json`, or the per-instance
+>   (`~/.ctrlx/state/Layouts/layouts.json`, or the per-instance
 >   `--gallager-state-root` under E2E) — consistent with the rest of the app's
 >   state and isolated/auto-cleaned in tests. (The first cut used Application
 >   Support; moved so E2E runs don't touch the real user library.)
@@ -339,7 +339,7 @@ A single combined JSON file holding every folder record, rewritten atomically on
 each (debounced) change — the write is rare enough that one blob is fine:
 
 ```
-~/.gallager/state/Layouts/layouts.json   (or <--gallager-state-root>/Layouts/ under E2E)
+~/.ctrlx/state/Layouts/layouts.json   (or <--gallager-state-root>/Layouts/ under E2E)
 ```
 
 ## 6. Implementation plan

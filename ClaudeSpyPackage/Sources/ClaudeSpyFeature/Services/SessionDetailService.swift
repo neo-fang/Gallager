@@ -260,7 +260,12 @@ final public class SessionDetailService {
     /// composer is agent-agnostic, so it uses the command channel directly: the
     /// viewer then waits for the host's tmux result instead of treating a socket
     /// write as success. Blocking plugin forms still use structured delivery.
-    public func submitResponse(_ response: AgentResponse, pluginID: String, requestID: String) async {
+    @discardableResult
+    public func submitResponse(
+        _ response: AgentResponse,
+        pluginID: String,
+        requestID: String
+    ) async -> Bool {
         if case let .replyAfterStop(text) = response {
             let submittedState = responseState
             let keys = Self.replyAfterStopKeystrokes(for: text)
@@ -270,8 +275,9 @@ final public class SessionDetailService {
                 submittedState: submittedState,
                 currentState: responseState
             )
+            return succeeded
         } else {
-            await relayClient.submitAgentResponse(
+            return await relayClient.submitAgentResponse(
                 sessionId: paneId,
                 pluginId: pluginID,
                 requestId: requestID,

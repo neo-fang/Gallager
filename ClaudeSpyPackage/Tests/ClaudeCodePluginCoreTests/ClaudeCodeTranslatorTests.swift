@@ -18,7 +18,7 @@ struct ClaudeCodeTranslatorTests {
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cc-test-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cc-test-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: Data(),
             marketplaceSource: URL(fileURLWithPath: "/")
@@ -537,7 +537,7 @@ struct ClaudeCodeTranslatorTests {
         let env = PluginEnv(
             pluginRoot: URL(fileURLWithPath: NSTemporaryDirectory()),
             stateDir: URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("gallager-cc-test-pref-\(UUID().uuidString)"),
+                .appendingPathComponent("ctrlx-cc-test-pref-\(UUID().uuidString)"),
             appVersion: "1.0",
             settings: settingsData,
             marketplaceSource: URL(fileURLWithPath: "/")

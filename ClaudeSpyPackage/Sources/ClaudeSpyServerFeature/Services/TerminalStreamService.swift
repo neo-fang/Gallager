@@ -110,7 +110,7 @@ struct TerminalBootstrapTrace: Equatable, Sendable {
 final public class TerminalStreamService {
     // MARK: - Properties
 
-    private let logger = Logger(label: "com.claudespy.terminalstream")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.terminalstream")
 
     /// Encrypted terminal-message sender. Production uses ConnectedViewerManager;
     /// tests inject an in-memory sender without opening relay connections.

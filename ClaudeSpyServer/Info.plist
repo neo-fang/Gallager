@@ -2,20 +2,20 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>GallagerBuildStamp</key>
-	<string>$(GALLAGER_BUILD_STAMP)</string>
-	<key>GallagerSourceRevision</key>
-	<string>$(GALLAGER_SOURCE_REVISION)</string>
+	<key>CtrlXBuildStamp</key>
+	<string>$(CTRLX_BUILD_STAMP)</string>
+	<key>CtrlXSourceRevision</key>
+	<string>$(CTRLX_SOURCE_REVISION)</string>
 	<!-- Apple Events Usage Description - required for AppleScript automation -->
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Gallager needs to control terminal applications to open tmux sessions.</string>
+	<string>CtrlX needs to control terminal applications to open tmux sessions.</string>
 
 	<!-- Sparkle Auto-Update Configuration -->
 	<key>SUFeedURL</key>
-	<string>https://updates.gallager.app/ClaudeSpy.xml</string>
+	<string>$(CTRLX_SPARKLE_FEED_URL)</string>
 
 	<key>SUPublicEDKey</key>
-	<string>SgIzXu4JuQVHuQFIyVAPsy48BCLzF6nuCTRKUyPi+cc=</string>
+	<string>$(CTRLX_SPARKLE_PUBLIC_KEY)</string>
 
 	<!-- Custom UTI used for in-process tab-strip drag-and-drop. Declaring it
 	     here lets UTType(exportedAs:) resolve the identifier without a
@@ -25,9 +25,9 @@
 	<array>
 		<dict>
 			<key>UTTypeIdentifier</key>
-			<string>engineering.dx.gallager.tab-drag</string>
+			<string>com.jicezeng.ctrlx.tab-drag</string>
 			<key>UTTypeDescription</key>
-			<string>Gallager Tab Drag</string>
+			<string>CtrlX Tab Drag</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

@@ -23,10 +23,10 @@ struct WindowTabBar: View {
     /// browser tab). Used to deselect the underlying tmux window tab so it
     /// doesn't render as concurrently selected with another tab.
     let isAnyFileViewActive: Bool
-    /// Per-session tab state (file/browser tabs, split layout, selections).
-    /// `nil` while a session hasn't materialised any tabs yet — the bar
-    /// renders as if the lists were empty and `isSplit` were `false`.
-    let sessionTabs: SessionFileTabsState?
+    /// Per-session tab state (terminal order, file/browser tabs, split layout,
+    /// selections). `MainView` creates it as soon as the session is selected,
+    /// before the bar can accept a drag.
+    let sessionTabs: SessionFileTabsState
     let onSelectWindow: (LocalTmuxWindow) -> Void
     let onCloseWindow: (LocalTmuxWindow) -> Void
     let onNewWindow: () -> Void
@@ -86,39 +86,38 @@ struct WindowTabBar: View {
 
     /// Read-only accessors that mirror `SessionFileTabsState`. Defined as
     /// computed properties (not stored) so observation tracking happens on
-    /// every `body` evaluation — `sessionTabs` being `nil` is treated as an
-    /// empty, non-split session.
+    /// every `body` evaluation.
     private var openFileTabs: [OpenFileTab] {
-        sessionTabs?.openFileTabs ?? []
+        sessionTabs.openFileTabs
     }
 
     private var openBrowserTabs: [BrowserTab] {
-        sessionTabs?.openBrowserTabs ?? []
+        sessionTabs.openBrowserTabs
     }
 
     private var selectedFileTabId: UUID? {
-        sessionTabs?.selectedFileTabId
+        sessionTabs.selectedFileTabId
     }
 
     private var selectedBrowserTabId: UUID? {
-        sessionTabs?.selectedBrowserTabId
+        sessionTabs.selectedBrowserTabId
     }
 
     private var selectedRight: TabDragPayload? {
-        sessionTabs?.selectedRight
+        sessionTabs.selectedRight
     }
 
     private var isSplit: Bool {
-        sessionTabs?.isSplit ?? false
+        sessionTabs.isSplit
     }
 
     private var splitRatio: CGFloat {
-        sessionTabs?.splitRatio ?? 0.5
+        sessionTabs.splitRatio
     }
 
     /// True when the given payload currently lives in the right pane.
     private func isOnRight(_ payload: TabDragPayload) -> Bool {
-        sessionTabs?.rightSide.contains(payload) ?? false
+        sessionTabs.rightSide.contains(payload)
     }
 
     /// Source-of-truth ordering for the tab strip — reconciles the persisted
@@ -135,7 +134,7 @@ struct WindowTabBar: View {
             windowIds: session.windows.map(\.stableId),
             fileTabIds: openFileTabs.map(\.id),
             browserTabIds: openBrowserTabs.map(\.id),
-            storedOrder: sessionTabs?.tabOrder ?? []
+            storedOrder: sessionTabs.tabOrder
         )
     }
 
@@ -190,14 +189,14 @@ struct WindowTabBar: View {
         // computed value is idempotent (`reconcile(reconcile(x)) == reconcile(x)`)
         // so this can't loop.
         .onChange(of: effectiveTabOrder) { _, new in
-            if sessionTabs?.tabOrder != new {
-                sessionTabs?.tabOrder = new
+            if sessionTabs.tabOrder != new {
+                sessionTabs.tabOrder = new
             }
         }
         .onAppear {
             let computed = effectiveTabOrder
-            if sessionTabs?.tabOrder != computed {
-                sessionTabs?.tabOrder = computed
+            if sessionTabs.tabOrder != computed {
+                sessionTabs.tabOrder = computed
             }
         }
     }
@@ -694,9 +693,9 @@ struct WindowTabBar: View {
         let previousOrder = effectiveTabOrder
         guard let order = TabDragPayload.moving(source, before: target, in: previousOrder) else { return false }
         let windowOrderChanged = order.windowIds != session.windows.map(\.stableId)
-        guard !windowOrderChanged || sessionTabs?.isWindowReorderPending != true else { return false }
+        guard !windowOrderChanged || !sessionTabs.isWindowReorderPending else { return false }
 
-        sessionTabs?.tabOrder = order
+        sessionTabs.tabOrder = order
 
         // If the drop crosses the split, also flip the source tab's side
         // membership so it shows up in the pane the user dropped it into.
@@ -739,8 +738,8 @@ struct WindowTabBar: View {
 
         order.insert(moved, at: min(insertIndex, order.count))
         let windowOrderChanged = order.windowIds != session.windows.map(\.stableId)
-        guard !windowOrderChanged || sessionTabs?.isWindowReorderPending != true else { return false }
-        sessionTabs?.tabOrder = order
+        guard !windowOrderChanged || !sessionTabs.isWindowReorderPending else { return false }
+        sessionTabs.tabOrder = order
         adjustSplitSideIfNeeded(source: source, to: section)
         syncSubsequences(from: order, rollbackOrder: previousOrder)
         return true
@@ -779,7 +778,7 @@ struct WindowTabBar: View {
         }
 
         if windowIds != session.windows.map(\.stableId), !windowIds.isEmpty {
-            sessionTabs?.isWindowReorderPending = true
+            sessionTabs.isWindowReorderPending = true
             onReorderWindows(windowIds, rollbackOrder)
         }
         if fileIds != openFileTabs.map(\.id) {
@@ -877,7 +876,7 @@ enum TabDragPayload: Codable, Hashable, Transferable {
     }
 
     static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .gallagerTabDrag)
+        CodableRepresentation(contentType: .ctrlxTabDrag)
     }
 
     /// Source-of-truth ordering for a session's tab strip. Reconciles the
@@ -973,7 +972,7 @@ extension UTType {
     /// `ClaudeSpyServer/Info.plist` under `UTExportedTypeDeclarations` so
     /// the system can resolve it without a runtime warning and
     /// `.dropDestination(for:)` accepts the payload reliably.
-    static var gallagerTabDrag: UTType {
-        UTType(exportedAs: "engineering.dx.gallager.tab-drag")
+    static var ctrlxTabDrag: UTType {
+        UTType(exportedAs: "com.jicezeng.ctrlx.tab-drag")
     }
 }

@@ -13,9 +13,16 @@ import Vapor
 public func configure(_ app: Application, env: [String: String]? = nil) async throws {
     let env = env ?? ProcessInfo.processInfo.environment
 
-    // Configure server
-    app.http.server.configuration.hostname = "0.0.0.0"
-    app.http.server.configuration.port = 8_080
+    // Configure server. CtrlX configuration is file-driven in the executable;
+    // tests inject an explicit dictionary to keep global process state untouched.
+    app.http.server.configuration.hostname = env["CTRLX_RELAY_BIND_ADDRESS"] ?? "0.0.0.0"
+    if let rawPort = env["CTRLX_RELAY_PORT"], let port = Int(rawPort), (1 ... 65_535).contains(port) {
+        app.http.server.configuration.port = port
+    } else if env["CTRLX_RELAY_PORT"] == nil {
+        app.http.server.configuration.port = 8_080
+    } else {
+        throw RelayConfigurationError.invalidPort(env["CTRLX_RELAY_PORT"] ?? "")
+    }
 
     // Configure JSON encoder/decoder for dates
     let encoder = JSONEncoder()
@@ -31,6 +38,7 @@ public func configure(_ app: Application, env: [String: String]? = nil) async th
     let pairingService = PairingService(dataDirectory: dataDirectory)
     let connectionHub = ConnectionHub()
     let metricsService = MetricsService()
+    app.storage[RelayBuildInfoKey.self] = RelayBuildInfo.fromEnvironment(env)
 
     // Licensing: enabled only when LEMONSQUEEZY_STORE_ID + LEMONSQUEEZY_PRODUCT_ID
     // are both set. Self-hosted relays leave them unset and run unrestricted.
@@ -87,7 +95,13 @@ public func configure(_ app: Application, env: [String: String]? = nil) async th
         pairingService: pairingService,
         connectionHub: connectionHub,
         metricsService: metricsService,
-        environment: apnsEnvironment
+        keyPath: env["APNS_KEY_PATH"],
+        keyId: env["APNS_KEY_ID"],
+        teamId: env["APNS_TEAM_ID"],
+        bundleId: env["APNS_BUNDLE_ID"],
+        environment: apnsEnvironment,
+        e2eLogPath: env["APNS_E2E_LOG_PATH"],
+        processEnvironment: env
     )
 
     // Release per-pair badge state when a pair is unpaired (via the API or
@@ -218,6 +232,14 @@ struct PairingPausedMessageKey: StorageKey {
     typealias Value = String?
 }
 
+struct RelayBuildInfoKey: StorageKey {
+    typealias Value = RelayBuildInfo
+}
+
+enum RelayConfigurationError: Error {
+    case invalidPort(String)
+}
+
 // MARK: - Application Extensions (Internal)
 
 extension Application {
@@ -275,6 +297,13 @@ extension Application {
     /// set in env); the value is the user-facing message returned to hosts.
     var pairingPausedMessage: String? {
         storage[PairingPausedMessageKey.self] ?? nil
+    }
+
+    var relayBuildInfo: RelayBuildInfo {
+        guard let info = storage[RelayBuildInfoKey.self] else {
+            fatalError("RelayBuildInfo not configured. Call configure(_:) first.")
+        }
+        return info
     }
 }
 

@@ -11,6 +11,14 @@ import java.util.Base64
 
 class GallagerProtocolTest {
     @Test
+    fun advertisesCtrlXThreeCompatibility() {
+        val hello = parseOuterFrame(GallagerProtocol.peerHello())
+
+        assertEquals("3.0.0", hello.payload?.get("appVersion")?.jsonPrimitive?.content)
+        assertEquals("3.0", hello.payload?.get("minRequiredPartnerVersion")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun parsesSwiftSynthesizedPairingEnum() {
         val body = """
             {

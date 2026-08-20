@@ -8,7 +8,7 @@ readable tree with element types, labels, identifiers, and frames:
 ```bash
 curl -s -X POST http://127.0.0.1:22087/viewHierarchy \
   -H "Content-Type: application/json" \
-  -d '{"bundleId":"br.eng.gustavo.claudespy"}' | \
+  -d '{"bundleId":"com.jicezeng.ctrlx"}' | \
   python3 -c "
 import json, sys
 def walk(el, depth=0):

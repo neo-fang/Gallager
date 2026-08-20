@@ -222,7 +222,7 @@ struct SessionSidebarRow: View {
     private let previewSidebarVariants: [(session: LocalTmuxSession, state: PaneState)] = [
         // Claude — working, default mode (calm shield chip) + live token meter.
         previewSidebarRow(
-            paneId: "%1", sessionName: "claudespy", command: "claude",
+            paneId: "%1", sessionName: "ctrlx", command: "claude",
             currentPath: "~/Development/ClaudeSpy",
             agentState: .working, projectPath: "/Users/dev/Development/ClaudeSpy",
             telemetry: SessionTelemetry(tokensUsed: 12_400, costUSD: 0.42, model: "claude-opus-4-8"),

@@ -1,6 +1,6 @@
-# omp plugin for Gallager
+# omp plugin for CtrlX
 
-A Gallager **sidecar plugin** that teaches the Gallager (ClaudeSpy) Mac app to
+A CtrlX **sidecar plugin** that teaches the CtrlX (ClaudeSpy) Mac app to
 monitor [omp](https://omp.sh) (oh-my-pi — can1357's coding-first fork of pi,
 shipped as a native binary) sessions running in tmux panes: track working /
 done / idle, surface tool-approval prompts as answerable forms, raise the
@@ -14,9 +14,9 @@ by omp's embedded Bun from `~/.omp/agent/extensions/`) with a rich lifecycle
 event bus, so this plugin observes omp through an extension. Two pieces:
 
 ```
- omp (native binary, Bun)            Gallager (Mac app)
+ omp (native binary, Bun)            CtrlX (Mac app)
  ┌──────────────────┐                ┌────────────────────────────────┐
- │ gallager.ts      │  ingress sock  │ IngressSocketServer            │
+ │ ctrlx.ts      │  ingress sock  │ IngressSocketServer            │
  │ (event bridge) ──┼───4-byte-LP───▶│   → SidecarPluginCore          │
  │   subscribes to  │  JSON frame    │     → translate_event RPC      │
  │   session_start/ │                │        ┌─────────────────────┐ │
@@ -27,13 +27,13 @@ event bus, so this plugin observes omp through an extension. Two pieces:
                                      └────────────────────────────────┘
 ```
 
-1. **`omp-bridge/gallager.ts`** — an omp extension (auto-loaded from
+1. **`omp-bridge/ctrlx.ts`** — an omp extension (auto-loaded from
    `~/.omp/agent/extensions/`, TypeScript, no compile step). It subscribes to
-   omp's event bus and forwards compact frames to Gallager's Unix-domain
+   omp's event bus and forwards compact frames to CtrlX's Unix-domain
    *ingress socket*. It bakes in the socket path, plugin id, and OTLP endpoint
    at install time and passes through `TMUX_PANE` (routing) and the project dir.
-2. **`bin/sidecar`** — the long-lived Python process Gallager spawns. It maps
-   the bridge's frames to Gallager's `AgentState` and answers approval forms by
+2. **`bin/sidecar`** — the long-lived Python process CtrlX spawns. It maps
+   the bridge's frames to CtrlX's `AgentState` and answers approval forms by
    keystroke injection.
 
 Like pi (and unlike opencode), **no synthetic lifecycle frames are needed**:
@@ -47,10 +47,10 @@ v17.1.8):
   the bridge re-labels those as `session_start` frames so the sidecar re-stamps
   the same pane with the new session id.
 - `session_shutdown` means **process exit only** (Ctrl+C, Ctrl+D,
-  SIGINT/SIGTERM, `/exit`) — so every shutdown ends the Gallager session, with
+  SIGINT/SIGTERM, `/exit`) — so every shutdown ends the CtrlX session, with
   no reason filtering. The handler **awaits** the frame flush so it lands
   before the process dies. A hard `SIGKILL` skips handlers; the stale session
-  lingers until Gallager reconciles.
+  lingers until CtrlX reconciles.
 - `agent_end` carries `willContinue` when omp has already scheduled an
   automatic continuation (auto-retry, empty-stop retry). The bridge drops
   those, so no spurious "Finished" notification fires mid-turn.
@@ -61,7 +61,7 @@ v17.1.8):
 
 ## Event mapping
 
-| omp event | → Gallager state |
+| omp event | → CtrlX state |
 |---|---|
 | `session_start` (also re-labeled `session_switch`/`branch`/`tree`) | `idle` (session appears / attention cleared) |
 | `agent_start` (user prompt submitted) | `working` |
@@ -96,7 +96,7 @@ forwards `tool_approval_requested` and the sidecar opens an
   deny-with-feedback additionally types the feedback into the editor
   afterwards, which omp delivers to the model as a steer message.
 - `isAutoApprovable` stays `false`: omp only prompts when the user explicitly
-  chose a non-yolo mode, so Gallager's yolo auto-approve must not override it.
+  chose a non-yolo mode, so CtrlX's yolo auto-approve must not override it.
 - No "always allow" suggestion — omp's dialog has no such option.
 
 If the user answers in the TUI instead, `tool_approval_resolved` clears the
@@ -128,7 +128,7 @@ v17.1.8's `ask-dialog.ts`):
   the Submit tab.
 
 The original questions ride the sidecar's pending map (keyed by `toolCallId`,
-which is the form's `requestID`) so `deliver_response` can translate Gallager
+which is the form's `requestID`) so `deliver_response` can translate CtrlX
 option ids (`q<i>-o<j>`) back into row navigation. If the user answers in the
 TUI instead — or omp's ask **timeout** auto-selects the recommended option —
 `tool_execution_end` clears the form. Plan approvals have no event surface in
@@ -139,7 +139,7 @@ omp, so no `awaitingPlanApproval` forms.
 omp sessions get the same per-session meter as Claude Code (issue #617). omp's
 `message_end` fires once per finalized message, and an assistant message
 carries a complete `usage` block (tokens, cache, cost) plus model — the bridge
-POSTs one OTLP/JSON log record per assistant message to Gallager's loopback
+POSTs one OTLP/JSON log record per assistant message to CtrlX's loopback
 OTLP receiver (`/v1/logs`, plain `fetch`, fire-and-forget). Telemetry never
 rides the ingress socket.
 
@@ -156,10 +156,10 @@ rides the ingress socket.
   `/clear`.
 - **Dedup:** by `message.id`, falling back to `responseId` (omp messages don't
   always carry an `id`).
-- **Endpoint baking:** the omp process doesn't inherit Gallager's env, so the
-  sidecar substitutes `__GALLAGER_OTLP_ENDPOINT__` in the bridge at `install`
+- **Endpoint baking:** the omp process doesn't inherit CtrlX's env, so the
+  sidecar substitutes `__CTRLX_OTLP_ENDPOINT__` in the bridge at `install`
   time (from the `initialize` env's `otlpReceiverEndpoint`). Running the
-  bridge straight from the repo falls back to the `GALLAGER_OTLP_ENDPOINT` env
+  bridge straight from the repo falls back to the `CTRLX_OTLP_ENDPOINT` env
   var for smoke tests. Re-run **Install** if the receiver's port changes.
 - Subagent usage is not metered: it would join on the subagent's session id
   (never stamped to the pane), so the `hasUI` gate drops it at the source.
@@ -167,19 +167,19 @@ rides the ingress socket.
 ## Install (development)
 
 ```bash
-./scripts/dev-install.sh          # copy into ~/.gallager/plugins/omp/
-# restart Gallager, then in Settings enable the plugin and click Install
-# (drops omp-bridge/gallager.ts into ~/.omp/agent/extensions/gallager.ts)
+./scripts/dev-install.sh          # copy into ~/.ctrlx/plugins/omp/
+# restart CtrlX, then in Settings enable the plugin and click Install
+# (drops omp-bridge/ctrlx.ts into ~/.omp/agent/extensions/ctrlx.ts)
 ```
 
-`gallager plugin list` should show `omp` (source `folder`). Start omp in a
-Gallager-managed pane (`omp`) and drive a turn — the session appears in the
+`ctrlx plugin list` should show `omp` (source `folder`). Start omp in a
+CtrlX-managed pane (`omp`) and drive a turn — the session appears in the
 sidebar, flips to working while the model streams, and to "needs attention"
 when the turn finishes.
 
 ## Projects in the "+" menu
 
-omp projects appear in Gallager's sidebar "+" (new session) menu. omp keeps
+omp projects appear in CtrlX's sidebar "+" (new session) menu. omp keeps
 per-project session directories under `~/.omp/agent/sessions/`; the directory
 name is a lossy munging of the cwd, but every session file carries a header
 record (`type == "session"`) with the exact `cwd`. Unlike pi, the header is
@@ -191,14 +191,14 @@ most recent.
 
 ## Settings (Agents tab)
 
-The plugin uses Gallager's generic sidecar settings:
+The plugin uses CtrlX's generic sidecar settings:
 
 - **Command path** — optional override for the launch command. Empty → bare
   `omp` (resolved on PATH).
 - **Auto-run** — when off, `command_for_launch` returns null.
 - **Config Folders** — the default row is `~/.omp/agent` (manifest
   `sidecar.default_config_root`); its **Install** writes the bridge to
-  `~/.omp/agent/extensions/gallager.ts` (global — omp auto-discovers it for
+  `~/.omp/agent/extensions/ctrlx.ts` (global — omp auto-discovers it for
   every project). Add a project folder to install into that project's
   `.omp/extensions/` instead.
 - **Close pane on session end** — folded into `sessionEnded`'s
@@ -210,28 +210,28 @@ The plugin uses Gallager's generic sidecar settings:
 python3 tests/test_sidecar.py     # 48 tests: mapping, approval + ask forms, keystrokes, install, projects, settings
 ```
 
-For a live smoke test of the bridge without Gallager, load it explicitly and
+For a live smoke test of the bridge without CtrlX, load it explicitly and
 point it at env-provided endpoints:
 
 ```bash
-GALLAGER_INGRESS_SOCK=/tmp/test.sock omp -e omp-bridge/gallager.ts
+CTRLX_INGRESS_SOCK=/tmp/test.sock omp -e omp-bridge/ctrlx.ts
 ```
 
 ## Debugging the bridge
 
-Set `GALLAGER_OMP_DEBUG=1` in the environment omp runs in. Every event the
+Set `CTRLX_OMP_DEBUG=1` in the environment omp runs in. Every event the
 bridge sees (and forwards) is logged to
-`~/.gallager/state/plugins/omp/logs/bridge-debug.log` (override with
-`GALLAGER_OMP_DEBUG_LOG`). The sidecar's own stderr is at
-`~/.gallager/state/plugins/omp/logs/stderr.log`.
+`~/.ctrlx/state/plugins/omp/logs/bridge-debug.log` (override with
+`CTRLX_OMP_DEBUG_LOG`). The sidecar's own stderr is at
+`~/.ctrlx/state/plugins/omp/logs/stderr.log`.
 
 ## Layout
 
 ```
 plugins/omp/
 ├── plugin.json                  # sidecar manifest (runtime: "sidecar")
-├── bin/sidecar                  # Python sidecar (Gallager ↔ omp)
-├── omp-bridge/gallager.ts       # omp extension (event bus → ingress bridge)
+├── bin/sidecar                  # Python sidecar (CtrlX ↔ omp)
+├── omp-bridge/ctrlx.ts       # omp extension (event bus → ingress bridge)
 ├── scripts/dev-install.sh       # folder-drop copy installer
 ├── tests/test_sidecar.py        # standalone sidecar tests
 └── README.md
@@ -241,9 +241,9 @@ plugins/omp/
 
 - omp ships as a **native binary**, so `process_names: ["omp"]` actually
   matches live panes (unlike pi's `node` comm) — an omp already idle when
-  Gallager launches is detected by the process scan.
+  CtrlX launches is detected by the process scan.
 - A **hard kill** (`SIGKILL`/crash) skips omp's shutdown handlers, so no
-  `session_shutdown` frame is sent and the session lingers until Gallager next
+  `session_shutdown` frame is sent and the session lingers until CtrlX next
   reconciles (graceful quit paths are covered).
 - The baked OTLP endpoint goes stale if the receiver later binds a different
   port (re-run Install to re-bake).

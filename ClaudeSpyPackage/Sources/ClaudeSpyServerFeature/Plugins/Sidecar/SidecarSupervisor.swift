@@ -13,7 +13,7 @@ public actor SidecarSupervisor {
 
     private let manifest: PluginManifest
     private let layout: PluginRootLayout
-    private let logger = Logger(label: "com.claudespy.sidecar.supervisor")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.sidecar.supervisor")
     private let stderrLog: SidecarStderrLog
     private let backoffSchedule: [Duration]
 
@@ -94,11 +94,11 @@ public actor SidecarSupervisor {
 
         // Inherit parent environment and add plugin-specific vars (spec §3/§5/§6).
         var env = ProcessInfo.processInfo.environment
-        env["GALLAGER_PLUGIN_ROOT"] = layout.pluginRoot.path
-        env["GALLAGER_STATE_DIR"] = layout.stateDir.path
-        env["GALLAGER_APP_VERSION"] = layout.appVersion
-        env["GALLAGER_INGRESS_SOCK"] = layout.ingressSocketPath
-        env["GALLAGER_PLUGIN_ID"] = manifest.id
+        env["CTRLX_PLUGIN_ROOT"] = layout.pluginRoot.path
+        env["CTRLX_STATE_DIR"] = layout.stateDir.path
+        env["CTRLX_APP_VERSION"] = layout.appVersion
+        env["CTRLX_INGRESS_SOCK"] = layout.ingressSocketPath
+        env["CTRLX_PLUGIN_ID"] = manifest.id
         proc.environment = env
 
         let stdin = Pipe()

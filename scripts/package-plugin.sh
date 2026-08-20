@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# package-plugin.sh — package any Gallager sidecar plugin for distribution.
+# package-plugin.sh — package any CtrlX sidecar plugin for distribution.
 #
 # Reads a plugin source directory (the one containing plugin.json) and produces:
 #
@@ -12,7 +12,7 @@
 #                              a copy of your plugin.json with bundle_url,
 #                              bundle_sha256, and manifest_url added. Host this at
 #                              your URL — a remote install (Add Plugin from URL /
-#                              `gallager plugin install <url>`) needs those fields
+#                              `ctrlx plugin install <url>`) needs those fields
 #                              or it fails with "missing bundle_url / bundle_sha256".
 #
 # Usage:
@@ -26,7 +26,7 @@
 #   # Remote install: bundle + a ready-to-host distribution plugin.json.
 #   # --base-url is where BOTH files will live (no trailing filename):
 #   scripts/package-plugin.sh plugins/opencode \
-#       --base-url https://updates.gallager.app/plugins/opencode
+#       --base-url https://updates.your-domain.example/plugins/opencode
 #
 #   # Trim dev-only files out of the shipped bundle:
 #   scripts/package-plugin.sh plugins/opencode --exclude 'tests/*' --exclude 'scripts/*'
@@ -120,7 +120,7 @@ PLUGIN_EXEC="${_FIELDS[3]:-bin/sidecar}"
 PLUGIN_ICON="${_FIELDS[4]:-}"
 
 # ----------------------------------------------------------------------------
-# Validate — mirrors what Gallager enforces at install/discovery time, so a
+# Validate — mirrors what CtrlX enforces at install/discovery time, so a
 # bundle this script blesses will pass tree validation.
 # ----------------------------------------------------------------------------
 [ -n "$PLUGIN_ID" ]      || die "plugin.json is missing \"id\""
@@ -131,7 +131,7 @@ if ! [[ "$PLUGIN_ID" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || [[ "$PLUGIN_ID" == *".."* ]
     die "Invalid plugin id \"$PLUGIN_ID\" (must match ^[a-z0-9][a-z0-9._-]*\$, no '..', <=128 chars)"
 fi
 
-[ "$PLUGIN_RUNTIME" = "sidecar" ] || warn "runtime is \"$PLUGIN_RUNTIME\" (expected \"sidecar\"); Gallager only installs sidecar plugins from a URL/zip."
+[ "$PLUGIN_RUNTIME" = "sidecar" ] || warn "runtime is \"$PLUGIN_RUNTIME\" (expected \"sidecar\"); CtrlX only installs sidecar plugins from a URL/zip."
 
 EXEC_PATH="$PLUGIN_DIR/$PLUGIN_EXEC"
 [ -f "$EXEC_PATH" ] || die "Declared executable is missing: $PLUGIN_EXEC"
@@ -213,7 +213,7 @@ ok "sha256: $SHA256"
 if [ -n "$BASE_URL" ]; then
     case "$BASE_URL" in
         https://*) ;;
-        *) die "--base-url must be https:// (Gallager rejects non-HTTPS): $BASE_URL" ;;
+        *) die "--base-url must be https:// (CtrlX rejects non-HTTPS): $BASE_URL" ;;
     esac
     BASE_URL="${BASE_URL%/}"   # strip a trailing slash
     BUNDLE_URL="$BASE_URL/$ZIP_NAME"
@@ -239,12 +239,12 @@ PY
     printf "    %s\n" "$ZIP_PATH   ->  $BUNDLE_URL"
     echo
     info "Then install with:"
-    printf "    gallager plugin install %s\n" "$MANIFEST_URL"
+    printf "    ctrlx plugin install %s\n" "$MANIFEST_URL"
     printf "    (or Settings ▸ Agents ▸ Add Plugin from URL… → paste %s)\n" "$MANIFEST_URL"
 else
     echo
     info "No --base-url given: bundle only (for \"Install from Zip…\")."
-    printf "    gallager plugin install --zip %s\n" "$ZIP_PATH"
+    printf "    ctrlx plugin install --zip %s\n" "$ZIP_PATH"
     echo
     info "For a URL install, re-run with --base-url <https-url> to also emit a"
     info "distribution plugin.json carrying bundle_url + bundle_sha256."

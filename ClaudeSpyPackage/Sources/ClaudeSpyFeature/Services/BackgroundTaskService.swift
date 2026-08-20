@@ -19,7 +19,7 @@
 
         // MARK: - Properties
 
-        private let logger = Logger(label: "com.claudespy.backgroundtask")
+        private let logger = Logger(label: "com.jicezeng.ctrlx.backgroundtask")
 
         /// Current background task identifier, or .invalid if no task is active
         private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
@@ -56,11 +56,11 @@
             logger.info("Starting background task to maintain WebSocket connection")
 
             backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "MaintainWebSocket") { [weak self] in
-                // Expiration handler - called when time is about to run out
-                Task { @MainActor in
-                    self?.logger.info("Background task expiring, ending task")
-                    self?.endBackgroundTaskInternal()
-                }
+                // UIKit invokes this on the main actor. End synchronously: adding
+                // an unstructured Task can defer cleanup until after the system's
+                // expiration deadline, at which point iOS terminates the process.
+                self?.logger.info("Background task expiring, ending task")
+                self?.endBackgroundTaskInternal()
             }
 
             if backgroundTaskID == .invalid {

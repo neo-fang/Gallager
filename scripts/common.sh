@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Shared helpers for the ClaudeSpy release scripts (release.sh, testflight.sh).
+# Shared helpers for the CtrlX release scripts.
 # Source this file after computing SCRIPT_DIR and defining CONFIG_FILE (and,
 # for generate_changelog, PROJECT_ROOT):
 #
@@ -43,7 +43,77 @@ get_build_stamp() {
 }
 
 get_source_revision() {
-    git -C "$PROJECT_ROOT" rev-parse --short=12 HEAD
+    get_full_source_revision
+}
+
+get_full_source_revision() {
+    git -C "$PROJECT_ROOT" rev-parse HEAD
+}
+
+load_project_environment() {
+    local root="${1:-$PROJECT_ROOT}"
+    local candidate line key value
+
+    for candidate in .env.local .env.production .env.development .env.test; do
+        [ -f "$root/$candidate" ] || continue
+        while IFS= read -r line || [ -n "$line" ]; do
+            case "$line" in
+                ''|'#'*) continue ;;
+            esac
+            line="${line#export }"
+            key="${line%%=*}"
+            value="${line#*=}"
+            case "$key" in
+                ''|*[!A-Za-z0-9_]*) log_error "Invalid key in $candidate: $key" ;;
+            esac
+            if [ "${value#\"}" != "$value" ] && [ "${value%\"}" != "$value" ]; then
+                value="${value#\"}"
+                value="${value%\"}"
+            elif [ "${value#\'}" != "$value" ] && [ "${value%\'}" != "$value" ]; then
+                value="${value#\'}"
+                value="${value%\'}"
+            fi
+            export "$key=$value"
+        done < "$root/$candidate"
+        CTRLX_ENV_FILE="$root/$candidate"
+        export CTRLX_ENV_FILE
+        return 0
+    done
+    return 0
+}
+
+write_artifact_metadata() {
+    local artifact="$1"
+    local checksum manifest full_revision source_url
+    [ -f "$artifact" ] || log_error "Artifact not found: $artifact"
+
+    full_revision="$(get_full_source_revision)"
+    source_url="https://github.com/jicezeng/CtrlX/tree/$full_revision"
+    checksum="$(shasum -a 256 "$artifact" | awk '{print $1}')"
+    printf '%s  %s\n' "$checksum" "$(basename "$artifact")" > "$artifact.sha256"
+
+    manifest="$artifact.manifest.json"
+    ARTIFACT_NAME="$(basename "$artifact")" \
+    ARTIFACT_SHA256="$checksum" \
+    CTRLX_VERSION="$(get_version)" \
+    CTRLX_BUILD="$(get_build_number)" \
+    CTRLX_SOURCE_REVISION="$full_revision" \
+    CTRLX_SOURCE_URL="$source_url" \
+        python3 - <<'PY' > "$manifest"
+import json
+import os
+
+print(json.dumps({
+    "product": "CtrlX",
+    "version": os.environ["CTRLX_VERSION"],
+    "build": os.environ["CTRLX_BUILD"],
+    "artifact": os.environ["ARTIFACT_NAME"],
+    "sha256": os.environ["ARTIFACT_SHA256"],
+    "commit": os.environ["CTRLX_SOURCE_REVISION"],
+    "source": os.environ["CTRLX_SOURCE_URL"],
+    "license": "AGPL-3.0-only",
+}, indent=2, sort_keys=True))
+PY
 }
 
 assert_primary_worktree() {
@@ -59,9 +129,46 @@ assert_primary_worktree() {
 }
 
 find_apple_development_identity() {
-    security find-identity -v -p codesigning \
-        | sed -n 's/^[[:space:]]*[0-9]*) \([0-9A-F]\{40\}\) "Apple Development:.*$/\1/p' \
-        | head -1
+    local team_id="${1:-}"
+    local identity_hash certificate_name subject
+
+    while IFS=$'\t' read -r identity_hash certificate_name; do
+        [ -n "$identity_hash" ] || continue
+        if [ -z "$team_id" ]; then
+            printf '%s\n' "$identity_hash"
+            return 0
+        fi
+
+        subject=$(
+            /usr/bin/security find-certificate -c "$certificate_name" -p 2>/dev/null \
+                | /usr/bin/openssl x509 -noout -subject -nameopt RFC2253 2>/dev/null
+        ) || continue
+        case ",$subject," in
+            *",OU=$team_id,"*)
+                printf '%s\n' "$identity_hash"
+                return 0
+                ;;
+        esac
+    done < <(
+        /usr/bin/security find-identity -v -p codesigning \
+            | /usr/bin/awk -F'"' '/Apple Development:/ {
+                prefix = $1
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", prefix)
+                split(prefix, fields, /[[:space:]]+/)
+                print fields[2] "\t" $2
+            }'
+    )
+
+    return 1
+}
+
+read_xcconfig_value() {
+    local file="$1"
+    local key="$2"
+    sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" \
+        | tail -1 \
+        | sed 's/[[:space:]]*\/\/.*$//' \
+        | xargs
 }
 
 # =====================================================
@@ -150,9 +257,9 @@ generate_changelog() {
 
     local prompt="You are a technical writer creating TestFlight 'What to Test' notes for testers.
 
-Generate concise, tester-friendly notes for version $version of Gallager (ClaudeSpy), an iOS app for remotely monitoring Claude Code sessions.
+Generate concise, tester-friendly notes for version $version of CtrlX, an iOS app for remotely monitoring coding-agent terminal sessions.
 
-IMPORTANT: This is an independent open source project. It is NOT affiliated with or built by Anthropic.
+IMPORTANT: CtrlX is an independent AGPL-3.0 distribution based on Gallager. It is not affiliated with or endorsed by Gallager or any coding-agent provider.
 
 Here are the commits since the last release:
 $commits

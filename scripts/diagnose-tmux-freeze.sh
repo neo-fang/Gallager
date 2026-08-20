@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # diagnose-tmux-freeze.sh — capture state when tmux / Claude Code freezes
-# after Gallager exits, then print a self-contained blob that can be pasted
+# after CtrlX exits, then print a self-contained blob that can be pasted
 # into a fresh chat with Claude.
 #
 # IMPORTANT: run this from a terminal that is NOT frozen. If the affected
-# session is inside the tmux session managed by Gallager, open a separate
+# session is inside the tmux session managed by CtrlX, open a separate
 # Terminal / iTerm window (outside that tmux) and run the script from there.
 #
 # Usage:
@@ -45,14 +45,14 @@ until I attached iTerm").
 
 Sections:
   context       — host / OS / shell info
-  gallager      — running Gallager processes + state
+  ctrlx         — running CtrlX processes + state
   tmux          — tmux server / clients / sessions / pane processes
   shells        — every bash/zsh/sleep/xcodebuild/claude in `ps`
   trees         — process tree rooted at each tmux process
   power         — pmset assertions (App Nap / sleep prevention)
-  lsappinfo     — Launch Services view of Gallager
+  lsappinfo     — Launch Services view of CtrlX
   log           — last 5 minutes of os_log for relevant processes
-  lsof          — open file descriptors for Gallager + tmux server
+  lsof          — open file descriptors for CtrlX + tmux server
   samples       — 2-second `sample` stack snapshots of tmux processes
 
 PREAMBLE
@@ -79,14 +79,14 @@ ps_for_pids() {
   ps -p "$list" -o pid,ppid,state,wchan,etime,command
 }
 
-# --- gallager ---------------------------------------------------------------
+# --- ctrlx ---------------------------------------------------------------
 
-heading "gallager"
-GALLAGER_PIDS=$(pids_for Gallager)
-if [[ -z "$GALLAGER_PIDS" ]]; then
-  echo "(no Gallager running)"
+heading "ctrlx"
+CTRLX_PIDS=$(pids_for CtrlX)
+if [[ -z "$CTRLX_PIDS" ]]; then
+  echo "(no CtrlX running)"
 else
-  ps_for_pids "$GALLAGER_PIDS"
+  ps_for_pids "$CTRLX_PIDS"
 fi
 
 # --- tmux processes ---------------------------------------------------------
@@ -160,22 +160,22 @@ pmset -g assertions 2>&1 | head -200
 # --- lsappinfo --------------------------------------------------------------
 
 heading "lsappinfo"
-lsappinfo info -app Gallager 2>&1 | head -60
+lsappinfo info -app CtrlX 2>&1 | head -60
 
 # --- recent log entries -----------------------------------------------------
 
 heading "log"
 # Limit to processes that matter so we don't flood the output. 5 minutes is
-# usually enough to capture the moment Gallager terminated.
+# usually enough to capture the moment CtrlX terminated.
 /usr/bin/log show --predicate \
-  'process == "Gallager" OR process == "tmux" OR process == "claude" OR process == "bash" OR process == "zsh"' \
+  'process == "CtrlX" OR process == "tmux" OR process == "claude" OR process == "bash" OR process == "zsh"' \
   --info --debug --last 5m 2>&1 | tail -200
 
 # --- lsof -------------------------------------------------------------------
 
 heading "lsof"
-for p in ${GALLAGER_PIDS//,/ }; do
-  echo "--- lsof gallager $p ---"
+for p in ${CTRLX_PIDS//,/ }; do
+  echo "--- lsof ctrlx $p ---"
   lsof -p "$p" 2>&1 | head -50
 done
 TMUX_SVR=$(ps -Ao pid,command | awk '/[t]mux new-session/ {print $1; exit}')

@@ -20,7 +20,7 @@ struct CodexRolloutPostureReaderTests {
         _ body: (CodexRolloutPostureReader, String) throws -> T
     ) throws -> T {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-rollout-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-rollout-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let rollout = dir.appendingPathComponent("rollout-test.jsonl")
@@ -226,7 +226,7 @@ struct CodexRolloutPostureReaderTests {
         // must be lossy (torn line → U+FFFD → JSON parse fails → previous
         // record wins), not fail the whole file.
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("gallager-cx-rollout-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-cx-rollout-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let rollout = dir.appendingPathComponent("rollout-torn.jsonl")

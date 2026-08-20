@@ -1,11 +1,17 @@
 package app.gallager.android.crypto
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GallagerCryptoTest {
+    @Test
+    fun usesCtrlXProtocolNamespace() {
+        assertEquals("CtrlX-E2EE-v1", GallagerCrypto.PROTOCOL_SALT)
+    }
+
     @Test
     fun pairedDevicesDeriveSameKeyAndExchangeCiphertext() {
         val android = GallagerCrypto.generate()

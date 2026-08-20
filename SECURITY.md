@@ -1,25 +1,25 @@
-# Security Policy
+# Security policy
 
-Gallager is an end-to-end-encrypted remote-monitoring tool, so security reports
-get priority attention.
+CtrlX is an end-to-end encrypted terminal control product. Vulnerabilities that
+expose terminal plaintext, pairing secrets, private keys, or command input have
+the highest priority.
 
-## Reporting a vulnerability
+## Reporting
 
-Please use GitHub's private vulnerability reporting:
-https://github.com/gpambrozio/Gallager/security/advisories/new
-
-Please don't open public issues for security reports.
+Use private vulnerability reporting in the CtrlX GitHub repository once it is
+enabled. Until that public repository is active, do not publish exploit details
+in an issue; contact the maintainer listed in `NOTICE.md`.
 
 ## Supported versions
 
-Only the latest released version receives security fixes.
+Only the latest CtrlX release receives security fixes.
 
-## Scope notes
+## Scope
 
-- The relay server never sees plaintext terminal content — pairing and session
-  traffic are end-to-end encrypted between the Mac and iOS apps (see
-  [docs/e2ee-encryption-plan.md](docs/e2ee-encryption-plan.md)). Reports that
-  break that property are the highest severity.
-- Self-hosted relay deployments are configured by their operators; issues in
-  the deployment recipes ([docs/self-hosting.md](docs/self-hosting.md)) are in
-  scope, issues in an individual operator's server hygiene are not.
+- Mac/iOS E2EE, pairing, Keychain and local socket behavior
+- Relay routing, authorization, rate/size boundaries and APNs handling
+- Release, update and self-hosting scripts shipped in this repository
+
+The Relay sees routing metadata and encrypted frames, not terminal plaintext.
+Operator-specific firewall or account hygiene is outside the application scope,
+but unsafe defaults in the committed deployment recipes remain in scope.

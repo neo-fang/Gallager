@@ -52,8 +52,8 @@ struct EditorOverrideDialog: View {
                 fixCard
                 choiceCard(
                     .overrideInGallagerSessions,
-                    title: "Let Gallager override in its own sessions",
-                    summary: "Gallager exports VISUAL into its sessions — visible in scrollback."
+                    title: "Let CtrlX override in its own sessions",
+                    summary: "CtrlX exports VISUAL into its sessions — visible in scrollback."
                 )
                 choiceCard(
                     .useMyEditor,
@@ -80,11 +80,11 @@ struct EditorOverrideDialog: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Your shell overrides Gallager's prompt editor")
+            Text("Your shell overrides CtrlX's prompt editor")
                 .font(.headline)
 
             // Markdown string literal: backticks render `VISUAL=…` as inline code.
-            Text("Ctrl-G should open Gallager's in-app editor, but your shell sets `VISUAL=\(displayValue)` after Gallager runs. Choose how to resolve it:")
+            Text("Ctrl-G should open CtrlX's in-app editor, but your shell sets `VISUAL=\(displayValue)` after CtrlX runs. Choose how to resolve it:")
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -99,14 +99,14 @@ struct EditorOverrideDialog: View {
                 cardRow(
                     .fixInConfig,
                     title: "Fix it in my shell config",
-                    summary: "Keep my editor everywhere except Gallager's sessions.",
+                    summary: "Keep my editor everywhere except CtrlX sessions.",
                     recommended: true
                 )
 
                 if selection == .fixInConfig {
                     Divider()
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("Gallager exports `GALLAGER_SOCKET` before your rc loads. Guard your export so it skips Gallager's sessions:")
+                        Text("CtrlX exports `CTRLX_SOCKET` before your rc loads. Guard your export so it skips CtrlX sessions:")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

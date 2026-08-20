@@ -39,7 +39,7 @@ public struct ThirdPartyLicense: Identifiable, Hashable, Sendable {
 public extension ThirdPartyLicense {
     /// Introductory blurb shown above the acknowledgement rows on both
     /// platforms (mirrors the opening paragraph of `THIRD_PARTY_LICENSES.md`).
-    static let intro = "Gallager is built on these open-source projects. Each is used under its own license; full texts live in the linked repositories. Thank you to all of their authors and contributors."
+    static let intro = "CtrlX is built on these open-source projects. Each is used under its own license; full texts live in the linked repositories. Thank you to all of their authors and contributors."
 
     // swiftlint:disable custom_no_number_decimals
     // (License identifiers below are version-like SPDX strings such as

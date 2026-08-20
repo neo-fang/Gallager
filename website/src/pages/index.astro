@@ -16,7 +16,7 @@ const features = [
   {
     kicker: "Review",
     title: "Built-in file & git browser",
-    body: "Review the diff an agent just produced without leaving Gallager: browse files, inspect git status and staged changes right next to the terminal.",
+    body: "Review the diff an agent just produced without leaving CtrlX: browse files, inspect git status and staged changes right next to the terminal.",
   },
   {
     kicker: "Telemetry",
@@ -37,7 +37,7 @@ const features = [
 
 const faqs = [
   {
-    q: "Which coding agents does Gallager support?",
+    q: "Which coding agents does CtrlX support?",
     a: "Claude Code and Codex CLI work out of the box; opencode, pi and omp are supported through sidecar plugins. Anything that runs in tmux can still be mirrored and streamed as a plain terminal.",
   },
   {
@@ -50,48 +50,48 @@ const faqs = [
   },
   {
     q: "Does my Mac need to stay awake?",
-    a: "Gallager holds a sleep-prevention assertion while sessions are active, so your agents keep running with the lid open. It releases it as soon as they're done.",
+    a: "CtrlX holds a sleep-prevention assertion while sessions are active, so your agents keep running with the lid open. It releases it as soon as they're done.",
   },
   {
     q: "What does it cost?",
-    a: "The apps are free and open source. Self-host the relay for free, or use our hosted relay with a paid license if you'd rather not run a server.",
+    a: "The apps and relay are free and open source under AGPL-3.0. CtrlX does not currently offer a hosted relay.",
   },
   {
     q: "Is this a chat wrapper around the agents?",
     a: "No — it's the real terminal. Full PTY streams over tmux, with scrollback, mouse support and multi-pane layouts, mirrored bit-for-bit to your phone.",
   },
   {
-    q: "Why is it called Gallager?",
-    a: "It's named after Robert G. Gallager, a pioneering information theorist at MIT and close colleague of Claude Shannon — after whom Anthropic's Claude is named. Gallager was first created as a companion to Claude Code.",
+    q: "Why is it called CtrlX?",
+    a: "CtrlX is a compact reminder that the terminal stays under your control. The project is an independent distribution derived from Gallager; it is not affiliated with or endorsed by the upstream project.",
   },
 ];
 ---
 
 <Base
-  title="Gallager — command center for your coding agents"
+  title="CtrlX — command center for your coding agents"
   description="Run every Claude Code, Codex, opencode, pi and omp session on your Mac from one command center — and from your iPhone, end-to-end encrypted."
 >
   <Hero
     class="page-hero--display"
     eyebrow="Open source · Mac + iOS"
     title="Run a fleet of coding agents. Carry them in your pocket."
-    lede="Gallager puts every Claude Code, Codex, opencode, pi and omp session on your Mac into one command center — then streams them to your iPhone over an end-to-end encrypted connection that pairs in seconds."
+    lede="CtrlX puts every Claude Code, Codex, opencode, pi and omp session on your Mac into one command center — then streams them to your iPhone over an end-to-end encrypted connection that pairs in seconds."
   >
     <div
       id="download"
       style="display:flex;gap:var(--space-3);align-items:center;flex-wrap:wrap;"
     >
       <a
-        href="https://updates.gallager.app/Gallager.dmg"
+        href="https://github.com/jicezeng/CtrlX"
         class="btn btn-primary"
         style="padding:var(--space-3) var(--space-6);font-size:15px;"
-        >Download for Mac</a
+        >Build for Mac</a
       >
       <a
-        href="https://testflight.apple.com/join/yFQnxgDv"
+        href="https://github.com/jicezeng/CtrlX"
         class="btn btn-secondary"
         style="padding:var(--space-3) var(--space-6);font-size:15px;"
-        >Get the iOS app</a
+        >Build for iOS</a
       >
       <span class="mono text-muted" style="font-size:13px;"
         >free · self-hostable · AGPL-3.0</span
@@ -415,7 +415,7 @@ const faqs = [
         class="text-muted"
         style="font-size:15px;line-height:1.7;margin-bottom:var(--space-4);text-wrap:pretty;"
       >
-        Gallager mirrors your tmux panes into native macOS windows and hooks
+        CtrlX mirrors your tmux panes into native macOS windows and hooks
         directly into each agent's lifecycle. See which sessions are working,
         which are waiting on you, and which are done — at a glance.
       </p>
@@ -548,7 +548,7 @@ const faqs = [
             <div
               style="display:flex;justify-content:space-between;font-size:12px;color:#8E8E93;"
             >
-              <span style="font-weight:600;color:#1c1c1e;">Gallager</span
+              <span style="font-weight:600;color:#1c1c1e;">CtrlX</span
               ><span>now</span>
             </div>
             <div style="font-size:13px;color:#3c3c43;line-height:1.35;">
@@ -698,8 +698,8 @@ const faqs = [
       >
         Devices exchange X25519 keys at pairing and derive session keys with
         HKDF. Terminal streams, keystrokes and hook events are sealed with
-        ChaCha20-Poly1305 before they leave your device. Don't trust our
-        relay? Run your own with one docker compose command.
+        ChaCha20-Poly1305 before they leave your device. Run your own relay
+        with the included zero-parameter scripts.
       </p>
       <a href="/security/" class="btn btn-ghost" style="font-size:15px;"
         >Read the security model →</a
@@ -709,9 +709,9 @@ const faqs = [
       class="mono"
       style="font-size:13px;line-height:1.9;background:var(--color-surface);border:2px solid var(--color-divider);padding:var(--space-6);"
     >
-      <div><span class="text-muted">$</span> git clone https://github.com/gpambrozio/Gallager</div>
-      <div><span class="text-muted">$</span> cd Gallager/ClaudeSpyPackage</div>
-      <div><span class="text-muted">$</span> cp .env.example .env && docker compose up -d</div>
+      <div><span class="text-muted">$</span> git clone https://github.com/jicezeng/CtrlX</div>
+      <div><span class="text-muted">$</span> cd CtrlX</div>
+      <div><span class="text-muted">$</span> ./sbin/auto-env.sh &amp;&amp; ./sbin/start_server.sh</div>
       <div style="color:var(--color-accent-700);">✓ relay running on your own domain</div>
       <div class="text-muted">{`{"status":"ok"} — your code is ciphertext to it`}</div>
     </div>
@@ -758,7 +758,7 @@ const faqs = [
         Stop babysitting terminals.
       </h2>
       <p style="font-size:17px;margin-bottom:var(--space-6);opacity:0.9;">
-        Free forever with your own relay. Hosted relay if you'd rather not.
+        Free software. Your devices, your relay, your keys.
       </p>
       <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;">
         <a

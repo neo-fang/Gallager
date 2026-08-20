@@ -8,8 +8,17 @@ import Foundation
 /// This struct contains the actual notification text that will be displayed to the user.
 /// It travels encrypted through the server and APNs infrastructure.
 public struct NotificationContent: Codable, Sendable, Equatable {
+    /// Copy limits used by contextual Agent notifications. Together with the
+    /// existing action-context cap, these keep the encrypted APNs envelope
+    /// below Apple's 4 KB payload limit.
+    public static let maximumContextTitleBytes = 120
+    public static let maximumContextSubtitleBytes = 120
+
     /// The notification title (e.g., "ClaudeSpy" or project name)
     public let title: String
+
+    /// Optional secondary status shown below the tmux session/window title.
+    public let subtitle: String?
 
     /// The notification body text describing the event
     public let body: String
@@ -36,6 +45,7 @@ public struct NotificationContent: Codable, Sendable, Equatable {
 
     public init(
         title: String,
+        subtitle: String? = nil,
         body: String,
         eventType: String,
         pairId: String,
@@ -44,6 +54,7 @@ public struct NotificationContent: Codable, Sendable, Equatable {
         action: NotificationActionContext? = nil
     ) {
         self.title = title
+        self.subtitle = subtitle
         self.body = body
         self.eventType = eventType
         self.pairId = pairId
@@ -53,12 +64,13 @@ public struct NotificationContent: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case title, body, eventType, pairId, paneId, timestamp, action
+        case title, subtitle, body, eventType, pairId, paneId, timestamp, action
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.title = try container.decode(String.self, forKey: .title)
+        self.subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
         self.body = try container.decode(String.self, forKey: .body)
         self.eventType = try container.decode(String.self, forKey: .eventType)
         self.pairId = try container.decode(String.self, forKey: .pairId)

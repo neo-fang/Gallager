@@ -2,15 +2,15 @@ import ClaudeSpyCommon
 import Foundation
 import GallagerPluginProtocol
 
-/// Installs the Gallager Codex plugin through Codex's own CLI
+/// Installs the CtrlX Codex plugin through Codex's own CLI
 /// (`codex plugin …`), scoped to a `CODEX_HOME`. Mirrors `ClaudeCodeCLIInstaller`.
 struct CodexCLIInstaller: Sendable {
     let processRunner: ProcessRunner
     let command: String
     let marketplaceSource: URL
 
-    static let pluginRef = "gallager@gallager"
-    static let marketplaceName = "gallager"
+    static let pluginRef = "ctrlx@ctrlx"
+    static let marketplaceName = "ctrlx"
 
     private func env(for configRoot: String?) -> [String: String]? {
         configRoot.map { ["CODEX_HOME": $0] }
@@ -38,8 +38,8 @@ struct CodexCLIInstaller: Sendable {
     }
 
     func installStatus(configRoot: String?) async -> PluginInstallStatus {
-        // `-m gallager` scopes the listing to our marketplace, so the only
-        // `gallager@gallager` row is ours.
+        // `-m ctrlx` scopes the listing to our marketplace, so the only
+        // `ctrlx@ctrlx` row is ours.
         guard
             let result = try? await run(
                 ["plugin", "list", "-m", Self.marketplaceName], configRoot: configRoot, timeout: 30
@@ -51,10 +51,10 @@ struct CodexCLIInstaller: Sendable {
         return Self.parseStatus(from: result.stdoutString)
     }
 
-    /// Parses `codex plugin list -m gallager` output. Only the `gallager@gallager`
+    /// Parses `codex plugin list -m ctrlx` output. Only the `ctrlx@ctrlx`
     /// row's STATUS column is authoritative — `"not installed"` ⇒ `.notInstalled`,
     /// `"installed"` ⇒ `.installed`. The marketplace header line (`` Marketplace
-    /// `gallager` ``) and the on-disk plugin path must NOT be mistaken for an
+    /// `ctrlx` ``) and the on-disk plugin path must NOT be mistaken for an
     /// install. Version is the first dot-bearing numeric token on the row, if any.
     static func parseStatus(from listing: String) -> PluginInstallStatus {
         for line in listing.split(separator: "\n") where line.contains(pluginRef) {

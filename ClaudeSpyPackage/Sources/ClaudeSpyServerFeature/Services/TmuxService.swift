@@ -245,7 +245,7 @@ final public class TmuxService {
     /// When set, Ctrl-G in Claude Code opens the in-app prompt editor via `Gallager edit`.
     public var editorCLIPath: String?
 
-    /// Socket path for the API server. The CLI reads this from `$GALLAGER_SOCKET`.
+    /// Socket path for the API server. The CLI reads this from `$CTRLX_SOCKET`.
     public var apiSocketPath: String?
 
     /// When set, spawned shells get `ZDOTDIR=<path>` so zsh reads its startup
@@ -281,7 +281,7 @@ final public class TmuxService {
 
     /// The `$VISUAL` value Gallager wants agents to see: the bundled CLI invoked
     /// with `edit`. Nil when the CLI isn't in the bundle.
-    private var gallagerVisualValue: String? {
+    private var ctrlxVisualValue: String? {
         guard let editorCLIPath else { return nil }
         return "\(editorCLIPath) edit"
     }
@@ -293,7 +293,7 @@ final public class TmuxService {
             vars.append("VISUAL=\(editorCLIPath) edit")
         }
         if let apiSocketPath {
-            vars.append("GALLAGER_SOCKET=\(apiSocketPath)")
+            vars.append("CTRLX_SOCKET=\(apiSocketPath)")
         }
         if let zdotDirOverride {
             vars.append("ZDOTDIR=\(zdotDirOverride)")
@@ -303,7 +303,7 @@ final public class TmuxService {
 
     @ObservationIgnored
     @Dependency(ProcessRunner.self) private var processRunner
-    private let logger = Logger(label: "com.claudespy.tmuxservice")
+    private let logger = Logger(label: "com.jicezeng.ctrlx.tmuxservice")
     private var tmuxPath: String
     private var socketPath: String?
 
@@ -2040,12 +2040,12 @@ final public class TmuxService {
     ) async throws {
         // Tmux's `-` form reads from stdin, but our ProcessRunner doesn't
         // expose stdin — write to a tmp file and pass the path instead.
-        // Use a `gallager-drop-buf-` prefix so this scratch file shares the
-        // top-level `gallager-drop-` namespace AppCoordinator's startup sweep
+        // Use a `ctrlx-drop-buf-` prefix so this scratch file shares the
+        // top-level `ctrlx-drop-` namespace AppCoordinator's startup sweep
         // already cleans, but stays distinguishable from the per-drop landing
         // directories created by `handleSendDroppedFiles`.
         let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("gallager-drop-buf-\(UUID().uuidString)")
+            .appendingPathComponent("ctrlx-drop-buf-\(UUID().uuidString)")
         try Data(content.utf8).write(to: tmpURL, options: .atomic)
         defer { try? FileManager.default.removeItem(at: tmpURL) }
 
@@ -2095,7 +2095,8 @@ final public class TmuxService {
     /// - Parameters:
     ///   - target: The pane target to split (e.g., "%5")
     ///   - horizontal: If true, splits left-right (-h); if false, splits top-bottom (-v)
-    ///   - workingDirectory: Optional starting directory for the new pane
+    ///   - workingDirectory: Starting directory for the new pane. When omitted, the new pane
+    ///     inherits the target pane's current directory.
     /// - Returns: The pane ID of the newly created pane
     public func splitPane(
         _ target: String,
@@ -2105,15 +2106,22 @@ final public class TmuxService {
     ) async throws -> String {
         let flag = horizontal ? "-h" : "-v"
         var args = [
+            // Old CtrlX builds may have copied NO_COLOR from the app into this
+            // session. Clear it before spawning another shell in the session.
+            "set-environment", "-u", "-t", target, "NO_COLOR",
+            ";",
             "split-window",
             flag,
             "-t", target,
             "-P", "-F", "#{pane_id}", // Print new pane ID
         ] + terminalEnvironmentVars.flatMap { ["-e", $0] }
 
-        if let workingDirectory, !workingDirectory.isEmpty {
-            args.append(contentsOf: ["-c", workingDirectory])
+        let startDirectory = if let workingDirectory, !workingDirectory.isEmpty {
+            workingDirectory
+        } else {
+            "#{pane_current_path}"
         }
+        args.append(contentsOf: ["-c", startDirectory])
 
         // Trailing positional becomes the new pane's command (tmux runs it
         // instead of the user's default-shell). Pass the shell here so the
@@ -2181,7 +2189,7 @@ final public class TmuxService {
         // client's current window and new-window then tries that exact index — which fails
         // with "index N in use" whenever a control-mode client is focused on an existing
         // window (i.e. always, for us). When `windowIndex` is supplied (e.g. by
-        // `gallager apply` honoring sparse `window_index:` entries) we want
+        // `ctrlx apply` honoring sparse `window_index:` entries) we want
         // exactly that index, so target it directly.
         let target: String
         if let windowIndex {
@@ -2190,6 +2198,11 @@ final public class TmuxService {
             target = Self.sessionTarget(sessionName)
         }
         var args = [
+            // A session created by an older CtrlX build may retain NO_COLOR
+            // even after the app is upgraded. Remove that stale session value
+            // before the new shell inherits it.
+            "set-environment", "-u", "-t", target, "NO_COLOR",
+            ";",
             "new-window",
             "-t", target,
             "-P", "-F", "#{pane_id}:#{window_index}",
@@ -2559,19 +2572,19 @@ final public class TmuxService {
     /// The tmux user option key used to persist Gallager custom descriptions.
     /// User options must be prefixed with `@`; tmux stores them on the session
     /// and any pane resolves the lookup via the session→window→pane chain.
-    private static let descriptionOptionKey = "@gallager-description"
+    private static let descriptionOptionKey = "@ctrlx-description"
 
     /// The tmux user option key used to persist Gallager session colors.
     /// Stored at session scope just like `descriptionOptionKey`.
-    private static let colorOptionKey = "@gallager-color"
+    private static let colorOptionKey = "@ctrlx-color"
 
     /// The tmux user option key used to persist Gallager session emoji icons.
     /// Stored at session scope just like `descriptionOptionKey`.
-    private static let emojiOptionKey = "@gallager-emoji"
+    private static let emojiOptionKey = "@ctrlx-emoji"
 
     /// Persists the custom description for a session as a tmux user option.
     ///
-    /// Writes `@gallager-description` at session scope so it survives app restarts
+    /// Writes `@ctrlx-description` at session scope so it survives app restarts
     /// (the tmux server keeps the option for the session's lifetime). Any existing
     /// window-level overrides inside the session are cleared first so the new value
     /// applies uniformly across every window — defensive against stray overrides
@@ -2604,7 +2617,7 @@ final public class TmuxService {
 
     /// Persists the custom color for a session as a tmux user option.
     ///
-    /// Mirrors `setSessionDescription` — writes `@gallager-color` at session
+    /// Mirrors `setSessionDescription` — writes `@ctrlx-color` at session
     /// scope after sweeping any window-level overrides.
     /// - Parameters:
     ///   - color: The color, or `nil` to clear the option.
@@ -2634,7 +2647,7 @@ final public class TmuxService {
 
     /// Persists the custom emoji for a session as a tmux user option.
     ///
-    /// Mirrors `setSessionDescription` — writes `@gallager-emoji` at session
+    /// Mirrors `setSessionDescription` — writes `@ctrlx-emoji` at session
     /// scope after sweeping any window-level overrides.
     /// - Parameters:
     ///   - emoji: The emoji string, or `nil` to clear the option.
@@ -2684,7 +2697,7 @@ final public class TmuxService {
 
     /// Sets a tmux session-scoped environment variable.
     ///
-    /// Used by `gallager apply` to honor the `environment:` block in a layout
+    /// Used by `ctrlx apply` to honor the `environment:` block in a layout
     /// config. tmux's `set-environment -t <session>` only affects new shells
     /// spawned inside the session — already-running panes keep their existing
     /// environment.
@@ -2730,7 +2743,7 @@ final public class TmuxService {
     /// Sets a tmux option at session, window, or global scope.
     ///
     /// Mirrors `tmux set-option [-g|-w] -t <target> <name> <value>`. Used by
-    /// `gallager apply` to pass through the `options:` blocks in a layout
+    /// `ctrlx apply` to pass through the `options:` blocks in a layout
     /// config. We do not validate option names — tmux is the source of truth
     /// and surfaces unknown options as a non-zero exit that we propagate.
     /// - Parameters:
@@ -3031,18 +3044,21 @@ final public class TmuxService {
         // -n: name the first window up front so the tab doesn't briefly show
         //     the shell command name before we rename it
         let allEnvironmentVars = terminalEnvironmentVars + extraEnvironment
-        // Chain `set-option -g default-terminal … ; set-option -g default-command
-        // … ; new-session …` in one tmux invocation. `set-option` needs a running
-        // server, but we need both options installed *before* `new-session` so the
-        // first pane uses them. Within a single tmux call the server is started,
-        // then commands run in order — so the set-options succeed and the new
-        // session inherits them. `default-terminal` pins the pane's TERM to a
-        // 256-color entry (tmux otherwise spawns with its build default, which can
-        // be the 8-color `screen`); `screen-256color` is chosen over the richer
-        // `tmux-256color` because the latter's terminfo entry is missing on some
-        // macOS installs. Repeating this on every session create is harmless
-        // (idempotent) and avoids tracking server lifetime.
+        // Chain `set-environment -gu NO_COLOR ; set-option … ; new-session …`
+        // in one tmux invocation. A CtrlX app launched from an agent shell may
+        // inherit NO_COLOR; when this invocation starts a fresh tmux server, that
+        // value otherwise enters the server's global environment and disables
+        // color in every child TUI. Remove only the inherited global value here —
+        // a user's shell startup files can still deliberately export NO_COLOR.
+        //
+        // The options must also be installed *before* `new-session` so the first
+        // pane uses them. `default-terminal` pins TERM to a 256-color entry;
+        // `screen-256color` is chosen over `tmux-256color` because the latter's
+        // terminfo entry is missing on some macOS installs. Every operation is
+        // idempotent, so the same sequence is safe against an existing server.
         var args = [
+            "set-environment", "-gu", "NO_COLOR",
+            ";",
             "set-option", "-g", "default-terminal", "screen-256color",
             ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
@@ -3125,8 +3141,8 @@ final public class TmuxService {
     /// when the override is active, or nil when it isn't (or the shell/CLI is
     /// unknown). Uses the user's login shell to pick the right syntax.
     private func overrideCommandPrefix() -> String? {
-        guard overrideVisualInShellPanes, let gallagerVisualValue else { return nil }
-        return EditorOverride.injectionCommand(visualValue: gallagerVisualValue, shell: Self.userShellPath)
+        guard overrideVisualInShellPanes, let ctrlxVisualValue else { return nil }
+        return EditorOverride.injectionCommand(visualValue: ctrlxVisualValue, shell: Self.userShellPath)
     }
 
     // MARK: - Editor Override (issue #591)
@@ -3160,7 +3176,7 @@ final public class TmuxService {
         // for the editor `$VISUAL` (that's the value we're testing for survival).
         var env = Self.baseEnvironmentVars
         if let apiSocketPath {
-            env.append("GALLAGER_SOCKET=\(apiSocketPath)")
+            env.append("CTRLX_SOCKET=\(apiSocketPath)")
         }
         if let zdotDirOverride {
             env.append("ZDOTDIR=\(zdotDirOverride)")
@@ -3170,6 +3186,8 @@ final public class TmuxService {
         // A wide pane keeps the typed `printf` command on one row so its echo
         // can't wrap into a line that starts with the marker.
         var args = [
+            "set-environment", "-gu", "NO_COLOR",
+            ";",
             "set-option", "-g", "default-command", defaultCommandWrapper,
             ";",
             "new-session",
@@ -3228,7 +3246,7 @@ final public class TmuxService {
     /// never ran rc files, so their inherited `-e VISUAL` is already correct, and
     /// typing into a running program would corrupt its input.
     private func injectOverrideIntoEligibleShellPanes() async {
-        guard overrideVisualInShellPanes, let gallagerVisualValue else { return }
+        guard overrideVisualInShellPanes, let ctrlxVisualValue else { return }
 
         // Bound the dedup set to live panes so it can't grow without limit.
         let livePaneIds = Set(panes.map(\.paneId))
@@ -3238,7 +3256,7 @@ final public class TmuxService {
             guard !injectedOverridePaneIds.contains(pane.paneId) else { continue }
             guard
                 let command = EditorOverride.injectionCommand(
-                    visualValue: gallagerVisualValue,
+                    visualValue: ctrlxVisualValue,
                     shell: pane.command
                 )
             else { continue }
@@ -3334,7 +3352,7 @@ final public class TmuxService {
             // launching shell when started by hand from a tmux pane. tmux uses
             // these to bias `-t <name>` target parsing — for session-scoped
             // options it reinterprets the target as a window in the current
-            // pane's session, so e.g. `set-option -t terminal @gallager-color
+            // pane's session, so e.g. `set-option -t terminal @ctrlx-color
             // red` ends up writing to the *current* session whenever a window
             // there has a name starting with "terminal". Force them empty for
             // every subprocess invocation since the Mac app is not actually

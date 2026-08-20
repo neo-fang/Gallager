@@ -2,7 +2,7 @@ import Foundation
 import GallagerPluginProtocol
 
 /// Typed, Codable settings for the Codex plugin core. Persisted to
-/// `~/.gallager/state/plugins/codex/settings.json` with snake_case keys (spec §11).
+/// `~/.ctrlx/state/plugins/codex/settings.json` with snake_case keys (spec §11).
 public struct CodexSettings: Codable, Sendable, Equatable {
     /// Path to the `codex` command (full path or just `codex` if on PATH).
     public var commandPath: String
