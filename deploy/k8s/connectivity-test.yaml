@@ -45,25 +45,20 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        - name: validate-runtime
+        - name: prepare-storage
           image: llm4rec-cn-beijing.cr.volces.com/byteair/byteair.nocalhost.golang:1.0.0.5
           imagePullPolicy: IfNotPresent
           command:
             - /bin/sh
             - -lc
-            - test -x /bundle/rootfs/app/ClaudeSpyExternalServer
+            - mkdir -p /bundle/app-data && chown 1000:1000 /bundle/app-data
           volumeMounts:
             - name: runtime-and-data
               mountPath: /bundle
       containers:
         - name: app
-          image: llm4rec-cn-beijing.cr.volces.com/byteair/byteair.nocalhost.golang:1.0.0.5
+          image: llm4rec-cn-beijing.cr.volces.com/byteair/connectivity-test-app:3.0.0-a3b4ffe
           imagePullPolicy: IfNotPresent
-          command:
-            - /bin/sh
-            - -lc
-          args:
-            - exec chroot --userspec=appuser:appuser /bundle/rootfs /app/ClaudeSpyExternalServer
           env:
             - name: ENVIRONMENT
               value: production
@@ -118,14 +113,16 @@ spec:
               ephemeral-storage: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             capabilities:
               drop:
                 - ALL
-              add:
-                - SYS_CHROOT
           volumeMounts:
             - name: runtime-and-data
-              mountPath: /bundle
+              mountPath: /data
+              subPath: app-data
       volumes:
         - name: runtime-and-data
           persistentVolumeClaim:
