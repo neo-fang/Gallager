@@ -6,9 +6,9 @@ import org.junit.Test
 
 class TerminalMouseScrollTest {
     @Test
-    fun upwardAndroidDragRequestsOlderContent() {
+    fun upwardAndroidDragReturnsToNewerContent() {
         assertEquals(
-            "\u001B[<64;40;12M",
+            "\u001B[<65;40;12M",
             TerminalMouseScroll.encodeVerticalDrag(
                 deltaY = -20f,
                 column = 39,
@@ -21,9 +21,9 @@ class TerminalMouseScrollTest {
     }
 
     @Test
-    fun downwardAndroidDragReturnsToNewerContent() {
+    fun downwardAndroidDragRequestsOlderContent() {
         assertEquals(
-            "\u001B[<65;40;12M",
+            "\u001B[<64;40;12M",
             TerminalMouseScroll.encodeVerticalDrag(
                 deltaY = 20f,
                 column = 39,

@@ -6,7 +6,7 @@ object TerminalMouseScroll {
     private const val WHEEL_DOWN = 65
     private const val MAX_EVENTS_PER_BATCH = 64
 
-    /** Android gesture mapping: an upward finger drag reveals older output. */
+    /** Natural terminal scrolling: pull down for history, swipe up for newer output. */
     fun encodeVerticalDrag(
         deltaY: Float,
         column: Int,
@@ -15,7 +15,7 @@ object TerminalMouseScroll {
         rows: Int,
         events: Int,
     ): ByteArray = encode(
-        revealOlder = deltaY < 0f,
+        revealOlder = deltaY > 0f,
         column = column,
         row = row,
         columns = columns,
