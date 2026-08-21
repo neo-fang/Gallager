@@ -847,7 +847,9 @@ private fun TerminalScreen(
             }
         },
     ) { padding ->
-        val terminalInteractionModifier = if (terminalContent.mouseTrackingActive && connected) {
+        val terminalInteractionModifier = if (
+            connected && (terminalContent.mouseTrackingActive || pane.prefersRemoteTuiScroll)
+        ) {
             Modifier.pointerInput(
                 pane.paneId,
                 terminalContent.columns,
@@ -896,8 +898,8 @@ private fun TerminalScreen(
                     val row = rows / 2
                     didSendScroll = true
                     onSend(
-                        TerminalMouseScroll.encode(
-                            revealOlder = dragAmount > 0f,
+                        TerminalMouseScroll.encodeVerticalDrag(
+                            deltaY = dragAmount,
                             column = column,
                             row = row,
                             columns = columns,

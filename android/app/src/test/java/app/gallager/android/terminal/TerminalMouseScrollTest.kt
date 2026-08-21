@@ -6,6 +6,36 @@ import org.junit.Test
 
 class TerminalMouseScrollTest {
     @Test
+    fun upwardAndroidDragRequestsOlderContent() {
+        assertEquals(
+            "\u001B[<64;40;12M",
+            TerminalMouseScroll.encodeVerticalDrag(
+                deltaY = -20f,
+                column = 39,
+                row = 11,
+                columns = 80,
+                rows = 24,
+                events = 1,
+            ).toString(Charsets.UTF_8),
+        )
+    }
+
+    @Test
+    fun downwardAndroidDragReturnsToNewerContent() {
+        assertEquals(
+            "\u001B[<65;40;12M",
+            TerminalMouseScroll.encodeVerticalDrag(
+                deltaY = 20f,
+                column = 39,
+                row = 11,
+                columns = 80,
+                rows = 24,
+                events = 1,
+            ).toString(Charsets.UTF_8),
+        )
+    }
+
+    @Test
     fun encodesWheelUpForOlderContentUsingOneBasedCoordinates() {
         assertEquals(
             "\u001B[<64;3;4M\u001B[<64;3;4M",

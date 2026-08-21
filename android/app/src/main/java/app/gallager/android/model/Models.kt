@@ -81,6 +81,19 @@ data class PaneSummary(
             ?: windowName.takeIf { it.isNotBlank() }
             ?: sessionName.takeIf { it.isNotBlank() }
             ?: paneId
+
+    /**
+     * Agent TUIs keep their conversation history outside tmux scrollback.
+     * Route gestures to the remote application immediately, even before its
+     * first live redraw has repeated the terminal mouse-mode escape sequence.
+     */
+    val prefersRemoteTuiScroll: Boolean
+        get() = sequenceOf(pluginId, terminalTitle, windowName)
+            .filterNotNull()
+            .any { label ->
+                val normalized = label.lowercase()
+                normalized.contains("claude") || normalized.contains("codex")
+            }
 }
 
 data class RelaySnapshot(
