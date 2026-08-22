@@ -82,7 +82,7 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: 10.4.0.3
       imagePullSecrets:
-        - name: byteair-cr-secret
+        - name: connectivity-test-registry
       securityContext:
         seccompProfile:
           type: RuntimeDefault
