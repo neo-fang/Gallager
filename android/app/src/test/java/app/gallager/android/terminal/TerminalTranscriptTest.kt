@@ -18,10 +18,24 @@ class TerminalTranscriptTest {
     fun resetReplacesPreviousBuffer() {
         val transcript = TerminalTranscript()
         transcript.feed("old".toByteArray())
+        val oldRevision = transcript.render().renderRevision
         transcript.reset("new".toByteArray())
 
         assertEquals("new", transcript.value())
         assertEquals(1, transcript.render().snapshotGeneration)
+        assertEquals(true, transcript.render().renderRevision > oldRevision)
+    }
+
+    @Test
+    fun renderRevisionChangesForSameLengthTuiRedraws() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 2)
+        transcript.feed("old".toByteArray())
+        val oldRevision = transcript.render().renderRevision
+
+        transcript.feed("\rnew".toByteArray())
+
+        assertEquals("new", transcript.value())
+        assertEquals(true, transcript.render().renderRevision > oldRevision)
     }
 
     @Test

@@ -25,6 +25,7 @@ data class TerminalRender(
     val text: String = "",
     val spans: List<TerminalStyleSpan> = emptyList(),
     val snapshotGeneration: Int = 0,
+    val renderRevision: Long = 0,
     val historyRows: Int = 0,
     val mouseTrackingActive: Boolean = false,
     val alternateBufferActive: Boolean = false,
@@ -51,17 +52,22 @@ class TerminalTranscript(
     private var rows = initialRows.coerceIn(MIN_ROWS, MAX_ROWS)
     private var emulator = createEmulator()
     private var snapshotGeneration = 0
+    private var renderRevision = 0L
 
     fun reset(bytes: ByteArray, columns: Int? = null, rows: Int? = null) {
         this.columns = (columns ?: this.columns).coerceIn(MIN_COLUMNS, MAX_COLUMNS)
         this.rows = (rows ?: this.rows).coerceIn(MIN_ROWS, MAX_ROWS)
         emulator = createEmulator()
         snapshotGeneration++
+        renderRevision++
         feed(bytes)
     }
 
     fun feed(bytes: ByteArray) {
-        if (bytes.isNotEmpty()) emulator.append(bytes, bytes.size)
+        if (bytes.isNotEmpty()) {
+            emulator.append(bytes, bytes.size)
+            renderRevision++
+        }
     }
 
     fun resize(columns: Int, rows: Int) {
@@ -71,6 +77,7 @@ class TerminalTranscript(
         this.columns = newColumns
         this.rows = newRows
         emulator.resize(newColumns, newRows, CELL_WIDTH_PIXELS, CELL_HEIGHT_PIXELS)
+        renderRevision++
     }
 
     fun value(): String = render().text
@@ -132,6 +139,7 @@ class TerminalTranscript(
         if (lastVisibleRow < 0) {
             return TerminalRender(
                 snapshotGeneration = snapshotGeneration,
+                renderRevision = renderRevision,
                 historyRows = screen.activeTranscriptRows,
                 mouseTrackingActive = emulator.isMouseTrackingActive,
                 alternateBufferActive = emulator.isAlternateBufferActive,
@@ -160,6 +168,7 @@ class TerminalTranscript(
             text = text.toString(),
             spans = spans,
             snapshotGeneration = snapshotGeneration,
+            renderRevision = renderRevision,
             historyRows = screen.activeTranscriptRows,
             mouseTrackingActive = emulator.isMouseTrackingActive,
             alternateBufferActive = emulator.isAlternateBufferActive,

@@ -619,6 +619,11 @@ private fun TerminalScreen(
     var actionMenuExpanded by remember { mutableStateOf(false) }
     var showNewWindowDialog by remember { mutableStateOf(false) }
     var closeAction by remember { mutableStateOf<String?>(null) }
+    val remoteTuiScrolling = connected &&
+        (terminalContent.mouseTrackingActive || pane.prefersRemoteTuiScroll)
+    var remoteViewportAnchor by remember(pane.paneId) {
+        mutableStateOf(RemoteViewportAnchor.TAIL)
+    }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(commandFeedback) {
@@ -660,12 +665,17 @@ private fun TerminalScreen(
     }
     val sendText = {
         if (connected && input.isNotEmpty()) {
+            // A submitted prompt and its response are written at the bottom of
+            // the host screen. Make that part of the wider Mac viewport visible
+            // on the phone before waiting for the next terminal redraw.
+            remoteViewportAnchor = RemoteViewportAnchor.TAIL
             onSend((input + "\r").toByteArray(Charsets.UTF_8))
             input = ""
         }
     }
     LaunchedEffect(scrollState, pane.paneId) {
         scrollState.interactionSource.interactions.collect { interaction ->
+            if (remoteTuiScrolling) return@collect
             when (interaction) {
                 is DragInteraction.Start -> followTerminalTail = false
                 is DragInteraction.Stop,
@@ -687,8 +697,32 @@ private fun TerminalScreen(
             }
         }
     }
-    LaunchedEffect(pane.paneId, terminalContent.text.length) {
-        if (followTerminalTail) scrollState.scrollTo(scrollState.maxValue)
+    LaunchedEffect(pane.paneId, terminalContent.renderRevision, remoteTuiScrolling) {
+        if (!remoteTuiScrolling && followTerminalTail) {
+            scrollState.scrollTo(scrollState.maxValue)
+        }
+    }
+    LaunchedEffect(
+        pane.paneId,
+        terminalContent.renderRevision,
+        remoteTuiScrolling,
+        remoteViewportAnchor,
+    ) {
+        if (!remoteTuiScrolling) return@LaunchedEffect
+        // The host pane can be 60+ rows tall while the phone only has room for
+        // roughly half of that between its app bar and input controls. Keep a
+        // programmatically scrollable local viewport even though one-finger
+        // gestures are forwarded to the host TUI. Two frames allow Compose to
+        // measure a replacement terminal snapshot before selecting its edge.
+        withFrameNanos { }
+        withFrameNanos { }
+        scrollState.scrollTo(
+            if (remoteViewportAnchor == RemoteViewportAnchor.TAIL) {
+                scrollState.maxValue
+            } else {
+                0
+            },
+        )
     }
     LaunchedEffect(pane.paneId, terminalContent.snapshotGeneration) {
         val oldMax = historyRequestOldMax ?: return@LaunchedEffect
@@ -847,9 +881,7 @@ private fun TerminalScreen(
             }
         },
     ) { padding ->
-        val terminalInteractionModifier = if (
-            connected && (terminalContent.mouseTrackingActive || pane.prefersRemoteTuiScroll)
-        ) {
+        val terminalInteractionModifier = if (remoteTuiScrolling) {
             Modifier.pointerInput(
                 pane.paneId,
                 terminalContent.columns,
@@ -874,6 +906,16 @@ private fun TerminalScreen(
                 ) { change, dragAmount ->
                     if (dragAmount == 0f) return@detectVerticalDragGestures
                     change.consume()
+
+                    // Pulling down reveals the top of the current Mac-sized
+                    // snapshot before older host history arrives. Swiping up
+                    // reveals its bottom, including newly submitted prompts,
+                    // before asking the host TUI to move toward the latest row.
+                    remoteViewportAnchor = if (dragAmount > 0f) {
+                        RemoteViewportAnchor.HEAD
+                    } else {
+                        RemoteViewportAnchor.TAIL
+                    }
 
                     // Reset immediately when the user reverses direction.
                     if (accumulatedY != 0f && (accumulatedY > 0f) != (dragAmount > 0f)) {
@@ -910,7 +952,7 @@ private fun TerminalScreen(
                 }
             }
         } else {
-            Modifier.verticalScroll(scrollState)
+            Modifier
         }
         SelectionContainer {
             Text(
@@ -927,12 +969,21 @@ private fun TerminalScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
+                    // In a remote TUI, disable local gesture handling but retain
+                    // the scroll layout so the phone can expose every row of a
+                    // terminal snapshot that is taller than its viewport.
+                    .verticalScroll(scrollState, enabled = !remoteTuiScrolling)
                     .then(terminalInteractionModifier)
                     .horizontalScroll(horizontalScrollState)
                     .padding(12.dp),
             )
         }
     }
+}
+
+private enum class RemoteViewportAnchor {
+    HEAD,
+    TAIL,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
