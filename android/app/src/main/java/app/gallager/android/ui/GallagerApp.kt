@@ -34,6 +34,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.KeyboardReturn
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Add
@@ -663,7 +664,14 @@ private fun TerminalScreen(
             },
         )
     }
-    val sendText = {
+    val insertText = {
+        if (connected && input.isNotEmpty()) {
+            remoteViewportAnchor = RemoteViewportAnchor.TAIL
+            onSend(input.toByteArray(Charsets.UTF_8))
+            input = ""
+        }
+    }
+    val insertTextAndEnter = {
         if (connected && input.isNotEmpty()) {
             // A submitted prompt and its response are written at the bottom of
             // the host screen. Make that part of the wider Mac viewport visible
@@ -853,14 +861,14 @@ private fun TerminalScreen(
                         placeholder = { Text("Send text to terminal") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { sendText() }),
+                        keyboardActions = KeyboardActions(onSend = { insertTextAndEnter() }),
                         modifier = Modifier.weight(1f),
                         textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     )
                     Spacer(Modifier.width(8.dp))
                     FilledIconButton(
                         enabled = connected && input.isNotEmpty(),
-                        onClick = sendText,
+                        onClick = insertText,
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = GallagerAccent,
                             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -869,10 +877,30 @@ private fun TerminalScreen(
                         ),
                         modifier = Modifier
                             .size(52.dp)
-                            .semantics { contentDescription = "Send terminal input" },
+                            .semantics { contentDescription = "Insert text without Enter" },
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    FilledIconButton(
+                        enabled = connected && input.isNotEmpty(),
+                        onClick = insertTextAndEnter,
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = GallagerSurfaceRaised,
+                            contentColor = GallagerAccent,
+                            disabledContainerColor = GallagerSurfaceRaised,
+                            disabledContentColor = GallagerMuted,
+                        ),
+                        modifier = Modifier
+                            .size(52.dp)
+                            .semantics { contentDescription = "Insert text and press Enter" },
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.KeyboardReturn,
                             contentDescription = null,
                             modifier = Modifier.size(24.dp),
                         )
@@ -889,23 +917,64 @@ private fun TerminalScreen(
             ) {
                 var accumulatedY = 0f
                 var didSendScroll = false
+                var lastDragY = 0f
+                var lastColumn = terminalContent.columns / 2
+                var lastRow = terminalContent.rows / 2
                 val lineThreshold = 16.dp.toPx().coerceAtLeast(1f)
+
+                fun sendScroll(deltaY: Float, events: Int) {
+                    if (deltaY == 0f || events <= 0) return
+                    didSendScroll = true
+                    onSend(
+                        TerminalMouseScroll.encodeVerticalDrag(
+                            deltaY = deltaY,
+                            column = lastColumn,
+                            row = lastRow,
+                            columns = terminalContent.columns,
+                            rows = terminalContent.rows,
+                            events = events,
+                        ),
+                    )
+                }
+
+                fun finishDrag() {
+                    // Compose starts this callback only after touch slop has
+                    // been crossed. If a deliberate drag is shorter than one
+                    // line, still forward one wheel event so it never feels
+                    // like the terminal ignored the gesture.
+                    if (!didSendScroll && lastDragY != 0f) sendScroll(lastDragY, 1)
+                    accumulatedY = 0f
+                    lastDragY = 0f
+                    if (didSendScroll) onRefreshTerminal()
+                }
+
                 detectVerticalDragGestures(
                     onDragStart = {
                         accumulatedY = 0f
                         didSendScroll = false
+                        lastDragY = 0f
                     },
-                    onDragCancel = {
-                        accumulatedY = 0f
-                        if (didSendScroll) onRefreshTerminal()
-                    },
-                    onDragEnd = {
-                        accumulatedY = 0f
-                        if (didSendScroll) onRefreshTerminal()
-                    },
+                    onDragCancel = ::finishDrag,
+                    onDragEnd = ::finishDrag,
                 ) { change, dragAmount ->
                     if (dragAmount == 0f) return@detectVerticalDragGestures
                     change.consume()
+                    lastDragY = dragAmount
+
+                    // Match iOS: address the cell underneath the finger rather
+                    // than a fixed cell in the pane. Include both local scroll
+                    // offsets because the Mac terminal is usually wider and
+                    // taller than the phone viewport.
+                    val contentWidth = (horizontalScrollState.maxValue + size.width).coerceAtLeast(1)
+                    val contentHeight = (scrollState.maxValue + size.height).coerceAtLeast(1)
+                    val contentX = horizontalScrollState.value + change.position.x
+                    val contentY = scrollState.value + change.position.y
+                    lastColumn = ((contentX / contentWidth) * terminalContent.columns)
+                        .toInt()
+                        .coerceIn(0, (terminalContent.columns - 1).coerceAtLeast(0))
+                    lastRow = ((contentY / contentHeight) * terminalContent.rows)
+                        .toInt()
+                        .coerceIn(0, (terminalContent.rows - 1).coerceAtLeast(0))
 
                     // Pulling down reveals the top of the current Mac-sized
                     // snapshot before older host history arrives. Swiping up
@@ -930,53 +999,43 @@ private fun TerminalScreen(
                     }
                     if (events == 0) return@detectVerticalDragGestures
 
-                    val columns = terminalContent.columns
-                    val rows = terminalContent.rows
-                    // Claude Code can ignore wheel input over its prompt or
-                    // status bar. The pane centre is consistently within the
-                    // conversation viewport, regardless of where the drag
-                    // began on the phone.
-                    val column = columns / 2
-                    val row = rows / 2
-                    didSendScroll = true
-                    onSend(
-                        TerminalMouseScroll.encodeVerticalDrag(
-                            deltaY = dragAmount,
-                            column = column,
-                            row = row,
-                            columns = columns,
-                            rows = rows,
-                            events = events,
-                        ),
-                    )
+                    sendScroll(dragAmount, events)
                 }
             }
         } else {
             Modifier
         }
-        SelectionContainer {
-            Text(
-                text = if (terminalContent.text.isBlank()) {
-                    buildAnnotatedString { append("Waiting for terminal stream…") }
-                } else {
-                    terminalAnnotatedString(terminalContent)
-                },
-                color = if (terminalContent.text.isBlank()) GallagerMuted else TerminalDefaultForeground,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                softWrap = false,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    // In a remote TUI, disable local gesture handling but retain
-                    // the scroll layout so the phone can expose every row of a
-                    // terminal snapshot that is taller than its viewport.
-                    .verticalScroll(scrollState, enabled = !remoteTuiScrolling)
-                    .then(terminalInteractionModifier)
-                    .horizontalScroll(horizontalScrollState)
-                    .padding(12.dp),
-            )
+        // Keep the TUI gesture recognizer outside SelectionContainer, matching
+        // the iOS terminal's outer pan recognizer. Text selection can otherwise
+        // win the pointer contest and silently swallow remote wheel gestures.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .then(terminalInteractionModifier),
+        ) {
+            SelectionContainer {
+                Text(
+                    text = if (terminalContent.text.isBlank()) {
+                        buildAnnotatedString { append("Waiting for terminal stream…") }
+                    } else {
+                        terminalAnnotatedString(terminalContent)
+                    },
+                    color = if (terminalContent.text.isBlank()) GallagerMuted else TerminalDefaultForeground,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    softWrap = false,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // In a remote TUI, disable local gesture handling but retain
+                        // the scroll layout so the phone can expose every row of a
+                        // terminal snapshot that is taller than its viewport.
+                        .verticalScroll(scrollState, enabled = !remoteTuiScrolling)
+                        .horizontalScroll(horizontalScrollState)
+                        .padding(12.dp),
+                )
+            }
         }
     }
 }
