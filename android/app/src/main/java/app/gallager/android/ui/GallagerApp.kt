@@ -83,6 +83,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -90,6 +91,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
@@ -592,7 +594,7 @@ private fun EmptySessions(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TerminalScreen(
+internal fun TerminalScreen(
     pane: PaneSummary,
     terminalContent: TerminalRender,
     connected: Boolean,
@@ -622,9 +624,9 @@ private fun TerminalScreen(
     var closeAction by remember { mutableStateOf<String?>(null) }
     val remoteTuiScrolling = connected &&
         (terminalContent.mouseTrackingActive || pane.prefersRemoteTuiScroll)
-    var remoteViewportAnchor by remember(pane.paneId) {
-        mutableStateOf(RemoteViewportAnchor.TAIL)
-    }
+    val latestRenderRevision by rememberUpdatedState(terminalContent.renderRevision)
+    var remoteScrollRefreshToken by remember(pane.paneId) { mutableStateOf(0) }
+    var remoteScrollRevisionBeforeDrag by remember(pane.paneId) { mutableStateOf(0L) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(commandFeedback) {
@@ -666,7 +668,7 @@ private fun TerminalScreen(
     }
     val insertText = {
         if (connected && input.isNotEmpty()) {
-            remoteViewportAnchor = RemoteViewportAnchor.TAIL
+            followTerminalTail = true
             onSend(input.toByteArray(Charsets.UTF_8))
             input = ""
         }
@@ -676,7 +678,7 @@ private fun TerminalScreen(
             // A submitted prompt and its response are written at the bottom of
             // the host screen. Make that part of the wider Mac viewport visible
             // on the phone before waiting for the next terminal redraw.
-            remoteViewportAnchor = RemoteViewportAnchor.TAIL
+            followTerminalTail = true
             onSend((input + "\r").toByteArray(Charsets.UTF_8))
             input = ""
         }
@@ -706,31 +708,22 @@ private fun TerminalScreen(
         }
     }
     LaunchedEffect(pane.paneId, terminalContent.renderRevision, remoteTuiScrolling) {
-        if (!remoteTuiScrolling && followTerminalTail) {
+        if (followTerminalTail) {
+            if (remoteTuiScrolling) {
+                withFrameNanos { }
+                withFrameNanos { }
+            }
             scrollState.scrollTo(scrollState.maxValue)
         }
     }
-    LaunchedEffect(
-        pane.paneId,
-        terminalContent.renderRevision,
-        remoteTuiScrolling,
-        remoteViewportAnchor,
-    ) {
-        if (!remoteTuiScrolling) return@LaunchedEffect
-        // The host pane can be 60+ rows tall while the phone only has room for
-        // roughly half of that between its app bar and input controls. Keep a
-        // programmatically scrollable local viewport even though one-finger
-        // gestures are forwarded to the host TUI. Two frames allow Compose to
-        // measure a replacement terminal snapshot before selecting its edge.
-        withFrameNanos { }
-        withFrameNanos { }
-        scrollState.scrollTo(
-            if (remoteViewportAnchor == RemoteViewportAnchor.TAIL) {
-                scrollState.maxValue
-            } else {
-                0
-            },
-        )
+    LaunchedEffect(pane.paneId, remoteScrollRefreshToken) {
+        if (remoteScrollRefreshToken == 0) return@LaunchedEffect
+        val revisionBeforeDrag = remoteScrollRevisionBeforeDrag
+        kotlinx.coroutines.delay(500)
+        // iOS relies on the live terminal stream and never reboots the stream
+        // after a pan. Do the same unless the host produced no redraw at all;
+        // only then use a delayed snapshot as a recovery fallback.
+        if (latestRenderRevision == revisionBeforeDrag) onRefreshTerminal()
     }
     LaunchedEffect(pane.paneId, terminalContent.snapshotGeneration) {
         val oldMax = historyRequestOldMax ?: return@LaunchedEffect
@@ -918,6 +911,7 @@ private fun TerminalScreen(
                 var accumulatedY = 0f
                 var didSendScroll = false
                 var lastDragY = 0f
+                var renderRevisionAtDragStart = latestRenderRevision
                 var lastColumn = terminalContent.columns / 2
                 var lastRow = terminalContent.rows / 2
                 val lineThreshold = 16.dp.toPx().coerceAtLeast(1f)
@@ -945,7 +939,11 @@ private fun TerminalScreen(
                     if (!didSendScroll && lastDragY != 0f) sendScroll(lastDragY, 1)
                     accumulatedY = 0f
                     lastDragY = 0f
-                    if (didSendScroll) onRefreshTerminal()
+                    followTerminalTail = scrollState.value >= scrollState.maxValue - 48
+                    if (didSendScroll && latestRenderRevision == renderRevisionAtDragStart) {
+                        remoteScrollRevisionBeforeDrag = renderRevisionAtDragStart
+                        remoteScrollRefreshToken++
+                    }
                 }
 
                 detectVerticalDragGestures(
@@ -953,13 +951,24 @@ private fun TerminalScreen(
                         accumulatedY = 0f
                         didSendScroll = false
                         lastDragY = 0f
+                        renderRevisionAtDragStart = latestRenderRevision
+                        followTerminalTail = false
                     },
                     onDragCancel = ::finishDrag,
                     onDragEnd = ::finishDrag,
                 ) { change, dragAmount ->
                     if (dragAmount == 0f) return@detectVerticalDragGestures
                     change.consume()
-                    lastDragY = dragAmount
+
+                    // First consume the drag inside the Mac-sized snapshot.
+                    // Unlike the old HEAD/TAIL anchor this preserves every
+                    // intermediate offset, so the content follows the finger.
+                    // Only the unconsumed distance at an edge becomes a remote
+                    // TUI wheel event, extending history in either direction.
+                    val requestedLocalDelta = -dragAmount
+                    val consumedLocalDelta = scrollState.dispatchRawDelta(requestedLocalDelta)
+                    val remoteDragAmount = -(requestedLocalDelta - consumedLocalDelta)
+                    lastDragY = remoteDragAmount
 
                     // Match iOS: address the cell underneath the finger rather
                     // than a fixed cell in the pane. Include both local scroll
@@ -976,21 +985,13 @@ private fun TerminalScreen(
                         .toInt()
                         .coerceIn(0, (terminalContent.rows - 1).coerceAtLeast(0))
 
-                    // Pulling down reveals the top of the current Mac-sized
-                    // snapshot before older host history arrives. Swiping up
-                    // reveals its bottom, including newly submitted prompts,
-                    // before asking the host TUI to move toward the latest row.
-                    remoteViewportAnchor = if (dragAmount > 0f) {
-                        RemoteViewportAnchor.HEAD
-                    } else {
-                        RemoteViewportAnchor.TAIL
-                    }
+                    if (remoteDragAmount == 0f) return@detectVerticalDragGestures
 
                     // Reset immediately when the user reverses direction.
-                    if (accumulatedY != 0f && (accumulatedY > 0f) != (dragAmount > 0f)) {
+                    if (accumulatedY != 0f && (accumulatedY > 0f) != (remoteDragAmount > 0f)) {
                         accumulatedY = 0f
                     }
-                    accumulatedY += dragAmount
+                    accumulatedY += remoteDragAmount
 
                     var events = 0
                     while (kotlin.math.abs(accumulatedY) >= lineThreshold) {
@@ -999,7 +1000,7 @@ private fun TerminalScreen(
                     }
                     if (events == 0) return@detectVerticalDragGestures
 
-                    sendScroll(dragAmount, events)
+                    sendScroll(remoteDragAmount, events)
                 }
             }
         } else {
@@ -1027,6 +1028,7 @@ private fun TerminalScreen(
                     lineHeight = 16.sp,
                     softWrap = false,
                     modifier = Modifier
+                        .testTag("terminal-transcript")
                         .fillMaxSize()
                         // In a remote TUI, disable local gesture handling but retain
                         // the scroll layout so the phone can expose every row of a
@@ -1038,11 +1040,6 @@ private fun TerminalScreen(
             }
         }
     }
-}
-
-private enum class RemoteViewportAnchor {
-    HEAD,
-    TAIL,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
