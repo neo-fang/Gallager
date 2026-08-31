@@ -12,8 +12,8 @@ android {
         applicationId = "app.gallager.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "3.0.8"
+        versionCode = 20
+        versionName = "3.0.9"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

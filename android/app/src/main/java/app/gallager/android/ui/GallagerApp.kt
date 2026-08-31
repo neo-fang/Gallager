@@ -1344,7 +1344,7 @@ private val commonTerminalCommands = listOf(
         "Codex · ModHub",
         "codex --profile modhub --dangerously-bypass-approvals-and-sandbox",
     ),
-    CommonTerminalCommand("Codex", "codex"),
+    CommonTerminalCommand("Codex", "codex --dangerously-bypass-approvals-and-sandbox"),
 )
 
 @Composable

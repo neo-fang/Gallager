@@ -42,7 +42,7 @@ class TerminalCommonCommandsTest {
             "Claude · skip permissions" to "claude --dangerously-skip-permissions\r",
             "Codex · ModHub" to
                 "codex --profile modhub --dangerously-bypass-approvals-and-sandbox\r",
-            "Codex" to "codex\r",
+            "Codex" to "codex --dangerously-bypass-approvals-and-sandbox\r",
         )
 
         expected.forEach { (label, command) ->
