@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -842,7 +843,7 @@ internal fun TerminalScreen(
                     .background(GallagerSurface)
                     .imePadding(),
             ) {
-                TerminalKeyRow(onSend)
+                TerminalKeyRow(connected = connected, onSend = onSend)
                 HorizontalDivider(color = GallagerBorder)
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
@@ -1331,8 +1332,27 @@ private fun TerminalStyle.toComposeStyle(): SpanStyle {
 private val TerminalDefaultForeground = Color(0xFFE2E8F0)
 private val TerminalBackground = Color(0xFF181818)
 
+private data class CommonTerminalCommand(
+    val label: String,
+    val command: String,
+)
+
+private val commonTerminalCommands = listOf(
+    CommonTerminalCommand("Vaka directory", "cd ~/llm-deveplop/vaka"),
+    CommonTerminalCommand("Claude · skip permissions", "claude --dangerously-skip-permissions"),
+    CommonTerminalCommand(
+        "Codex · ModHub",
+        "codex --profile modhub --dangerously-bypass-approvals-and-sandbox",
+    ),
+    CommonTerminalCommand("Codex", "codex"),
+)
+
 @Composable
-private fun TerminalKeyRow(onSend: (ByteArray) -> Unit) {
+private fun TerminalKeyRow(
+    connected: Boolean,
+    onSend: (ByteArray) -> Unit,
+) {
+    var commandMenuExpanded by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1340,6 +1360,54 @@ private fun TerminalKeyRow(onSend: (ByteArray) -> Unit) {
             .padding(horizontal = 8.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
+        Box {
+            FilledTonalButton(
+                onClick = { commandMenuExpanded = true },
+                enabled = connected,
+                modifier = Modifier
+                    .height(48.dp)
+                    .semantics { contentDescription = "Common commands" },
+                contentPadding = PaddingValues(horizontal = 13.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Code,
+                    contentDescription = null,
+                    modifier = Modifier.size(17.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Commands", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+            }
+            DropdownMenu(
+                expanded = commandMenuExpanded,
+                onDismissRequest = { commandMenuExpanded = false },
+                modifier = Modifier.widthIn(min = 280.dp, max = 320.dp),
+            ) {
+                commonTerminalCommands.forEach { shortcut ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(shortcut.label, fontWeight = FontWeight.Medium)
+                                Text(
+                                    text = shortcut.command,
+                                    color = GallagerMuted,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.Terminal, contentDescription = null)
+                        },
+                        onClick = {
+                            commandMenuExpanded = false
+                            onSend((shortcut.command + "\r").toByteArray(Charsets.UTF_8))
+                        },
+                    )
+                }
+            }
+        }
         TerminalKey("Esc") { onSend(byteArrayOf(0x1b)) }
         TerminalKey("Ctrl-C") { onSend(byteArrayOf(0x03)) }
         TerminalKey("Tab") { onSend(byteArrayOf(0x09)) }
