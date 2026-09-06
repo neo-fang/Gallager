@@ -10,7 +10,7 @@ class TerminalTranscriptTest {
         val transcript = TerminalTranscript()
         transcript.feed("\u001B[32mWorking\u001B[0m 10%\rDone\u001B[K\n".toByteArray())
 
-        assertEquals("Done", transcript.value())
+        assertEquals("Done\n", transcript.value())
         assertFalse(transcript.value().contains('\u001B'))
     }
 
@@ -48,6 +48,34 @@ class TerminalTranscriptTest {
         )
 
         assertEquals("\n  Hello\n\nBottom", transcript.value())
+    }
+
+    @Test
+    fun exposesVisibleCursorAndTracksHorizontalMovement() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 2)
+        transcript.feed("hello".toByteArray())
+
+        assertEquals(TerminalCursor(offset = 5, length = 0), transcript.render().cursor)
+
+        transcript.feed("\u001B[D".toByteArray())
+
+        assertEquals(TerminalCursor(offset = 4, length = 1), transcript.render().cursor)
+    }
+
+    @Test
+    fun hiddenCursorIsNotRendered() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 2)
+        transcript.feed("hello\u001B[?25l".toByteArray())
+
+        assertEquals(null, transcript.render().cursor)
+    }
+
+    @Test
+    fun cursorOffsetAccountsForWideChineseCharacters() {
+        val transcript = TerminalTranscript(initialColumns = 12, initialRows = 2)
+        transcript.feed("测试AB\u001B[1;5H".toByteArray())
+
+        assertEquals(TerminalCursor(offset = 2, length = 1), transcript.render().cursor)
     }
 
     @Test

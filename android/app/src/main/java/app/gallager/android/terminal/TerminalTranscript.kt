@@ -21,9 +21,16 @@ data class TerminalStyleSpan(
     val style: TerminalStyle,
 )
 
+data class TerminalCursor(
+    val offset: Int,
+    val length: Int,
+    val padding: Int = 0,
+)
+
 data class TerminalRender(
     val text: String = "",
     val spans: List<TerminalStyleSpan> = emptyList(),
+    val cursor: TerminalCursor? = null,
     val snapshotGeneration: Int = 0,
     val renderRevision: Long = 0,
     val historyRows: Int = 0,
@@ -85,6 +92,10 @@ class TerminalTranscript(
     fun render(): TerminalRender {
         val screen = emulator.screen
         val firstRow = -screen.activeTranscriptRows
+        val cursorRow = emulator.cursorRow
+        val cursorColumn = emulator.cursorCol
+        val cursorVisible = emulator.isCursorEnabled
+        val renderedCursorRow = screen.activeTranscriptRows + cursorRow
         val renderedRows = (firstRow until rows).map { rowIndex ->
             val internalRow = screen.externalToInternalRow(rowIndex)
             val row = screen.allocateFullLineIfNecessary(internalRow)
@@ -127,6 +138,8 @@ class TerminalTranscript(
                     text = glyphText,
                     style = style,
                     visible = codePoint != SPACE || style.background != null || style.underline,
+                    startColumn = column,
+                    width = width,
                 )
                 column += width
             }
@@ -135,7 +148,10 @@ class TerminalTranscript(
             if (lastVisible < 0) emptyList() else glyphs.subList(0, lastVisible + 1).toList()
         }
 
-        val lastVisibleRow = renderedRows.indexOfLast { it.isNotEmpty() }
+        val lastVisibleRow = maxOf(
+            renderedRows.indexOfLast { it.isNotEmpty() },
+            if (cursorVisible) renderedCursorRow else -1,
+        )
         if (lastVisibleRow < 0) {
             return TerminalRender(
                 snapshotGeneration = snapshotGeneration,
@@ -150,10 +166,13 @@ class TerminalTranscript(
 
         val text = StringBuilder()
         val spans = mutableListOf<TerminalStyleSpan>()
+        var cursor: TerminalCursor? = null
         for (rowIndex in 0..lastVisibleRow) {
             var runStyle: TerminalStyle? = null
-            var runStart = text.length
-            for (glyph in renderedRows[rowIndex]) {
+            val rowTextStart = text.length
+            var runStart = rowTextStart
+            val rowGlyphs = renderedRows[rowIndex]
+            for (glyph in rowGlyphs) {
                 if (glyph.style != runStyle) {
                     appendStyleSpan(spans, runStart, text.length, runStyle)
                     runStyle = glyph.style
@@ -162,11 +181,36 @@ class TerminalTranscript(
                 text.append(glyph.text)
             }
             appendStyleSpan(spans, runStart, text.length, runStyle)
+            if (cursorVisible && rowIndex == renderedCursorRow) {
+                val cursorGlyph = rowGlyphs.firstOrNull { glyph ->
+                    cursorColumn >= glyph.startColumn &&
+                        cursorColumn < glyph.startColumn + glyph.width
+                }
+                if (cursorGlyph != null) {
+                    val glyphOffset = rowGlyphs
+                        .takeWhile { it !== cursorGlyph }
+                        .sumOf { it.text.length }
+                    cursor = TerminalCursor(
+                        offset = rowTextStart + glyphOffset,
+                        length = cursorGlyph.text.length,
+                    )
+                } else {
+                    val renderedColumns = rowGlyphs.lastOrNull()?.let {
+                        it.startColumn + it.width
+                    } ?: 0
+                    cursor = TerminalCursor(
+                        offset = text.length,
+                        length = 0,
+                        padding = (cursorColumn - renderedColumns).coerceAtLeast(0),
+                    )
+                }
+            }
             if (rowIndex < lastVisibleRow) text.append('\n')
         }
         return TerminalRender(
             text = text.toString(),
             spans = spans,
+            cursor = cursor,
             snapshotGeneration = snapshotGeneration,
             renderRevision = renderRevision,
             historyRows = screen.activeTranscriptRows,
@@ -223,6 +267,8 @@ class TerminalTranscript(
         val text: String,
         val style: TerminalStyle,
         val visible: Boolean,
+        val startColumn: Int,
+        val width: Int,
     )
 
     private object NoOpTerminalOutput : TerminalOutput() {

@@ -1306,13 +1306,44 @@ private fun ConfirmDestructiveDialog(
     )
 }
 
-private fun terminalAnnotatedString(content: TerminalRender) = buildAnnotatedString {
-    append(content.text)
+internal fun terminalAnnotatedString(content: TerminalRender) = buildAnnotatedString {
+    val cursor = content.cursor
+    val insertionOffset = cursor?.takeIf { it.length == 0 }?.offset
+    val insertionLength = cursor?.takeIf { it.length == 0 }?.let { it.padding + 1 } ?: 0
+    if (insertionOffset != null) {
+        append(content.text.substring(0, insertionOffset))
+        append(" ".repeat(insertionLength))
+        append(content.text.substring(insertionOffset))
+    } else {
+        append(content.text)
+    }
     content.spans.forEach { span ->
+        val shiftedStart = if (insertionOffset != null && span.start >= insertionOffset) {
+            span.start + insertionLength
+        } else {
+            span.start
+        }
+        val shiftedEnd = if (insertionOffset != null && span.end > insertionOffset) {
+            span.end + insertionLength
+        } else {
+            span.end
+        }
         addStyle(
             style = span.style.toComposeStyle(),
-            start = span.start.coerceIn(0, length),
-            end = span.end.coerceIn(0, length),
+            start = shiftedStart.coerceIn(0, length),
+            end = shiftedEnd.coerceIn(0, length),
+        )
+    }
+    cursor?.let {
+        val start = if (it.length == 0) it.offset + it.padding else it.offset
+        val end = start + if (it.length == 0) 1 else it.length
+        addStyle(
+            style = SpanStyle(
+                color = TerminalBackground,
+                background = TerminalDefaultForeground,
+            ),
+            start = start.coerceIn(0, length),
+            end = end.coerceIn(0, length),
         )
     }
 }
@@ -1331,8 +1362,8 @@ private fun TerminalStyle.toComposeStyle(): SpanStyle {
     )
 }
 
-private val TerminalDefaultForeground = Color(0xFFE2E8F0)
-private val TerminalBackground = Color(0xFF181818)
+internal val TerminalDefaultForeground = Color(0xFFE2E8F0)
+internal val TerminalBackground = Color(0xFF181818)
 
 private data class CommonTerminalCommand(
     val label: String,
